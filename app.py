@@ -136,40 +136,82 @@ def display_stats():
         st.sidebar.error(f"Could not fetch database stats: {e}")
 
 
-def display_query_analysis(analysis: Dict[str, Any]):
-    """Display query analysis results."""
+def display_sources_detailed(sources: List[Dict[str, Any]]):
+    """
+    Display detailed source chunks in a formatted sidebar.
+    
+    Args:
+        sources: List of source chunks with metadata
+    """
+    if not sources:
+        st.sidebar.write("No sources used in this response.")
+        return
+
+    st.markdown(f"### 📚 Source Chunks ({len(sources)})")
+
+    for i, source in enumerate(sources, 1):
+        with st.expander(f"📄 Chunk {i} (Relevance: {source.get('similarity', 0.0):.3f})", expanded=False):
+            # Display document information
+            doc_name = source.get('document_name', source.get('filename', 'Unknown Document'))
+            st.write(f"**Document:** {doc_name}")
+            
+            if source.get('similarity'):
+                st.write(f"**Relevance Score:** {source['similarity']:.4f}")
+            
+            # Display chunk content with proper formatting
+            content = source.get('content', 'No content available')
+            if len(content) > 300:
+                st.text_area(
+                    "Content Preview:",
+                    content[:300] + "...",
+                    height=100,
+                    key=f"chunk_preview_{i}",
+                    disabled=True
+                )
+                
+                with st.expander("Show Full Content"):
+                    st.text_area(
+                        "Full Content:",
+                        content,
+                        height=200,
+                        key=f"chunk_full_{i}",
+                        disabled=True
+                    )
+            else:
+                st.text_area(
+                    "Content:",
+                    content,
+                    height=max(60, min(len(content.split('\n')) * 20, 150)),
+                    key=f"chunk_content_{i}",
+                    disabled=True
+                )
+
+
+def display_query_analysis_detailed(analysis: Dict[str, Any]):
+    """
+    Display detailed query analysis in sidebar.
+    
+    Args:
+        analysis: Query analysis results
+    """
     if not analysis:
         return
     
-    with st.expander("🔍 Query Analysis", expanded=False):
+    st.markdown("### 🔍 Query Analysis")
+    
+    with st.expander("Analysis Details", expanded=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("**Type:** " + analysis.get('query_type', 'Unknown'))
-            st.write("**Complexity:** " + analysis.get('complexity', 'Unknown'))
+            st.write(f"**Type:** {analysis.get('query_type', 'Unknown')}")
+            st.write(f"**Complexity:** {analysis.get('complexity', 'Unknown')}")
         
         with col2:
             key_concepts = analysis.get('key_concepts', [])
             if key_concepts:
-                st.write("**Key Concepts:** " + ", ".join(key_concepts))
-
-
-def display_sources(sources: List[Dict[str, Any]]):
-    """Display source chunks used in response."""
-    if not sources:
-        return
-    
-    with st.expander(f"📚 Sources ({len(sources)} chunks used)", expanded=False):
-        for i, source in enumerate(sources[:5], 1):  # Limit to top 5 sources
-            chunk_preview = source['content'][:200] + "..." if len(source['content']) > 200 else source['content']
-            similarity = source.get('similarity', 0.0)
-            
-            st.markdown(f"""
-            **Source {i}** (Similarity: {similarity:.3f})
-            ```
-            {chunk_preview}
-            ```
-            """)
+                st.write("**Key Concepts:**")
+                for concept in key_concepts[:5]:  # Limit to top 5
+                    st.write(f"• {concept}")
 
 
 def main():
@@ -241,167 +283,209 @@ def main():
                 
                 st.session_state.processing_files = False
     
-    # Main chat interface
+    # Main chat interface with two-column layout
     st.markdown("### 💬 Chat with your documents")
     
-    # Display chat messages
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    # Create main layout with columns
+    main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar
+    
+    with main_col:
+        # Display chat messages in main column
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+    
+    # Sidebar for additional information (sources and graphs)
+    with sidebar_col:
+        st.markdown("### 📊 Context Information")
+        
+        # Display information for the latest assistant message if available
+        if st.session_state.messages:
+            latest_message = None
+            for msg in reversed(st.session_state.messages):
+                if msg["role"] == "assistant":
+                    latest_message = msg
+                    break
             
-            # Display additional data if available
-            if "query_analysis" in message:
-                display_query_analysis(message["query_analysis"])
-            
-            if "sources" in message:
-                display_sources(message["sources"])
-            
-            if "graph_fig" in message:
-                st.plotly_chart(message["graph_fig"], use_container_width=True)
+            if latest_message:
+                # Display graph in sidebar
+                if "graph_fig" in latest_message:
+                    st.markdown("### 🕸️ Context Graph")
+                    st.plotly_chart(latest_message["graph_fig"], use_container_width=True)
+                    
+                # Display query analysis in sidebar
+                if "query_analysis" in latest_message:
+                    display_query_analysis_detailed(latest_message["query_analysis"])
+                
+                # Display sources in sidebar
+                if "sources" in latest_message:
+                    display_sources_detailed(latest_message["sources"])
+        else:
+            st.info("💡 Start a conversation to see context information here!")
     
     # Chat input
     if user_query := st.chat_input("Ask a question about your documents..."):
         # Add user message to chat
         st.session_state.messages.append({"role": "user", "content": user_query})
         
-        with st.chat_message("user"):
-            st.markdown(user_query)
+        # Rerun to display the user message immediately
+        st.rerun()
         
-        # Generate response
-        with st.chat_message("assistant"):
-            # Show processing indicator
-            processing_placeholder = st.empty()
-            processing_placeholder.markdown("🔍 Processing your query...")
+    # Process the latest user query if there's one that needs processing
+    if (st.session_state.messages
+            and st.session_state.messages[-1]["role"] == "user"
+            and len(st.session_state.messages) > 0):
+        
+        # Check if we already processed this message
+        user_message = st.session_state.messages[-1]
+        needs_processing = True
+        
+        # Check if there's already a response to this user message
+        if len(st.session_state.messages) > 1:
+            for i in range(len(st.session_state.messages) - 1, 0, -1):
+                if st.session_state.messages[i]["role"] == "assistant":
+                    # Found an assistant message, check if it's newer than the user message
+                    needs_processing = True
+                    break
+                elif st.session_state.messages[i]["role"] == "user" and i < len(st.session_state.messages) - 1:
+                    # Found an older user message, so current one needs processing
+                    needs_processing = True
+                    break
+        
+        if needs_processing:
+            user_query = user_message["content"]
             
-            try:
-                # Process query through RAG pipeline
-                result = graph_rag.query(
-                    user_query,
-                    retrieval_mode=retrieval_mode,
-                    top_k=top_k,
-                    temperature=temperature
-                )
-                
-                # Clear processing indicator
-                processing_placeholder.empty()
-                
-                # Stream the response
-                response_placeholder = st.empty()
-                full_response = result['response']
-                
-                # Stream response word by word with markdown formatting
-                for partial_response in stream_response(full_response):
-                    response_placeholder.markdown(partial_response)
-                
-                response_placeholder.markdown(full_response)  # Ensure full response at the end
-                                    
-                # Display query analysis
-                if result.get('query_analysis'):
-                    display_query_analysis(result['query_analysis'])
-                
-                # Display sources
-                if result.get('sources'):
-                    display_sources(result['sources'])
-                
-                # Add assistant message to session state
-                message_data = {
-                    "role": "assistant",
-                    "content": full_response,
-                    "query_analysis": result.get('query_analysis'),
-                    "sources": result.get('sources')
-                }
-                
-                # Always add contextual graph visualization for the answer
-                try:
-                    # Import here to avoid issues if dependencies aren't installed
-                    from core.graph_viz import create_query_result_graph
+            with main_col:
+                with st.chat_message("assistant"):
+                    # Show processing indicator
+                    processing_placeholder = st.empty()
+                    processing_placeholder.markdown("🔍 Processing your query...")
                     
-                    if result.get('sources'):
-                        query_fig = create_query_result_graph(result['sources'])
-                        st.plotly_chart(query_fig, use_container_width=True)
-                        message_data["graph_fig"] = query_fig
-                except ImportError:
-                    st.warning("Graph visualization dependencies not installed. Run: pip install plotly networkx")
-                except Exception as e:
-                    st.warning(f"Could not create query graph: {e}")
-                
-                # Optional: Show expanded knowledge graph if requested
-                if st.sidebar.checkbox("Show Full Knowledge Graph", key="show_full_graph"):
                     try:
-                        from core.graph_viz import get_graph_data, create_plotly_graph
+                        # Process query through RAG pipeline
+                        result = graph_rag.query(
+                            user_query,
+                            retrieval_mode=retrieval_mode,
+                            top_k=top_k,
+                            temperature=temperature
+                        )
                         
-                        with st.spinner("Loading full knowledge graph..."):
-                            graph_data = get_graph_data(limit=50)
+                        # Clear processing indicator
+                        processing_placeholder.empty()
+                        
+                        # Stream the response
+                        response_placeholder = st.empty()
+                        full_response = result['response']
+                        
+                        # Stream response word by word with markdown formatting
+                        for partial_response in stream_response(full_response):
+                            response_placeholder.markdown(partial_response)
+                        
+                        response_placeholder.markdown(full_response)  # Ensure full response at the end
+                        
+                        # Add assistant message to session state
+                        message_data = {
+                            "role": "assistant",
+                            "content": full_response,
+                            "query_analysis": result.get('query_analysis'),
+                            "sources": result.get('sources')
+                        }
+                        
+                        # Always add contextual graph visualization for the answer
+                        try:
+                            # Import here to avoid issues if dependencies aren't installed
+                            from core.graph_viz import create_query_result_graph
                             
-                            if graph_data['nodes']:
-                                full_fig = create_plotly_graph(graph_data, layout_algorithm="spring")
-                                st.plotly_chart(full_fig, use_container_width=True)
-                                st.info(f"📊 Full graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
-                            else:
-                                st.warning("No full graph data available.")
-                                
-                    except ImportError:
-                        st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
-                    except Exception as e:
-                        st.error(f"Error creating full graph visualization: {e}")
-                
-                st.session_state.messages.append(message_data)
-                
-            except Exception as e:
-                processing_placeholder.empty()
-                error_msg = f"❌ I encountered an error processing your request: {str(e)}"
-                st.error(error_msg)
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
-    
-    # Knowledge Graph Visualization Section
-    st.markdown("---")
-    
-    with st.expander("🔍 Additional Graph Options", expanded=False):
-        st.markdown("### 📊 Full Knowledge Graph Visualization")
-        
-        col1, col2, col3 = st.columns([2, 1, 1])
-        
-        with col1:
-            if st.button("🔍 Show Full Knowledge Graph"):
-                st.session_state.show_graph = True
-        
-        with col2:
-            layout_algo = st.selectbox(
-                "Layout Algorithm",
-                ["spring", "circular", "kamada_kawai"],
-                key="layout_select"
-            )
-        
-        with col3:
-            node_limit = st.number_input(
-                "Max Nodes",
-                min_value=10,
-                max_value=500,
-                value=100,
-                key="node_limit"
-            )
-        
-        if st.session_state.show_graph:
-            try:
-                # Import here to avoid issues if dependencies aren't installed
-                from core.graph_viz import get_graph_data, create_plotly_graph
-                
-                with st.spinner("Loading knowledge graph..."):
-                    graph_data = get_graph_data(limit=node_limit)
-                    
-                    if graph_data['nodes']:
-                        fig = create_plotly_graph(graph_data, layout_algorithm=layout_algo)
-                        st.plotly_chart(fig, use_container_width=True)
+                            if result.get('sources'):
+                                query_fig = create_query_result_graph(result['sources'], user_query)
+                                message_data["graph_fig"] = query_fig
+                        except ImportError:
+                            st.warning("Graph visualization dependencies not installed. Run: pip install plotly networkx")
+                        except Exception as e:
+                            st.warning(f"Could not create query graph: {e}")
                         
-                        # Show graph statistics
-                        st.info(f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
-                    else:
-                        st.warning("No graph data available. Upload some documents first!")
+                        st.session_state.messages.append(message_data)
+                        
+                        # Force refresh to show sidebar content
+                        st.rerun()
+                        
+                    except Exception as e:
+                        processing_placeholder.empty()
+                        error_msg = f"❌ I encountered an error processing your request: {str(e)}"
+                        st.error(error_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    
+    # Optional: Show expanded knowledge graph if requested
+    # with sidebar_col:
+    #     if st.checkbox("Show Full Knowledge Graph", key="show_full_graph"):
+    #         try:
+    #             from core.graph_viz import get_graph_data, create_plotly_graph
+                
+    #             with st.spinner("Loading full knowledge graph..."):
+    #                 graph_data = get_graph_data(limit=50)
                     
-            except ImportError:
-                st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
-            except Exception as e:
-                st.error(f"Error creating graph visualization: {e}")
+    #                 if graph_data['nodes']:
+    #                     st.markdown("### 🌐 Full Knowledge Graph")
+    #                     full_fig = create_plotly_graph(graph_data, layout_algorithm="spring")
+    #                     st.plotly_chart(full_fig, use_container_width=True)
+    #                     st.info(f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
+    #                 else:
+    #                     st.warning("No full graph data available.")
+                        
+    #         except ImportError:
+    #             st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
+    #         except Exception as e:
+    #             st.error(f"Error creating full graph visualization: {e}")
+    
+    # Knowledge Graph Visualization Section (moved to bottom)
+    # st.markdown("---")
+    
+    # with st.expander("🔍 Advanced Graph Options", expanded=False):
+    #     st.markdown("### 📊 Advanced Knowledge Graph Visualization")
+        
+    #     col1, col2, col3 = st.columns([2, 1, 1])
+        
+    #     with col1:
+    #         if st.button("🔍 Show Advanced Graph", key="show_advanced_graph"):
+    #             st.session_state.show_graph = True
+        
+    #     with col2:
+    #         layout_algo = st.selectbox(
+    #             "Layout Algorithm",
+    #             ["spring", "circular", "kamada_kawai"],
+    #             key="advanced_layout_select"
+    #         )
+        
+    #     with col3:
+    #         node_limit = st.number_input(
+    #             "Max Nodes",
+    #             min_value=10,
+    #             max_value=500,
+    #             value=100,
+    #             key="advanced_node_limit"
+    #         )
+        
+    #     if st.session_state.show_graph:
+    #         try:
+    #             # Import here to avoid issues if dependencies aren't installed
+    #             from core.graph_viz import get_graph_data, create_plotly_graph
+                
+    #             with st.spinner("Loading advanced knowledge graph..."):
+    #                 graph_data = get_graph_data(limit=node_limit)
+                    
+    #                 if graph_data['nodes']:
+    #                     fig = create_plotly_graph(graph_data, layout_algorithm=layout_algo)
+    #                     st.plotly_chart(fig, use_container_width=True)
+                        
+    #                     # Show graph statistics
+    #                     st.info(f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
+    #                 else:
+    #                     st.warning("No graph data available. Upload some documents first!")
+                    
+    #         except ImportError:
+    #             st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
+    #         except Exception as e:
+    #             st.error(f"Error creating graph visualization: {e}")
 
 
 if __name__ == "__main__":

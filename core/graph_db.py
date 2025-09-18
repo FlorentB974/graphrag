@@ -186,15 +186,16 @@ class GraphDB:
         logger.info(f"Batch processing complete: {total_relationships} total relationships created for {processed_docs} documents")
         return results
     
-    def vector_similarity_search(self, query_embedding: List[float], 
+    def vector_similarity_search(self, query_embedding: List[float],
                                  top_k: int = 5) -> List[Dict[str, Any]]:
         """Perform vector similarity search using cosine similarity."""
         with self.driver.session() as session:  # type: ignore
             result = session.run(
                 """
-                MATCH (c:Chunk)
-                WITH c, gds.similarity.cosine(c.embedding, $query_embedding) AS similarity
-                RETURN c.id as chunk_id, c.content as content, similarity
+                MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
+                WITH c, d, gds.similarity.cosine(c.embedding, $query_embedding) AS similarity
+                RETURN c.id as chunk_id, c.content as content, similarity,
+                       d.filename as document_name, d.id as document_id
                 ORDER BY similarity DESC
                 LIMIT $top_k
                 """,
@@ -215,8 +216,9 @@ class GraphDB:
                 MATCH (start:Chunk {{id: $chunk_id}})
                 MATCH path = (start)-[*1..{max_depth}]-(related:Chunk)
                 WHERE ALL(r in relationships(path) WHERE type(r) IN $relationship_types)
+                OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(related)
                 RETURN DISTINCT related.id as chunk_id, related.content as content,
-                       length(path) as distance
+                       length(path) as distance, d.filename as document_name, d.id as document_id
                 ORDER BY distance ASC
                 """
             

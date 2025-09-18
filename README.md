@@ -44,14 +44,14 @@ git clone <your-repo-url>
 cd graphrag
 ```
 
-2. Create virtual environment:
+2. Create virtual environment (optional if using docker):
 
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Install dependencies:
+3. Install dependencies (optional if using docker):
 
 ```bash
 pip install -r requirements.txt
@@ -62,13 +62,6 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edit .env with your settings
-```
-
-5. Start and setup Neo4j database:
-
-```bash
-docker compose up -d
-python scripts/setup_neo4j.py
 ```
 
 ### Environment Configuration
@@ -110,7 +103,13 @@ Notes:
 
 ## Usage
 
-### 1. Data Ingestion (CLI)
+### Setup Neo4j database
+
+```bash
+python scripts/setup_neo4j.py
+```
+
+### Data Ingestion (CLI)
 
 Ingest documents using the CLI script:
 
@@ -118,15 +117,15 @@ Ingest documents using the CLI script:
 python scripts/ingest_documents.py --input-dir ./documents --recursive
 ```
 
-### 2. Web Interface
+### Web Interface
 
-Start the Streamlit web interface:
+Access the interface at `http://localhost:8501`
+
+If not using docker, start the Streamlit web interface:
 
 ```bash
 streamlit run app.py
 ```
-
-Access the interface at `http://localhost:8501`
 
 #### Key Features
 
@@ -173,9 +172,11 @@ graphrag/
 ├── .env                        # Local environment
 ├── .env.example                # Environment template
 ├── requirements.txt            # Python dependencies
+├── requirements-docker.txt     # Python dependencies (lighter for docker image)
 ├── README.md                   # This file
 ├── app.py                      # Streamlit main application
-├── docker-compose.yml          # Docker services (Neo4j)
+├── docker-compose.yml          # Docker services (Neo4 + rag app)
+├── Dockerfile                  
 ├── config/
 │   └── settings.py             # Configuration management
 ├── core/

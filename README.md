@@ -1,22 +1,25 @@
 # GraphRAG Pipeline with LangGraph and Chainlit
 
-A comprehensive RAG (Retrieval-Augmented Generation) pipeline using LangGraph for orchestration and Chainlit for the web interface, with Neo4j graph database integration.
+# GraphRAG Pipeline with LangGraph and Streamlit
+
+A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGraph for workflow orchestration, Streamlit for the web interface, and Neo4j for graph-based document storage and retrieval.
 
 ## Features
 
 - 🔄 **LangGraph Orchestration**: Graph-based RAG workflow with intelligent reasoning
-- 🌐 **Chainlit Web Interface**: Interactive document upload and chat interface
+- 🌐 **Streamlit Web Interface**: Interactive document upload, chat interface, and graph visualization
 - 🗂️ **Multi-format Document Support**: PDF, DOCX, TXT, and more
 - 📊 **Neo4j Graph Database**: Persistent storage with relationship mapping
 - 🔧 **Configurable OpenAI API**: Custom base URL, API key, model, and proxy settings
-- 📈 **Graph Visualization**: Real-time view of document relationships and retrieval paths
-- 🔍 **Chunk Visualization**: Display relevant document chunks for each query
+- 📈 **Interactive Graph Visualization**: Real-time view of document relationships and retrieval paths
+- 🔍 **Streaming Responses**: Progressive answer display for better user experience
+- 🎯 **Background File Processing**: Upload documents with progress indicators
 
 ## Architecture
 
-```
+```mermaid
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Chainlit UI   │───▶│   LangGraph      │───▶│   Neo4j Graph   │
+│   Streamlit UI  │───▶│   LangGraph      │───▶│   Neo4j Graph   │
 │   (Frontend)    │    │   (RAG Pipeline) │    │   Database      │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
          │                       │                       │
@@ -94,13 +97,39 @@ python scripts/ingest_documents.py --input-dir ./documents --recursive
 
 ### 2. Web Interface
 
-Start the Chainlit web interface:
+Start the Streamlit web interface:
 
 ```bash
-chainlit run app.py --port 8000
+streamlit run app.py
 ```
 
-Access the interface at `http://localhost:8000`
+Access the interface at `http://localhost:8501`
+
+#### Key Features
+
+**Interactive Chat Interface**
+- Ask questions about your uploaded documents
+- Stream responses for better user experience
+- View query analysis and source chunks
+- Real-time feedback and progress indicators
+
+**Document Upload & Processing**
+- Upload multiple files simultaneously (PDF, DOCX, TXT, MD)
+- Background processing with progress tracking
+- Automatic chunking and graph integration
+- Error handling and status reporting
+
+**Knowledge Graph Visualization**
+- Interactive graph visualization using Plotly
+- Multiple layout algorithms (spring, circular, kamada-kawai)
+- Adjustable node limits for performance
+- Query-specific subgraph visualization
+
+**Advanced RAG Features**
+- Graph-enhanced retrieval for better context
+- Configurable retrieval modes and parameters
+- Multi-step reasoning through graph traversal
+- Real-time database statistics
 
 ### 3. API Server (Optional)
 
@@ -188,9 +217,10 @@ graphrag4/
 
 ### Web Interface
 - Document upload and management
-- Interactive chat interface
-- Real-time graph visualization
-- Relevant chunk display
+- Interactive Streamlit interface with streaming responses
+- Real-time graph visualization with Plotly
+- Relevant chunk display and query analysis
+- Background file processing with progress indicators
 - Configuration management UI
 
 ## Development

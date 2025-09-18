@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5.20.0-enterprise
+    container_name: neo4j-gds
+    environment:
+      - NEO4J_AUTH=neo4j/graphrag_password
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      - NEO4J_PLUGINS=["graph-data-science"]
+    ports:
+      - "7474:7474"  # HTTP 
+      - "7687:7687"  # Bolt 
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_plugins:

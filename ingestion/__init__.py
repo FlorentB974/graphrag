@@ -1,0 +1,3 @@
+"""
+Document ingestion module initialization.
+"""

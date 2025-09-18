@@ -512,18 +512,13 @@ def create_query_result_graph(query_results: List[Dict[str, Any]], query_text: s
     fig = go.Figure(data=[node_trace] + edge_traces + edge_label_traces)
     
     fig.update_layout(
-        title={
-            'text': f"Answer Context Graph - {len(query_results)} chunks used",
-            'x': 0.5,
-            'xanchor': 'center'
-        },
         showlegend=False,
         hovermode='closest',
         margin=dict(b=40, l=5, r=5, t=40),
         annotations=[
             dict(
-                text="🔷 Teal lines: Query relevance | 🔷 Blue dots: Same document | 🔷 Red dashes: Content similarity",
-                showarrow=False,
+                text="Teal lines: Query relevance | Blue dots: Same document | Red dashes: Content similarity",
+                showarrow=True,
                 xref="paper", yref="paper",
                 x=0.5, y=-0.08,
                 xanchor='center', yanchor='top',
@@ -541,7 +536,7 @@ def create_query_result_graph(query_results: List[Dict[str, Any]], query_text: s
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         plot_bgcolor='white',
-        height=500
+        height=600
     )
     
     return fig

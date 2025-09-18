@@ -147,10 +147,10 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         st.sidebar.write("No sources used in this response.")
         return
 
-    st.markdown(f"### 📚 Source Chunks ({len(sources)})")
+    st.markdown(f"### 📚 Sources ({len(sources)})")
 
     for i, source in enumerate(sources, 1):
-        with st.expander(f"📄 Chunk {i} (Relevance: {source.get('similarity', 0.0):.3f})", expanded=False):
+        with st.expander(f"📄 Source {i} (Relevance: {source.get('similarity', 0.0):.3f})", expanded=False):
             # Display document information
             doc_name = source.get('document_name', source.get('filename', 'Unknown Document'))
             st.write(f"**Document:** {doc_name}")
@@ -199,7 +199,7 @@ def display_query_analysis_detailed(analysis: Dict[str, Any]):
     
     st.markdown("### 🔍 Query Analysis")
     
-    with st.expander("Analysis Details", expanded=True):
+    with st.expander("Analysis Details", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
@@ -218,7 +218,6 @@ def main():
     """Main Streamlit application."""
     # Title and description
     st.title("🚀 GraphRAG Pipeline")
-    st.markdown("*Intelligent document assistant powered by LangGraph and Neo4j*")
     
     # Sidebar configuration
     st.sidebar.title("⚙️ Configuration")
@@ -242,7 +241,7 @@ def main():
             "Response creativity (temperature)",
             min_value=0.0,
             max_value=1.0,
-            value=0.7,
+            value=0.1,
             step=0.1
         )
     
@@ -283,14 +282,12 @@ def main():
                 
                 st.session_state.processing_files = False
     
-    # Main chat interface with two-column layout
-    st.markdown("### 💬 Chat with your documents")
-    
     # Create main layout with columns
     main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar
     
     with main_col:
         # Display chat messages in main column
+        st.markdown("### 💬 Chat with your documents")
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])

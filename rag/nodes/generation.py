@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_response(query: str, context_chunks: List[Dict[str, Any]], 
-                     query_analysis: Dict[str, Any], temperature: float = 0.7) -> Dict[str, Any]:
+                      query_analysis: Dict[str, Any], temperature: float = 0.7) -> Dict[str, Any]:
     """
     Generate response using retrieved context and query analysis.
     

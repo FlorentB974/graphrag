@@ -262,19 +262,26 @@ def get_query_graph_data(query_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         'id': 'query',
         'entity_id': 'query',
         'label': 'Query',
-        'title': 'User Query',
-        'size': 30
+        'title': 'Your Question',
+        'size': 35
     })
     
     # Add result nodes and connections
     for i, result in enumerate(query_results):
         chunk_id = f"chunk_{i}"
+        chunk_content = result.get('content', 'No content')
+        similarity = result.get('similarity', 0)
+        
+        # Truncate content for display
+        display_content = chunk_content[:100] + "..." if len(chunk_content) > 100 else chunk_content
+        
         nodes.append({
             'id': chunk_id,
             'entity_id': result.get('chunk_id', f'unknown_{i}'),
-            'label': 'Result',
-            'title': result.get('content', 'No content')[:50] + "...",
-            'size': 20 + result.get('similarity', 0) * 20  # Size based on similarity
+            'label': 'Chunk',
+            'title': display_content.replace('\n', ' '),
+            'size': 15 + min(similarity * 25, 20),  # Size based on similarity
+            'similarity': similarity
         })
         
         # Connect query to result
@@ -282,8 +289,28 @@ def get_query_graph_data(query_results: List[Dict[str, Any]]) -> Dict[str, Any]:
             'source': 'query',
             'target': chunk_id,
             'type': 'RETRIEVED',
-            'weight': result.get('similarity', 0)
+            'weight': similarity
         })
+    
+    # Try to find relationships between chunks using content similarity
+    # (This is a simple heuristic - in a real implementation you'd check the Neo4j relationships)
+    for i, result1 in enumerate(query_results):
+        for j, result2 in enumerate(query_results[i + 1:], i + 1):
+            # Simple word overlap similarity
+            words1 = set(result1.get('content', '').lower().split())
+            words2 = set(result2.get('content', '').lower().split())
+            
+            if words1 and words2:
+                overlap = len(words1.intersection(words2))
+                if overlap >= 3:  # Minimum word overlap threshold
+                    similarity_score = overlap / len(words1.union(words2))
+                    if similarity_score > 0.1:  # Minimum similarity threshold
+                        edges.append({
+                            'source': f"chunk_{i}",
+                            'target': f"chunk_{j}",
+                            'type': 'RELATED',
+                            'weight': similarity_score
+                        })
     
     return {
         'nodes': nodes,
@@ -318,7 +345,7 @@ def create_query_result_graph(query_results: List[Dict[str, Any]]) -> go.Figure:
     
     # Create NetworkX graph for layout
     G = create_networkx_graph(graph_data)
-    pos = nx.spring_layout(G, k=2, iterations=50)
+    pos = nx.spring_layout(G, k=3, iterations=50)  # Increased k for better spacing
     
     # Create node trace
     node_trace = go.Scatter(
@@ -326,21 +353,37 @@ def create_query_result_graph(query_results: List[Dict[str, Any]]) -> go.Figure:
         mode='markers+text', hoverinfo='text', marker=dict(size=[], color=[])
     )
     
-    # Color map for different node types
+    # Enhanced color map for different node types
     color_map = {
-        'Query': '#FF6B6B',
-        'Result': '#4ECDC4'
+        'Query': '#FF6B6B',    # Red for query
+        'Chunk': '#4ECDC4'      # Teal for chunks
     }
     
+    hover_texts = []
     for node in graph_data['nodes']:
         node_id = node['id']
         if node_id in pos:
             x, y = pos[node_id]
             node_trace['x'] += (x,)
             node_trace['y'] += (y,)
-            node_trace['text'] += (node['title'][:20],)
+            
+            # Show abbreviated text on node
+            if node['label'] == 'Query':
+                node_trace['text'] += ('Q',)
+                hover_text = "Your Question"
+            else:
+                chunk_num = node_id.split('_')[1]
+                node_trace['text'] += (f'C{int(chunk_num) + 1}',)
+                similarity = node.get('similarity', 0)
+                hover_text = f"Chunk {int(chunk_num) + 1}<br>Similarity: {similarity:.3f}<br>{node['title']}"
+            
+            hover_texts.append(hover_text)
             node_trace['marker']['size'] += (node['size'],)
             node_trace['marker']['color'] += (color_map.get(node['label'], '#95A5A6'),)
+    
+    # Set hover text
+    node_trace['hovertext'] = hover_texts
+    node_trace['hoverinfo'] = 'text'
     
     # Create edge traces
     edge_traces = []
@@ -350,13 +393,21 @@ def create_query_result_graph(query_results: List[Dict[str, Any]]) -> go.Figure:
             x0, y0 = pos[source_id]
             x1, y1 = pos[target_id]
             
-            # Line width based on similarity/weight
-            line_width = max(1, edge['weight'] * 5)
+            # Different styling for different edge types
+            if edge['type'] == 'RETRIEVED':
+                # Line width and opacity based on similarity/weight
+                line_width = max(2, edge['weight'] * 6)
+                alpha = max(0.4, edge['weight'])
+                color = f'rgba(78,205,196,{alpha})'
+            else:  # RELATED edges
+                line_width = max(1, edge['weight'] * 3)
+                alpha = max(0.3, edge['weight'])
+                color = f'rgba(255,107,107,{alpha})'
             
             edge_trace = go.Scatter(
                 x=[x0, x1, None], y=[y0, y1, None],
                 mode='lines',
-                line=dict(color=f'rgba(78,205,196,{edge["weight"]})', width=line_width),
+                line=dict(color=color, width=line_width),
                 hoverinfo='none',
                 showlegend=False
             )
@@ -367,17 +418,27 @@ def create_query_result_graph(query_results: List[Dict[str, Any]]) -> go.Figure:
     
     fig.update_layout(
         title={
-            'text': f"Query Results Graph ({len(query_results)} results)",
+            'text': f"Answer Context Graph - {len(query_results)} chunks used",
             'x': 0.5,
             'xanchor': 'center'
         },
         showlegend=False,
         hovermode='closest',
         margin=dict(b=20, l=5, r=5, t=40),
+        annotations=[
+            dict(
+                text="Red lines: query relevance | Blue lines: chunk relationships | Larger nodes = higher relevance",
+                showarrow=False,
+                xref="paper", yref="paper",
+                x=0.5, y=-0.05,
+                xanchor='center', yanchor='top',
+                font=dict(color='gray', size=10)
+            )
+        ],
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         plot_bgcolor='white',
-        height=400
+        height=450
     )
     
     return fig

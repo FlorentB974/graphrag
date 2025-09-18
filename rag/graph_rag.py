@@ -74,7 +74,9 @@ class GraphRAG:
             logger.info("Retrieving relevant documents")
             state["retrieved_chunks"] = retrieve_documents(
                 state.get("query", ""),
-                state.get("query_analysis", {})
+                state.get("query_analysis", {}),
+                state.get("retrieval_mode", "graph_enhanced"),
+                state.get("top_k", 5)
             )
             return state
         except Exception as e:
@@ -104,7 +106,8 @@ class GraphRAG:
             response_data = generate_response(
                 state.get("query", ""),
                 state.get("graph_context", []),
-                state.get("query_analysis", {})
+                state.get("query_analysis", {}),
+                state.get("temperature", 0.7)
             )
 
             state["response"] = response_data.get("response", "")
@@ -119,12 +122,16 @@ class GraphRAG:
             state["metadata"] = {"error": str(e)}
             return state
     
-    def query(self, user_query: str) -> Dict[str, Any]:
+    def query(self, user_query: str, retrieval_mode: str = "graph_enhanced",
+              top_k: int = 5, temperature: float = 0.7) -> Dict[str, Any]:
         """
         Process a user query through the RAG pipeline.
         
         Args:
             user_query: User's question or request
+            retrieval_mode: Retrieval strategy ("simple", "graph_enhanced", "hybrid")
+            top_k: Number of chunks to retrieve
+            temperature: LLM temperature for response generation
             
         Returns:
             Dictionary containing response and metadata
@@ -134,6 +141,11 @@ class GraphRAG:
             state_obj = RAGState()
             state_obj.query = user_query
             state = state_obj.__dict__.copy()
+            
+            # Add RAG parameters to state
+            state["retrieval_mode"] = retrieval_mode
+            state["top_k"] = top_k
+            state["temperature"] = temperature
 
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")

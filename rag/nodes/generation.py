@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_response(query: str, context_chunks: List[Dict[str, Any]], 
-                     query_analysis: Dict[str, Any]) -> Dict[str, Any]:
+                     query_analysis: Dict[str, Any], temperature: float = 0.7) -> Dict[str, Any]:
     """
     Generate response using retrieved context and query analysis.
     
@@ -17,6 +17,7 @@ def generate_response(query: str, context_chunks: List[Dict[str, Any]],
         query: User query string
         context_chunks: Retrieved document chunks
         query_analysis: Query analysis results
+        temperature: LLM temperature for response generation
         
     Returns:
         Dictionary containing response and metadata
@@ -36,7 +37,8 @@ def generate_response(query: str, context_chunks: List[Dict[str, Any]],
         response_data = llm_manager.generate_rag_response(
             query=query,
             context_chunks=context_chunks,
-            include_sources=True
+            include_sources=True,
+            temperature=temperature
         )
         
         # Prepare sources information

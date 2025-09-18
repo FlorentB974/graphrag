@@ -275,7 +275,12 @@ def main():
             
             try:
                 # Process query through RAG pipeline
-                result = graph_rag.query(user_query)
+                result = graph_rag.query(
+                    user_query,
+                    retrieval_mode=retrieval_mode,
+                    top_k=top_k,
+                    temperature=temperature
+                )
                 
                 # Clear processing indicator
                 processing_placeholder.empty()
@@ -284,10 +289,12 @@ def main():
                 response_placeholder = st.empty()
                 full_response = result['response']
                 
-                # Stream response word by word
+                # Stream response word by word with markdown formatting
                 for partial_response in stream_response(full_response):
                     response_placeholder.markdown(partial_response)
                 
+                response_placeholder.markdown(full_response)  # Ensure full response at the end
+                                    
                 # Display query analysis
                 if result.get('query_analysis'):
                     display_query_analysis(result['query_analysis'])
@@ -298,26 +305,45 @@ def main():
                 
                 # Add assistant message to session state
                 message_data = {
-                    "role": "assistant", 
+                    "role": "assistant",
                     "content": full_response,
                     "query_analysis": result.get('query_analysis'),
                     "sources": result.get('sources')
                 }
                 
-                # Add graph visualization if requested
-                if st.sidebar.checkbox("Show Query Graph", key="show_query_graph"):
+                # Always add contextual graph visualization for the answer
+                try:
+                    # Import here to avoid issues if dependencies aren't installed
+                    from core.graph_viz import create_query_result_graph
+                    
+                    if result.get('sources'):
+                        query_fig = create_query_result_graph(result['sources'])
+                        st.plotly_chart(query_fig, use_container_width=True)
+                        message_data["graph_fig"] = query_fig
+                except ImportError:
+                    st.warning("Graph visualization dependencies not installed. Run: pip install plotly networkx")
+                except Exception as e:
+                    st.warning(f"Could not create query graph: {e}")
+                
+                # Optional: Show expanded knowledge graph if requested
+                if st.sidebar.checkbox("Show Full Knowledge Graph", key="show_full_graph"):
                     try:
-                        # Import here to avoid issues if dependencies aren't installed
-                        from core.graph_viz import create_query_result_graph
+                        from core.graph_viz import get_graph_data, create_plotly_graph
                         
-                        if result.get('sources'):
-                            query_fig = create_query_result_graph(result['sources'])
-                            st.plotly_chart(query_fig, use_container_width=True)
-                            message_data["graph_fig"] = query_fig
+                        with st.spinner("Loading full knowledge graph..."):
+                            graph_data = get_graph_data(limit=50)
+                            
+                            if graph_data['nodes']:
+                                full_fig = create_plotly_graph(graph_data, layout_algorithm="spring")
+                                st.plotly_chart(full_fig, use_container_width=True)
+                                st.info(f"📊 Full graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
+                            else:
+                                st.warning("No full graph data available.")
+                                
                     except ImportError:
-                        st.warning("Graph visualization dependencies not installed. Run: pip install plotly networkx")
+                        st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
                     except Exception as e:
-                        st.warning(f"Could not create query graph: {e}")
+                        st.error(f"Error creating full graph visualization: {e}")
                 
                 st.session_state.messages.append(message_data)
                 
@@ -329,51 +355,53 @@ def main():
     
     # Knowledge Graph Visualization Section
     st.markdown("---")
-    st.markdown("### 📊 Knowledge Graph Visualization")
     
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        if st.button("🔍 Show Full Knowledge Graph"):
-            st.session_state.show_graph = True
-    
-    with col2:
-        layout_algo = st.selectbox(
-            "Layout Algorithm",
-            ["spring", "circular", "kamada_kawai"],
-            key="layout_select"
-        )
-    
-    with col3:
-        node_limit = st.number_input(
-            "Max Nodes",
-            min_value=10,
-            max_value=500,
-            value=100,
-            key="node_limit"
-        )
-    
-    if st.session_state.show_graph:
-        try:
-            # Import here to avoid issues if dependencies aren't installed
-            from core.graph_viz import get_graph_data, create_plotly_graph
-            
-            with st.spinner("Loading knowledge graph..."):
-                graph_data = get_graph_data(limit=node_limit)
+    with st.expander("🔍 Additional Graph Options", expanded=False):
+        st.markdown("### 📊 Full Knowledge Graph Visualization")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            if st.button("🔍 Show Full Knowledge Graph"):
+                st.session_state.show_graph = True
+        
+        with col2:
+            layout_algo = st.selectbox(
+                "Layout Algorithm",
+                ["spring", "circular", "kamada_kawai"],
+                key="layout_select"
+            )
+        
+        with col3:
+            node_limit = st.number_input(
+                "Max Nodes",
+                min_value=10,
+                max_value=500,
+                value=100,
+                key="node_limit"
+            )
+        
+        if st.session_state.show_graph:
+            try:
+                # Import here to avoid issues if dependencies aren't installed
+                from core.graph_viz import get_graph_data, create_plotly_graph
                 
-                if graph_data['nodes']:
-                    fig = create_plotly_graph(graph_data, layout_algorithm=layout_algo)
-                    st.plotly_chart(fig, use_container_width=True)
+                with st.spinner("Loading knowledge graph..."):
+                    graph_data = get_graph_data(limit=node_limit)
                     
-                    # Show graph statistics
-                    st.info(f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
-                else:
-                    st.warning("No graph data available. Upload some documents first!")
-                
-        except ImportError:
-            st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
-        except Exception as e:
-            st.error(f"Error creating graph visualization: {e}")
+                    if graph_data['nodes']:
+                        fig = create_plotly_graph(graph_data, layout_algorithm=layout_algo)
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Show graph statistics
+                        st.info(f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
+                    else:
+                        st.warning("No graph data available. Upload some documents first!")
+                    
+            except ImportError:
+                st.error("Graph visualization dependencies not installed. Run: pip install plotly networkx")
+            except Exception as e:
+                st.error(f"Error creating graph visualization: {e}")
 
 
 if __name__ == "__main__":

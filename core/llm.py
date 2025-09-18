@@ -59,7 +59,7 @@ class LLMManager:
             raise
     
     def generate_rag_response(self, query: str, context_chunks: list,
-                              include_sources: bool = True) -> Dict[str, Any]:
+                              include_sources: bool = True, temperature: float = 0.3) -> Dict[str, Any]:
         """
         Generate a RAG response using retrieved context chunks.
         
@@ -93,7 +93,7 @@ Please provide a comprehensive answer based on the context provided above."""
             response = self.generate_response(
                 prompt=prompt,
                 system_message=system_message,
-                temperature=0.3  # Lower temperature for more focused responses
+                temperature=temperature  # Use the passed temperature
             )
             
             result = {

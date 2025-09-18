@@ -5,7 +5,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 ## Features
 
 - 🔄 **LangGraph Orchestration**: Graph-based RAG workflow with intelligent reasoning
-- 🌐 **Streamlit Web Interface**: Interactive document upload, chat interface, and graph visualization
+- 🌐 **Streamlit Web Interface**: Interactive document management, chat interface, and graph visualization
 - 🗂️ **Multi-format Document Support**: PDF, DOCX, TXT, and more
 - 📊 **Neo4j Graph Database**: Persistent storage with relationship mapping
 - 🔧 **Configurable OpenAI API**: Custom base URL, API key, model, and proxy settings
@@ -34,6 +34,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 
 - Python 3.9+
 - OpenAI API access
+- Docker
 
 ### Installation
 
@@ -101,15 +102,17 @@ Notes:
 - Provide required environment variables (`OPENAI_API_KEY`, `NEO4J_PASSWORD`, etc.) either via the shell or a `.env` file consumed by `docker compose`.
 - The `Dockerfile` is configured to install dependencies from `requirements-docker.txt` for a smaller image; if you modify dependencies, update that file accordingly.
 
-## Usage
-
 ### Setup Neo4j database
 
 ```bash
 python scripts/setup_neo4j.py
 ```
 
-### Data Ingestion (CLI)
+## Usage
+
+### Data Ingestion
+
+Data ingestion can be achieved in two ways: Web interface or using the ingest_documents.py script.
 
 Ingest documents using the CLI script:
 
@@ -126,36 +129,6 @@ If not using docker, start the Streamlit web interface:
 ```bash
 streamlit run app.py
 ```
-
-#### Key Features
-
-**Interactive Chat Interface**
-
-- Ask questions about your uploaded documents
-- Stream responses for better user experience
-- View query analysis and source chunks
-- Real-time feedback and progress indicators
-
-**Document Upload & Processing**
-
-- Upload multiple files simultaneously (PDF, DOCX, TXT, MD)
-- Background processing with progress tracking
-- Automatic chunking and graph integration
-- Error handling and status reporting
-
-**Knowledge Graph Visualization**
-
-- Interactive graph visualization using Plotly
-- Multiple layout algorithms (spring, circular, kamada-kawai)
-- Adjustable node limits for performance
-- Query-specific subgraph visualization
-
-**Advanced RAG Features**
-
-- Graph-enhanced retrieval for better context
-- Configurable retrieval modes and parameters
-- Multi-step reasoning through graph traversal
-- Real-time database statistics
 
 ### 3. API Server (Optional)
 
@@ -209,55 +182,6 @@ graphrag/
 │   ├── create_similarities.py  # Utility: create similarities (exists in repo)
 │   ├── ingest_documents.py     # CLI document ingestion
 │   └── setup_neo4j.py          # Neo4j database setup
-```
-
-## Features Overview
-
-### Document Ingestion
-
-- Support for PDF, DOCX, TXT, MD, and other text files
-- Intelligent chunking with configurable size and overlap
-- Automatic metadata extraction
-- Batch processing capabilities
-
-### Graph Database Integration
-
-- Neo4j for storing document chunks and relationships
-- Vector similarity search
-- Relationship mapping between documents and concepts
-- Query result visualization
-
-### RAG Pipeline
-
-- LangGraph-based orchestration
-- Multi-step reasoning with graph traversal
-- Configurable retrieval strategies
-- Context-aware response generation
-
-### Web Interface
-
-- Document upload and management
-- Interactive Streamlit interface with streaming responses
-- Real-time graph visualization with Plotly
-- Relevant chunk display and query analysis
-- Background file processing with progress indicators
-- Configuration management UI
-
-## Development
-
-### Code Formatting
-
-```bash
-black .
-isort .
-```
-
-### Database Setup
-
-Initialize Neo4j database:
-
-```bash
-python scripts/setup_neo4j.py
 ```
 
 ## Contributing

@@ -48,6 +48,9 @@ def generate_response(query: str, context_chunks: List[Dict[str, Any]],
                 "chunk_id": chunk.get("chunk_id", f"chunk_{i}"),
                 "content": chunk.get("content", ""),
                 "similarity": chunk.get("similarity", 0.0),
+                "document_name": chunk.get("document_name", "Unknown Document"),
+                "document_id": chunk.get("document_id", ""),
+                "filename": chunk.get("filename", chunk.get("document_name", "Unknown Document")),
                 "metadata": chunk.get("metadata", {})
             }
             sources.append(source_info)

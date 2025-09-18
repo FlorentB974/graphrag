@@ -15,7 +15,49 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
       - neo4j_plugins:/plugins
+    networks:
+      - graphrag_network
     restart: unless-stopped
+
+  graphrag-app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: graphrag-app
+    environment:
+      # OpenAI Configuration - set these in your .env or pass via docker run
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENAI_PROXY=${OPENAI_PROXY}
+      # Neo4j Configuration - connecting to the neo4j service
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag_password}
+      # Embedding Configuration
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-ada-002}
+      # Document Processing Configuration
+      - CHUNK_SIZE=${CHUNK_SIZE:-1000}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
+      # Similarity Configuration
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.7}
+      - MAX_SIMILARITY_CONNECTIONS=${MAX_SIMILARITY_CONNECTIONS:-5}
+      # Application Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-104857600}
+    ports:
+      - "8501:8501"  # Streamlit port
+    volumes:
+      - ./data:/app/data  # Mount data directory for file uploads
+    networks:
+      - graphrag_network
+    depends_on:
+      - neo4j
+    restart: unless-stopped
+
+networks:
+  graphrag_network:
+    driver: bridge
 
 volumes:
   neo4j_data:

@@ -93,6 +93,21 @@ CHUNK_OVERLAP=200
 LOG_LEVEL=INFO
 ```
 
+### Docker Image (Dockerfile)
+
+This repository includes a `Dockerfile` that can be used to build a container image for running the application. Below are the common commands to build and run the image locally, and how to use the provided `docker-compose.yml` for running Neo4j alongside the app.
+
+- Run with Docker Compose (recommended for development with Neo4j):
+
+```bash
+docker compose up -d --build
+```
+
+Notes:
+- When running the app container and Neo4j on the same machine, use `host.docker.internal` for the `NEO4J_URI` so the container can reach the host Neo4j instance.
+- Provide required environment variables (`OPENAI_API_KEY`, `NEO4J_PASSWORD`, etc.) either via the shell or a `.env` file consumed by `docker compose`.
+- The `Dockerfile` is configured to install dependencies from `requirements-docker.txt` for a smaller image; if you modify dependencies, update that file accordingly.
+
 ## Usage
 
 ### 1. Data Ingestion (CLI)

@@ -7,11 +7,11 @@ import logging
 import sys
 from pathlib import Path
 
-from config.settings import settings
-from core.graph_db import graph_db
-
 # Add the project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
+
+from config.settings import settings
+from core.graph_db import graph_db
 
 # Configure logging
 logging.basicConfig(

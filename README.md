@@ -1,5 +1,3 @@
-# GraphRAG Pipeline with LangGraph and Chainlit
-
 # GraphRAG Pipeline with LangGraph and Streamlit
 
 A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGraph for workflow orchestration, Streamlit for the web interface, and Neo4j for graph-based document storage and retrieval.
@@ -35,32 +33,42 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 ### Prerequisites
 
 - Python 3.9+
-- Neo4j Database (running on default port 7687)
 - OpenAI API access
 
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone <your-repo-url>
 cd graphrag
 ```
 
 2. Create virtual environment:
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 3. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 4. Configure environment variables:
+
 ```bash
 cp .env.example .env
 # Edit .env with your settings
+```
+
+5. Start and setup Neo4j database:
+
+```bash
+docker compose up -d
+python scripts/setup_neo4j.py
 ```
 
 ### Environment Configuration
@@ -108,24 +116,28 @@ Access the interface at `http://localhost:8501`
 #### Key Features
 
 **Interactive Chat Interface**
+
 - Ask questions about your uploaded documents
 - Stream responses for better user experience
 - View query analysis and source chunks
 - Real-time feedback and progress indicators
 
 **Document Upload & Processing**
+
 - Upload multiple files simultaneously (PDF, DOCX, TXT, MD)
 - Background processing with progress tracking
 - Automatic chunking and graph integration
 - Error handling and status reporting
 
 **Knowledge Graph Visualization**
+
 - Interactive graph visualization using Plotly
 - Multiple layout algorithms (spring, circular, kamada-kawai)
 - Adjustable node limits for performance
 - Query-specific subgraph visualization
 
 **Advanced RAG Features**
+
 - Graph-enhanced retrieval for better context
 - Configurable retrieval modes and parameters
 - Multi-step reasoning through graph traversal
@@ -142,12 +154,13 @@ uvicorn api.main:app --host 0.0.0.0 --port 8001
 ## Project Structure
 
 ```
-graphrag4/
-├── .env.example                 # Environment template
-├── .gitignore                   # Git ignore rules
-├── requirements.txt             # Python dependencies
-├── README.md                    # This file
-├── app.py                       # Chainlit main application
+graphrag/
+├── .env                        # Local environment
+├── .env.example                # Environment template
+├── requirements.txt            # Python dependencies
+├── README.md                   # This file
+├── app.py                      # Streamlit main application
+├── docker-compose.yml          # Docker services (Neo4j)
 ├── config/
 │   └── settings.py             # Configuration management
 ├── core/
@@ -155,6 +168,7 @@ graphrag4/
 │   ├── graph_db.py             # Neo4j database operations
 │   ├── embeddings.py           # Text embedding utilities
 │   ├── chunking.py             # Document chunking logic
+│   ├── graph_viz.py            # Graph visualization utilities
 │   └── llm.py                  # OpenAI API integration
 ├── ingestion/
 │   ├── __init__.py
@@ -166,56 +180,46 @@ graphrag4/
 │       └── text_loader.py
 ├── rag/
 │   ├── __init__.py
-│   ├── graph_rag.py           # LangGraph RAG implementation
-│   ├── retriever.py           # Document retrieval logic
-│   └── nodes/                 # LangGraph node definitions
+│   ├── graph_rag.py            # LangGraph RAG implementation
+│   ├── retriever.py            # Document retrieval logic
+│   └── nodes/                  # LangGraph node definitions
 │       ├── __init__.py
 │       ├── query_analysis.py
 │       ├── retrieval.py
 │       ├── generation.py
 │       └── graph_reasoning.py
-├── api/                       # FastAPI endpoints (optional)
-│   ├── __init__.py
-│   ├── main.py
-│   └── routes/
-│       ├── __init__.py
-│       ├── documents.py
-│       └── query.py
 ├── scripts/
 │   ├── __init__.py
-│   ├── ingest_documents.py    # CLI document ingestion
-│   └── setup_neo4j.py        # Neo4j database setup
-├── static/                    # Static assets for web interface
-│   └── css/
-│       └── custom.css
-└── tests/                     # Test suite
-    ├── __init__.py
-    ├── test_ingestion.py
-    ├── test_rag.py
-    └── conftest.py
+│   ├── create_similarities.py  # Utility: create similarities (exists in repo)
+│   ├── ingest_documents.py     # CLI document ingestion
+│   └── setup_neo4j.py          # Neo4j database setup
 ```
 
 ## Features Overview
 
 ### Document Ingestion
+
 - Support for PDF, DOCX, TXT, MD, and other text files
 - Intelligent chunking with configurable size and overlap
 - Automatic metadata extraction
 - Batch processing capabilities
 
 ### Graph Database Integration
+
 - Neo4j for storing document chunks and relationships
 - Vector similarity search
 - Relationship mapping between documents and concepts
 - Query result visualization
 
 ### RAG Pipeline
+
 - LangGraph-based orchestration
 - Multi-step reasoning with graph traversal
 - Configurable retrieval strategies
 - Context-aware response generation
 
 ### Web Interface
+
 - Document upload and management
 - Interactive Streamlit interface with streaming responses
 - Real-time graph visualization with Plotly

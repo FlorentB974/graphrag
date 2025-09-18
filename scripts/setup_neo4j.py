@@ -6,8 +6,9 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from core.graph_db import graph_db
+
 from config.settings import settings
+from core.graph_db import graph_db
 
 # Add the project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -15,7 +16,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def clear_database():
         with graph_db.driver.session() as session:  # type: ignore
             # Delete all nodes and relationships
             session.run("MATCH (n) DETACH DELETE n")
-        
+
         logger.info("✅ Database cleared!")
         return True
     except Exception as e:
@@ -64,7 +65,7 @@ def show_stats():
     """Display database statistics."""
     try:
         stats = graph_db.get_graph_stats()
-        
+
         print("\n📊 Neo4j Database Statistics:")
         print("=" * 40)
         print(f"📄 Documents: {stats.get('documents', 0)}")
@@ -72,7 +73,7 @@ def show_stats():
         print(f"🔗 Document-Chunk relations: {stats.get('has_chunk_relations', 0)}")
         print(f"🔄 Similarity relations: {stats.get('similarity_relations', 0)}")
         print("=" * 40)
-        
+
         return True
     except Exception as e:
         logger.error(f"❌ Failed to get stats: {e}")
@@ -97,79 +98,69 @@ Examples:
   
   # Clear all data (DANGEROUS!)
   python scripts/setup_neo4j.py --clear
-        """
+        """,
     )
-    
+
     parser.add_argument(
-        "--test", "-t",
-        action="store_true",
-        help="Test database connection"
+        "--test", "-t", action="store_true", help="Test database connection"
     )
-    
+
     parser.add_argument(
-        "--setup", "-s",
-        action="store_true",
-        help="Setup database indexes"
+        "--setup", "-s", action="store_true", help="Setup database indexes"
     )
-    
+
+    parser.add_argument("--stats", action="store_true", help="Show database statistics")
+
     parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show database statistics"
+        "--clear", action="store_true", help="Clear all data from database (DANGEROUS!)"
     )
-    
+
     parser.add_argument(
-        "--clear",
-        action="store_true",
-        help="Clear all data from database (DANGEROUS!)"
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
-    
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
-    )
-    
+
     args = parser.parse_args()
-    
+
     # Set verbose logging if requested
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
+
     # If no action specified, run all setup tasks
     if not any([args.test, args.setup, args.stats, args.clear]):
         logger.info("No specific action requested, running full setup...")
         args.test = True
         args.setup = True
         args.stats = True
-    
+
     success = True
-    
+
     try:
         if args.test:
             success &= test_connection()
-        
+
         if args.clear:
             # Ask for confirmation before clearing
-            response = input("⚠️  Are you sure you want to clear ALL database data? (yes/no): ")
-            if response.lower() == 'yes':
+            response = input(
+                "⚠️  Are you sure you want to clear ALL database data? (yes/no): "
+            )
+            if response.lower() == "yes":
                 success &= clear_database()
             else:
                 logger.info("Database clear cancelled")
-        
+
         if args.setup:
             success &= setup_indexes()
-        
+
         if args.stats:
             success &= show_stats()
-        
+
         if success:
             logger.info("✅ All operations completed successfully!")
             sys.exit(0)
         else:
             logger.error("❌ Some operations failed")
             sys.exit(1)
-    
+
     except KeyboardInterrupt:
         logger.info("Process interrupted by user")
         sys.exit(1)

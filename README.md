@@ -43,7 +43,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 1. Clone the repository:
 ```bash
 git clone <your-repo-url>
-cd graphrag4
+cd graphrag
 ```
 
 2. Create virtual environment:
@@ -224,12 +224,6 @@ graphrag4/
 - Configuration management UI
 
 ## Development
-
-### Running Tests
-
-```bash
-pytest tests/ -v
-```
 
 ### Code Formatting
 

@@ -31,6 +31,8 @@ if 'processing_files' not in st.session_state:
     st.session_state.processing_files = False
 if 'show_graph' not in st.session_state:
     st.session_state.show_graph = False
+if 'file_uploader_key' not in st.session_state:
+    st.session_state.file_uploader_key = 0
 
 
 def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None]:
@@ -81,8 +83,8 @@ def process_files_background(uploaded_files: List[Any], progress_container) -> D
                 tmp_path = Path(tmp_file.name)
             
             try:
-                # Process the file
-                result = document_processor.process_file(tmp_path)
+                # Process the file with original filename
+                result = document_processor.process_file(tmp_path, uploaded_file.name)
                 
                 if result and result.get("status") == "success":
                     results['processed_files'].append({
@@ -134,6 +136,73 @@ def display_stats():
             
     except Exception as e:
         st.sidebar.error(f"Could not fetch database stats: {e}")
+
+
+def display_document_list():
+    """Display list of documents in the database with delete options."""
+    try:
+        documents = graph_db.get_all_documents()
+        
+        if not documents:
+            st.sidebar.info("No documents in the database yet.")
+            return
+        
+        st.sidebar.markdown("### 📂 Documents in Database")
+        
+        # Add a session state for delete confirmations
+        if 'confirm_delete' not in st.session_state:
+            st.session_state.confirm_delete = {}
+        
+        for doc in documents:
+            doc_id = doc['document_id']
+            filename = doc.get('filename', 'Unknown')
+            chunk_count = doc.get('chunk_count', 0)
+            file_size = doc.get('file_size', 0)
+            
+            # Format file size
+            if file_size:
+                if file_size > 1024 * 1024:
+                    size_str = f"{file_size / (1024 * 1024):.1f} MB"
+                elif file_size > 1024:
+                    size_str = f"{file_size / 1024:.1f} KB"
+                else:
+                    size_str = f"{file_size} B"
+            else:
+                size_str = "Unknown size"
+            
+            with st.sidebar.expander(f"📄 {filename}", expanded=False):
+                st.write(f"**Chunks:** {chunk_count}")
+                st.write(f"**Size:** {size_str}")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Check if confirmation is pending
+                    if st.session_state.confirm_delete.get(doc_id, False):
+                        if st.button("✅ Confirm Delete", key=f"confirm_{doc_id}", type="primary"):
+                            try:
+                                graph_db.delete_document(doc_id)
+                                st.success(f"Deleted {filename}")
+                                st.session_state.confirm_delete[doc_id] = False
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to delete: {e}")
+                    else:
+                        if st.button("🗑️ Delete", key=f"delete_{doc_id}", type="secondary"):
+                            st.session_state.confirm_delete[doc_id] = True
+                            st.rerun()
+                
+                with col2:
+                    if st.session_state.confirm_delete.get(doc_id, False):
+                        if st.button("❌ Cancel", key=f"cancel_{doc_id}"):
+                            st.session_state.confirm_delete[doc_id] = False
+                            st.rerun()
+        
+        # Summary at the bottom
+        st.sidebar.markdown(f"**Total:** {len(documents)} documents")
+        
+    except Exception as e:
+        st.sidebar.error(f"Could not fetch document list: {e}")
 
 
 def display_sources_detailed(sources: List[Dict[str, Any]]):
@@ -254,7 +323,8 @@ def main():
         "Choose files to upload",
         type=['pdf', 'docx', 'txt', 'md'],
         accept_multiple_files=True,
-        help="Upload documents to expand the knowledge base"
+        help="Upload documents to expand the knowledge base",
+        key=f"file_uploader_{st.session_state.file_uploader_key}"
     )
     
     # Process uploaded files
@@ -263,7 +333,7 @@ def main():
             st.session_state.processing_files = True
             
             with st.sidebar.container():
-                st.markdown("### � Processing Progress")
+                st.markdown("### 📊 Processing Progress")
                 progress_container = st.container()
                 
                 # Process files
@@ -280,7 +350,16 @@ def main():
                     for error_info in results['errors']:
                         st.write(f"- 📄 {error_info['name']}: {error_info['error']}")
                 
+                # Always reset the file uploader after processing (success or failure)
+                st.session_state.file_uploader_key += 1
                 st.session_state.processing_files = False
+                
+                # Force a rerun to refresh the UI and clear the uploader
+                time.sleep(3)  # Small delay to show results
+                st.rerun()
+                
+    # Display document list
+    display_document_list()
     
     # Create main layout with columns
     main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar

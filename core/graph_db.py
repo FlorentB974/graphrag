@@ -254,6 +254,26 @@ class GraphDB:
                 doc_id=doc_id
             )
     
+    def get_all_documents(self) -> List[Dict[str, Any]]:
+        """Get all documents with their metadata and chunk counts."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       d.file_size as file_size,
+                       d.file_extension as file_extension,
+                       d.created_at as created_at,
+                       d.modified_at as modified_at,
+                       chunk_count
+                ORDER BY d.filename ASC
+                """
+            )
+            return [record.data() for record in result]
+    
     def get_graph_stats(self) -> Dict[str, int]:
         """Get basic statistics about the graph database."""
         with self.driver.session() as session:  # type: ignore

@@ -36,10 +36,16 @@ class DocumentProcessor:
         content = f"{file_path}_{file_path.stat().st_mtime}"
         return hashlib.md5(content.encode()).hexdigest()
     
-    def _extract_metadata(self, file_path: Path) -> Dict[str, Any]:
+    def _extract_metadata(self, file_path: Path, original_filename: Optional[str] = None) -> Dict[str, Any]:
         """Extract metadata from file."""
+        # Use original filename if provided, otherwise use file path name
+        filename = original_filename if original_filename else file_path.name
+        # Replace spaces with underscores for cleaner database storage
+        if original_filename and ' ' in filename:
+            filename = filename.replace(' ', '_')
+        
         return {
-            "filename": file_path.name,
+            "filename": filename,
             "file_path": str(file_path),
             "file_size": file_path.stat().st_size,
             "file_extension": file_path.suffix,
@@ -47,12 +53,13 @@ class DocumentProcessor:
             "modified_at": file_path.stat().st_mtime,
         }
     
-    def process_file(self, file_path: Path) -> Optional[Dict[str, Any]]:
+    def process_file(self, file_path: Path, original_filename: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Process a single file and store it in the graph database.
         
         Args:
             file_path: Path to the file to process
+            original_filename: Optional original filename to preserve (useful for uploaded files)
             
         Returns:
             Processing result dictionary or None if failed
@@ -70,7 +77,7 @@ class DocumentProcessor:
             
             # Generate document ID and extract metadata
             doc_id = self._generate_document_id(file_path)
-            metadata = self._extract_metadata(file_path)
+            metadata = self._extract_metadata(file_path, original_filename)
             
             logger.info(f"Processing file: {file_path}")
             

@@ -15,7 +15,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 
 ## Architecture
 
-```mermaid
+```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Streamlit UI  │───▶│   LangGraph      │───▶│   Neo4j Graph   │
 │   (Frontend)    │    │   (RAG Pipeline) │    │   Database      │

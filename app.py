@@ -292,6 +292,21 @@ def display_query_analysis_detailed(analysis: Dict[str, Any]):
 def main():
     """Main Streamlit application."""
     # Title and description
+    html_style = '''
+    <style>
+    div:has( >.element-container div.floating) {
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        width: 33%;
+    }
+
+    div.floating {
+        height:0%;
+    }
+    </style>
+    '''
+    st.markdown(html_style, unsafe_allow_html=True)
     st.title("🚀 GraphRAG Pipeline")
 
     # Sidebar configuration
@@ -368,7 +383,7 @@ def main():
 
     # Create main layout with columns
     main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar
-
+    
     with main_col:
         # Display chat messages in main column
         st.markdown("### 💬 Chat with your documents")
@@ -378,40 +393,44 @@ def main():
 
     # Sidebar for additional information (sources and graphs)
     with sidebar_col:
-        st.markdown("### 📊 Context Information")
-        tab1, tab2, tab3 = st.tabs(["🕸️ Context Graph",
-                                    "📚 Sources",
-                                    "🔍 Query Analysis"]
-                                   )
+        container = st.container(width=10)
         
-        # Display information for the latest assistant message if available
-        if st.session_state.messages:
-            latest_message = None
-            for msg in reversed(st.session_state.messages):
-                if msg["role"] == "assistant":
-                    latest_message = msg
-                    break
+        with container:
+            st.markdown('<div class="floating">', unsafe_allow_html=True)
+            st.markdown("### 📊 Context Information")
+            
+            # Display information for the latest assistant message if available
+            if st.session_state.messages:
+                latest_message = None
+                for msg in reversed(st.session_state.messages):
+                    if msg["role"] == "assistant":
+                        latest_message = msg
+                        break
 
-            if latest_message:
-                with tab1:
-                    # Display graph in sidebar
-                    if "graph_fig" in latest_message:
-                        st.plotly_chart(
-                            latest_message["graph_fig"], use_container_width=True
-                        )
-                        
-                with tab2:
-                    # Display sources in sidebar
-                    if "sources" in latest_message:
-                        display_sources_detailed(latest_message["sources"])
-                        
-                with tab3:
-                    # Display query analysis in sidebar
-                    if "query_analysis" in latest_message:
-                        display_query_analysis_detailed(latest_message["query_analysis"])
+                if latest_message:
+                    tab1, tab2, tab3 = st.tabs(["🕸️ Context Graph",
+                                                "📚 Sources",
+                                                "🔍 Query Analysis"])
+                    with tab1:
+                        # Display graph in sidebar
+                        if "graph_fig" in latest_message:
+                            st.plotly_chart(
+                                latest_message["graph_fig"], use_container_width=True
+                            )
+                            
+                    with tab2:
+                        # Display sources in sidebar
+                        if "sources" in latest_message:
+                            display_sources_detailed(latest_message["sources"])
+                            
+                    with tab3:
+                        # Display query analysis in sidebar
+                        if "query_analysis" in latest_message:
+                            display_query_analysis_detailed(latest_message["query_analysis"])
 
-        else:
-            st.info("💡 Start a conversation to see context information here!")
+            else:
+                st.info("💡 Start a conversation to see context information here!")
+            st.markdown('</div>', unsafe_allow_html=True)
 
     # Chat input
     if user_query := st.chat_input("Ask a question about your documents..."):

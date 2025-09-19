@@ -294,20 +294,37 @@ def main():
     # Title and description
     html_style = '''
     <style>
+    /* Make the right-side floating container fixed and scrollable when content overflows */
     div:has( >.element-container div.floating) {
         display: flex;
         flex-direction: column;
         position: fixed;
+        right: 1rem;
+        top: 0rem; /* leave space for header */
         width: 33%;
+        max-height: calc(100vh - 8rem);
+        overflow-y: auto;
+        padding-right: 0.5rem; /* avoid clipping scrollbars */
+        box-sizing: border-box;
+        z-index: 2000;
     }
 
+    /* Hide deploy button introduced by Streamlit cloud UI if present */
+    .stAppDeployButton {
+        display: none;
+    }
+
+    /* Small top padding for the main app container */
+    #root > div:nth-child(1) > div > div > div > div > section > div {padding-top: 2rem;}
+
+    /* Ensure the inner floating wrapper doesn't collapse and allows scrolling */
     div.floating {
-        height:0%;
+        height: auto;
+        min-height: 4rem;
     }
     </style>
     '''
     st.markdown(html_style, unsafe_allow_html=True)
-    st.title("🚀 GraphRAG Pipeline")
 
     # Sidebar configuration
     st.sidebar.title("⚙️ Configuration")
@@ -386,6 +403,7 @@ def main():
     
     with main_col:
         # Display chat messages in main column
+        st.title("🚀 GraphRAG Pipeline")
         st.markdown("### 💬 Chat with your documents")
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
@@ -397,7 +415,7 @@ def main():
         
         with container:
             st.markdown('<div class="floating">', unsafe_allow_html=True)
-            st.markdown("### 📊 Context Information")
+            # st.markdown("### 📊 Context Information")
             
             # Display information for the latest assistant message if available
             if st.session_state.messages:

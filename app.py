@@ -226,19 +226,12 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         st.sidebar.write("No sources used in this response.")
         return
 
-    st.markdown(f"### 📚 Sources ({len(sources)})")
-
     for i, source in enumerate(sources, 1):
         if source.get("similarity"):
             with st.expander(
-                f"📄 Source {i} (Relevance: {source.get('similarity', 0.0):.3f})",
+                f"📄 Source {i} ({source.get('filename', 'Unknown Document')})",
                 expanded=False,
             ):
-                # Display document information
-                doc_name = source.get(
-                    "document_name", source.get("filename", "Unknown Document")
-                )
-                st.write(f"**Document:** {doc_name}")
 
                 st.write(f"**Relevance Score:** {source['similarity']:.4f}")
 
@@ -281,9 +274,7 @@ def display_query_analysis_detailed(analysis: Dict[str, Any]):
     if not analysis:
         return
 
-    st.markdown("### 🔍 Query Analysis")
-
-    with st.expander("Analysis Details", expanded=False):
+    with st.expander("Analysis Details", expanded=True):
         col1, col2 = st.columns(2)
 
         with col1:
@@ -388,7 +379,11 @@ def main():
     # Sidebar for additional information (sources and graphs)
     with sidebar_col:
         st.markdown("### 📊 Context Information")
-
+        tab1, tab2, tab3 = st.tabs(["🕸️ Context Graph",
+                                    "📚 Sources",
+                                    "🔍 Query Analysis"]
+                                   )
+        
         # Display information for the latest assistant message if available
         if st.session_state.messages:
             latest_message = None
@@ -398,20 +393,23 @@ def main():
                     break
 
             if latest_message:
-                # Display graph in sidebar
-                if "graph_fig" in latest_message:
-                    st.markdown("### 🕸️ Context Graph")
-                    st.plotly_chart(
-                        latest_message["graph_fig"], use_container_width=True
-                    )
+                with tab1:
+                    # Display graph in sidebar
+                    if "graph_fig" in latest_message:
+                        st.plotly_chart(
+                            latest_message["graph_fig"], use_container_width=True
+                        )
+                        
+                with tab2:
+                    # Display sources in sidebar
+                    if "sources" in latest_message:
+                        display_sources_detailed(latest_message["sources"])
+                        
+                with tab3:
+                    # Display query analysis in sidebar
+                    if "query_analysis" in latest_message:
+                        display_query_analysis_detailed(latest_message["query_analysis"])
 
-                # Display query analysis in sidebar
-                if "query_analysis" in latest_message:
-                    display_query_analysis_detailed(latest_message["query_analysis"])
-
-                # Display sources in sidebar
-                if "sources" in latest_message:
-                    display_sources_detailed(latest_message["sources"])
         else:
             st.info("💡 Start a conversation to see context information here!")
 

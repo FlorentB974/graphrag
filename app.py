@@ -49,10 +49,8 @@ def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None
     Yields:
         Progressive text content
     """
-    words = text.split()
-    for i in range(len(words)):
-        partial_text = " ".join(words[: i + 1])
-        yield partial_text
+    for words in text.split(" "):
+        yield words + " "
         time.sleep(delay)
 
 
@@ -473,16 +471,8 @@ def main():
                         processing_placeholder.empty()
 
                         # Stream the response
-                        response_placeholder = st.empty()
                         full_response = result["response"]
-
-                        # Stream response word by word with markdown formatting
-                        for partial_response in stream_response(full_response):
-                            response_placeholder.markdown(partial_response)
-
-                        response_placeholder.markdown(
-                            full_response
-                        )  # Ensure full response at the end
+                        st.write_stream(stream_response(full_response, 0.02))
 
                         # Add assistant message to session state
                         message_data = {

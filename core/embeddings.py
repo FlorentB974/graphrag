@@ -4,6 +4,7 @@ Text embedding utilities using OpenAI API.
 
 import logging
 from typing import List
+import httpx
 
 import openai
 
@@ -16,7 +17,7 @@ openai.api_key = settings.openai_api_key
 openai.base_url = settings.openai_base_url
 
 if settings.openai_proxy:
-    openai.http_client = settings.openai_proxy
+    openai.http_client = httpx.Client(verify=False, base_url=settings.openai_proxy)
 
 
 class EmbeddingManager:

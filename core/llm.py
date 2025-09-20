@@ -5,6 +5,7 @@ OpenAI LLM integration for the RAG pipeline.
 import logging
 from typing import Any, Dict, Optional
 import httpx
+import requests
 
 import openai
 
@@ -21,11 +22,17 @@ if settings.openai_proxy:
 
 
 class LLMManager:
-    """Manages interactions with OpenAI language models."""
+    """Manages interactions with language models (OpenAI and Ollama)."""
 
     def __init__(self):
         """Initialize the LLM manager."""
-        self.model = settings.openai_model
+        self.provider = getattr(settings, 'llm_provider').lower()
+        
+        if self.provider == 'openai':
+            self.model = settings.openai_model
+        else:  # ollama
+            self.model = getattr(settings, 'ollama_model')
+            self.ollama_base_url = getattr(settings, 'ollama_base_url')
 
     def generate_response(
         self,
@@ -47,25 +54,49 @@ class LLMManager:
             Generated response text
         """
         try:
-            messages = []
-
-            if system_message:
-                messages.append({"role": "system", "content": system_message})
-
-            messages.append({"role": "user", "content": prompt})
-
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-
-            return response.choices[0].message.content
+            if self.provider == 'ollama':
+                return self._generate_ollama_response(prompt, system_message, temperature, max_tokens)
+            else:
+                return self._generate_openai_response(prompt, system_message, temperature, max_tokens)
 
         except Exception as e:
             logger.error(f"Failed to generate LLM response: {e}")
             raise
+
+    def _generate_openai_response(self, prompt: str, system_message: Optional[str], temperature: float, max_tokens: int) -> str:
+        """Generate response using OpenAI."""
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        
+        response = openai.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content or ""
+    
+    def _generate_ollama_response(self, prompt: str, system_message: Optional[str], temperature: float, max_tokens: int) -> str:
+        """Generate response using Ollama."""
+        full_prompt = ""
+        if system_message:
+            full_prompt += f"System: {system_message}\n\n"
+        full_prompt += f"Human: {prompt}\n\nAssistant:"
+        
+        response = requests.post(
+            f"{self.ollama_base_url}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": full_prompt,
+                "options": {"temperature": temperature, "num_predict": max_tokens},
+                "stream": False
+            },
+            timeout=120
+        )
+        response.raise_for_status()
+        return response.json().get('response', '')
 
     def generate_rag_response(
         self,

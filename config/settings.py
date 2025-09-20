@@ -11,11 +11,19 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
+    # LLM Provider Configuration
+    llm_provider: str = Field(..., env="LLM_PROVIDER")  # "openai" or "ollama"
+
     # OpenAI Configuration
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
     openai_base_url: str = Field(..., env="OPENAI_BASE_URL")
     openai_model: str = Field(..., env="OPENAI_MODEL")
     openai_proxy: Optional[str] = Field(None, env="OPENAI_PROXY")
+
+    # Ollama Configuration
+    ollama_base_url: str = Field(..., env="OLLAMA_BASE_URL")
+    ollama_model: str = Field(..., env="OLLAMA_MODEL")
+    ollama_embedding_model: str = Field(..., env="OLLAMA_EMBEDDING_MODEL")
 
     # Neo4j Configuration
     neo4j_uri: str = Field("bolt://localhost:7687", env="NEO4J_URI")

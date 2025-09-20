@@ -14,6 +14,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 - 🎯 **Background File Processing**: Upload documents with progress indicators
 
 See below a (very) short demo:
+
 [demo.webm](https://github.com/user-attachments/assets/be528543-84c1-42e6-a979-2b9cd9f177f2)
 
 

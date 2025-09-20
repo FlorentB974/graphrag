@@ -130,8 +130,8 @@ def display_stats():
     try:
         stats = graph_db.get_graph_stats()
 
-        st.sidebar.markdown("### 📊 Database Stats")
-        col1, col2 = st.sidebar.columns(2)
+        st.markdown("### 📊 Database Stats")
+        col1, col2 = st.columns(2)
 
         with col1:
             st.metric("Documents", stats.get("documents", 0))
@@ -141,7 +141,7 @@ def display_stats():
             st.metric("Chunks", stats.get("chunks", 0))
 
     except Exception as e:
-        st.sidebar.error(f"Could not fetch database stats: {e}")
+        st.error(f"Could not fetch database stats: {e}")
 
 
 def display_document_list():
@@ -150,10 +150,10 @@ def display_document_list():
         documents = graph_db.get_all_documents()
 
         if not documents:
-            st.sidebar.info("No documents in the database yet.")
+            st.info("No documents in the database yet.")
             return
 
-        st.sidebar.markdown("### 📂 Documents in Database")
+        st.markdown("### 📂 Documents in Database")
 
         # Add a session state for delete confirmations
         if "confirm_delete" not in st.session_state:
@@ -176,7 +176,7 @@ def display_document_list():
             else:
                 size_str = "Unknown size"
 
-            with st.sidebar.expander(f"📄 {filename}", expanded=False):
+            with st.expander(f"📄 {filename}", expanded=False):
                 st.write(f"**Chunks:** {chunk_count}")
                 st.write(f"**Size:** {size_str}")
 
@@ -209,10 +209,10 @@ def display_document_list():
                             st.rerun()
 
         # Summary at the bottom
-        st.sidebar.markdown(f"**Total:** {len(documents)} documents")
+        st.markdown(f"**Total:** {len(documents)} documents")
 
     except Exception as e:
-        st.sidebar.error(f"Could not fetch document list: {e}")
+        st.error(f"Could not fetch document list: {e}")
 
 
 def display_sources_detailed(sources: List[Dict[str, Any]]):
@@ -223,7 +223,7 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         sources: List of source chunks with metadata
     """
     if not sources:
-        st.sidebar.write("No sources used in this response.")
+        st.write("No sources used in this response.")
         return
 
     for i, source in enumerate(sources, 1):
@@ -289,6 +289,89 @@ def display_query_analysis_detailed(analysis: Dict[str, Any]):
                     st.write(f"• {concept}")
 
 
+def display_document_upload():
+    """Encapsulated document upload UI and processing logic."""
+    st.markdown("### 📁 Document Upload")
+    uploaded_files = st.file_uploader(
+        "Choose files to upload",
+        type=["pdf", "docx", "txt", "md"],
+        accept_multiple_files=True,
+        help="Upload documents to expand the knowledge base",
+        key=f"file_uploader_{st.session_state.file_uploader_key}",
+    )
+
+    # Process uploaded files
+    if uploaded_files and not st.session_state.processing_files:
+        if st.button("🚀 Process Files"):
+            st.session_state.processing_files = True
+
+            with st.container():
+                st.markdown("### 📝 Processing Progress")
+                progress_container = st.container()
+
+                # Process files
+                results = process_files_background(uploaded_files, progress_container)
+
+                # Display results
+                if results["processed_files"]:
+                    st.toast(icon="✅", body=f"Successfully processed {len(results['processed_files'])} files ({results['total_chunks']} chunks created)")
+
+                if results["errors"]:
+                    st.toast(icon="❌", body=f"Failed to process {len(results['errors'])} files")
+                    for error_info in results["errors"]:
+                        st.write(f"- 📄 {error_info['name']}: {error_info['error']}")
+
+                # Always reset the file uploader after processing (success or failure)
+                st.session_state.file_uploader_key += 1
+                st.session_state.processing_files = False
+
+                # Force a rerun to refresh the UI and clear the uploader
+                time.sleep(3)
+                st.rerun()
+
+    return
+
+
+def get_rag_settings(key_suffix: str = ""):
+    """
+    Render RAG settings controls in the sidebar and return their values.
+
+    Args:
+        key_suffix: Suffix to append to widget keys to keep them unique when
+            the settings are rendered from multiple places in the UI.
+
+    Returns:
+        Tuple of (retrieval_mode, top_k, temperature)
+    """
+    st.markdown("### 🧠 RAG Settings")
+
+    retrieval_mode = st.selectbox(
+        "Retrieval Mode",
+        ["simple", "graph_enhanced", "hybrid"],
+        index=1,
+        key=f"retrieval_mode{key_suffix}",
+    )
+
+    top_k = st.slider(
+        "Number of chunks to retrieve",
+        min_value=1,
+        max_value=10,
+        value=5,
+        key=f"top_k{key_suffix}",
+    )
+
+    temperature = st.slider(
+        "Response creativity (temperature)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.1,
+        step=0.1,
+        key=f"temperature{key_suffix}",
+    )
+
+    return retrieval_mode, top_k, temperature
+
+
 def main():
     """Main Streamlit application."""
     # Title and description
@@ -326,78 +409,6 @@ def main():
     '''
     st.markdown(html_style, unsafe_allow_html=True)
 
-    # Sidebar configuration
-    st.sidebar.title("⚙️ Configuration")
-
-    # RAG settings
-    with st.sidebar.expander("🧠 RAG Settings", expanded=True):
-        retrieval_mode = st.selectbox(
-            "Retrieval Mode", ["simple", "graph_enhanced", "hybrid"], index=1
-        )
-
-        top_k = st.slider(
-            "Number of chunks to retrieve", min_value=1, max_value=10, value=5
-        )
-
-        temperature = st.slider(
-            "Response creativity (temperature)",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.1,
-            step=0.1,
-        )
-
-    # Display database stats
-    display_stats()
-
-    # File upload section
-    st.sidebar.markdown("### 📁 Document Upload")
-    uploaded_files = st.sidebar.file_uploader(
-        "Choose files to upload",
-        type=["pdf", "docx", "txt", "md"],
-        accept_multiple_files=True,
-        help="Upload documents to expand the knowledge base",
-        key=f"file_uploader_{st.session_state.file_uploader_key}",
-    )
-
-    # Process uploaded files
-    if uploaded_files and not st.session_state.processing_files:
-        if st.sidebar.button("🚀 Process Files"):
-            st.session_state.processing_files = True
-
-            with st.sidebar.container():
-                st.markdown("### 📝 Processing Progress")
-                progress_container = st.container()
-
-                # Process files
-                results = process_files_background(uploaded_files, progress_container)
-
-                # Display results
-                if results["processed_files"]:
-                    st.success(
-                        f"✅ Successfully processed {len(results['processed_files'])} files ({results['total_chunks']} chunks created)"
-                    )
-                    for file_info in results["processed_files"]:
-                        st.write(
-                            f"- 📄 {file_info['name']}: {file_info['chunks']} chunks"
-                        )
-
-                if results["errors"]:
-                    st.error(f"❌ Failed to process {len(results['errors'])} files")
-                    for error_info in results["errors"]:
-                        st.write(f"- 📄 {error_info['name']}: {error_info['error']}")
-
-                # Always reset the file uploader after processing (success or failure)
-                st.session_state.file_uploader_key += 1
-                st.session_state.processing_files = False
-
-                # Force a rerun to refresh the UI and clear the uploader
-                time.sleep(3)  # Small delay to show results
-                st.rerun()
-
-    # Display document list
-    display_document_list()
-
     # Create main layout with columns
     main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar
     
@@ -426,9 +437,13 @@ def main():
                         break
 
                 if latest_message:
-                    tab1, tab2, tab3 = st.tabs(["🕸️ Context Graph",
-                                                "📚 Sources",
-                                                "🔍 Query Analysis"])
+                    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                        "🕸️ Context Graph",
+                        "📚 Sources",
+                        "📊 Database",
+                        "📁 Upload File",
+                        "⚙️"
+                    ])
                     with tab1:
                         # Display graph in sidebar
                         if "graph_fig" in latest_message:
@@ -442,12 +457,28 @@ def main():
                             display_sources_detailed(latest_message["sources"])
                             
                     with tab3:
-                        # Display query analysis in sidebar
-                        if "query_analysis" in latest_message:
-                            display_query_analysis_detailed(latest_message["query_analysis"])
+                        display_stats()
+                        display_document_list()
+                            
+                    with tab4:
+                        display_document_upload()
+                        
+                    with tab5:
+                        retrieval_mode, top_k, temperature = get_rag_settings(key_suffix="_latest")
 
             else:
-                st.info("💡 Start a conversation to see context information here!")
+                tab1, tab2, tab3 = st.tabs(["📊 Database", "📂 Upload File", "⚙️"])
+                
+                with tab1:
+                    display_stats()
+                    display_document_list()
+                
+                with tab2:
+                    display_document_upload()
+                    
+                with tab3:
+                    retrieval_mode, top_k, temperature = get_rag_settings(key_suffix="_default")
+                                
             st.markdown('</div>', unsafe_allow_html=True)
 
     # Chat input
@@ -489,21 +520,29 @@ def main():
 
             with main_col:
                 with st.chat_message("assistant"):
-                    # Show processing indicator
-                    processing_placeholder = st.empty()
-                    processing_placeholder.markdown("🔍 Processing your query...")
-
                     try:
-                        # Process query through RAG pipeline
-                        result = graph_rag.query(
-                            user_query,
-                            retrieval_mode=retrieval_mode,
-                            top_k=top_k,
-                            temperature=temperature,
+                        # Ensure RAG settings are defined (read from session state set by widgets)
+                        retrieval_mode = st.session_state.get(
+                            "retrieval_mode_latest",
+                            st.session_state.get("retrieval_mode_default", "graph_enhanced"),
                         )
 
-                        # Clear processing indicator
-                        processing_placeholder.empty()
+                        top_k = st.session_state.get(
+                            "top_k_latest", st.session_state.get("top_k_default", 5)
+                        )
+
+                        temperature = st.session_state.get(
+                            "temperature_latest", st.session_state.get("temperature_default", 0.1)
+                        )
+
+                        with st.spinner("🔍 Generating response..."):
+                            # Process query through RAG pipeline
+                            result = graph_rag.query(
+                                user_query,
+                                retrieval_mode=retrieval_mode,
+                                top_k=top_k,
+                                temperature=temperature,
+                            )
 
                         # Stream the response
                         full_response = result["response"]
@@ -541,7 +580,6 @@ def main():
                         st.rerun()
 
                     except Exception as e:
-                        processing_placeholder.empty()
                         error_msg = f"❌ I encountered an error processing your request: {str(e)}"
                         st.error(error_msg)
                         st.session_state.messages.append(

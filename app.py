@@ -414,8 +414,7 @@ def main():
     
     with main_col:
         # Display chat messages in main column
-        st.title("🚀 GraphRAG Pipeline")
-        st.markdown("### 💬 Chat with your documents")
+        st.title("💬 Chat with your documents")
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
@@ -427,6 +426,13 @@ def main():
         with container:
             st.markdown('<div class="floating">', unsafe_allow_html=True)
             # st.markdown("### 📊 Context Information")
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                "🕸️ Context Graph",
+                "📚 Sources",
+                "📊 Database",
+                "📁 Upload File",
+                "⚙️"
+            ])
             
             # Display information for the latest assistant message if available
             if st.session_state.messages:
@@ -437,13 +443,6 @@ def main():
                         break
 
                 if latest_message:
-                    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                        "🕸️ Context Graph",
-                        "📚 Sources",
-                        "📊 Database",
-                        "📁 Upload File",
-                        "⚙️"
-                    ])
                     with tab1:
                         # Display graph in sidebar
                         if "graph_fig" in latest_message:
@@ -467,16 +466,22 @@ def main():
                         retrieval_mode, top_k, temperature = get_rag_settings(key_suffix="_latest")
 
             else:
-                tab1, tab2, tab3 = st.tabs(["📊 Database", "📂 Upload File", "⚙️"])
+                # tab1, tab2, tab3 = st.tabs(["📊 Database", "📂 Upload File", "⚙️"])
                 
                 with tab1:
+                    st.info("💡 Start a conversation to see context information here!")
+                
+                with tab2:
+                    st.info("💡 Start a conversation to see context information here!")
+                                    
+                with tab3:
                     display_stats()
                     display_document_list()
                 
-                with tab2:
+                with tab4:
                     display_document_upload()
                     
-                with tab3:
+                with tab5:
                     retrieval_mode, top_k, temperature = get_rag_settings(key_suffix="_default")
                                 
             st.markdown('</div>', unsafe_allow_html=True)

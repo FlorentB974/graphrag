@@ -44,7 +44,7 @@ services:
     image: ghcr.io/florentb974/graphrag:latest
     container_name: graphrag-app
     environment:
-      # See .env.example
+      # Create a .env based on .env.example
       # LLM provider selection: 'openai' or 'ollama'
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       # OpenAI configuration (used when LLM_PROVIDER=openai)

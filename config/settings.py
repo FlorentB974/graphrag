@@ -15,15 +15,15 @@ class Settings(BaseSettings):
     llm_provider: str = Field(..., env="LLM_PROVIDER")  # "openai" or "ollama"
 
     # OpenAI Configuration
-    openai_api_key: str = Field(..., env="OPENAI_API_KEY")
-    openai_base_url: str = Field(..., env="OPENAI_BASE_URL")
-    openai_model: str = Field(..., env="OPENAI_MODEL")
+    openai_api_key: Optional[str] = Field(None, env="OPENAI_API_KEY")
+    openai_base_url: Optional[str] = Field(None, env="OPENAI_BASE_URL")
+    openai_model: Optional[str] = Field(None, env="OPENAI_MODEL")
     openai_proxy: Optional[str] = Field(None, env="OPENAI_PROXY")
 
     # Ollama Configuration
-    ollama_base_url: str = Field(..., env="OLLAMA_BASE_URL")
-    ollama_model: str = Field(..., env="OLLAMA_MODEL")
-    ollama_embedding_model: str = Field(..., env="OLLAMA_EMBEDDING_MODEL")
+    ollama_base_url: Optional[str] = Field(None, env="OLLAMA_BASE_URL")
+    ollama_model: Optional[str] = Field(None, env="OLLAMA_MODEL")
+    ollama_embedding_model: Optional[str] = Field(None, env="OLLAMA_EMBEDDING_MODEL")
 
     # Neo4j Configuration
     neo4j_uri: str = Field("bolt://localhost:7687", env="NEO4J_URI")
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     neo4j_password: str = Field(..., env="NEO4J_PASSWORD")
 
     # Embedding Configuration
-    embedding_model: str = Field("text-embedding-ada-002", env="EMBEDDING_MODEL")
+    embedding_model: Optional[str] = Field("text-embedding-ada-002", env="EMBEDDING_MODEL")
 
     # Document Processing Configuration
     chunk_size: int = Field(1000, env="CHUNK_SIZE")

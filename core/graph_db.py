@@ -316,24 +316,14 @@ class GraphDB:
         with self.driver.session() as session:  # type: ignore
             result = session.run(
                 """
-                CALL {
-                    MATCH (d:Document)
-                    RETURN count(d) AS documents
-                }
-                CALL {
-                    MATCH (c:Chunk)
-                    RETURN count(c) AS chunks
-                }
-                CALL {
-                    MATCH ()-[r]-()
-                    WHERE type(r) = 'HAS_CHUNK'
-                    RETURN count(r) AS has_chunk_relations
-                }
-                CALL {
-                    MATCH ()-[r]-()
-                    WHERE type(r) = 'SIMILAR_TO'
-                    RETURN count(r) AS similarity_relations
-                }
+                MATCH (d:Document)
+                WITH count(d) AS documents
+                MATCH (c:Chunk)
+                WITH documents, count(c) AS chunks
+                MATCH ()-[r]-()
+                WITH documents, chunks,
+                     sum(CASE WHEN type(r) = 'HAS_CHUNK' THEN 1 ELSE 0 END) AS has_chunk_relations,
+                     sum(CASE WHEN type(r) = 'SIMILAR_TO' THEN 1 ELSE 0 END) AS similarity_relations
                 RETURN documents, chunks, has_chunk_relations, similarity_relations
                 """
             )

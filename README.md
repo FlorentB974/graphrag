@@ -8,7 +8,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 - 🌐 **Streamlit Web Interface**: Interactive document management, chat interface, and graph visualization
 - 🗂️ **Multi-format Document Support**: PDF, DOCX, TXT, and more
 - 📊 **Neo4j Graph Database**: Persistent storage with relationship mapping
-- 🔧 **Configurable OpenAI API**: Custom base URL, API key, model, and proxy settings
+- 🔧 **Configurable OpenAI and Ollama API**: Custom base URL, API key, model, and proxy settings
 - 📈 **Interactive Graph Visualization**: Real-time view of document relationships and retrieval paths
 - 🔍 **Streaming Responses**: Progressive answer display for better user experience
 - 🎯 **Background File Processing**: Upload documents with progress indicators
@@ -17,6 +17,79 @@ See below a (very) short demo:
 
 [demo.webm](https://github.com/user-attachments/assets/be528543-84c1-42e6-a979-2b9cd9f177f2)
 
+## Run it (docker compose)
+
+```yaml
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/graphrag_password
+      - NEO4J_PLUGINS=["graph-data-science"]
+    ports:
+      - "7474:7474"  # HTTP 
+      - "7687:7687"  # Bolt 
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+    networks:
+      - graphrag_network
+    restart: unless-stopped
+
+  graphrag-app:
+    image: ghcr.io/florentb974/graphrag:latest
+    container_name: graphrag-app
+    environment:
+      # See .env.example
+      # LLM provider selection: 'openai' or 'ollama'
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      # OpenAI configuration (used when LLM_PROVIDER=openai)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENAI_PROXY=${OPENAI_PROXY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-ada-002}
+      # Ollama configuration (used when LLM_PROVIDER=ollama)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      # Neo4j Configuration - connecting to the neo4j service
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag_password}
+      # Document Processing Configuration
+      - CHUNK_SIZE=${CHUNK_SIZE:-1000}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
+      # Similarity Configuration
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.1}
+      - MAX_SIMILARITY_CONNECTIONS=${MAX_SIMILARITY_CONNECTIONS:-5}
+      # Application Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-104857600}
+    ports:
+      - "8501:8501"  # Streamlit port
+    volumes:
+      - ./data:/app/data  # Mount data directory for file uploads
+    networks:
+      - graphrag_network
+    depends_on:
+      - neo4j
+    restart: unless-stopped
+
+networks:
+  graphrag_network:
+    driver: bridge
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_plugins:
+```
 
 ## Architecture
 

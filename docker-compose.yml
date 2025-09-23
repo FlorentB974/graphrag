@@ -42,6 +42,7 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-graphrag_password}
       # Embedding Configuration
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-ada-002}
+      - EMBEDDING_CONCURRENCY=${EMBEDDING_CONCURRENCY:-3}  # Number of parallel embedding requests (default: 3)
       # Document Processing Configuration
       - CHUNK_SIZE=${CHUNK_SIZE:-1000}
       - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}

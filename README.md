@@ -53,6 +53,7 @@ services:
       - OPENAI_MODEL=${OPENAI_MODEL}
       - OPENAI_PROXY=${OPENAI_PROXY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-ada-002}
+      - EMBEDDING_CONCURRENCY=${EMBEDDING_CONCURRENCY:-3}  # Number of parallel embedding requests (default: 3)
       # Ollama configuration (used when LLM_PROVIDER=ollama)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
@@ -163,6 +164,7 @@ NEO4J_PASSWORD=your_neo4j_password
 CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 LOG_LEVEL=INFO
+EMBEDDING_CONCURRENCY=3
 ```
 
 ### Docker Image (Dockerfile)

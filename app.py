@@ -58,7 +58,7 @@ def process_files_background(
     uploaded_files: List[Any], progress_container
 ) -> Dict[str, Any]:
     """
-    Process uploaded files in background.
+    Process uploaded files in background with chunk-level progress tracking.
 
     Args:
         uploaded_files: List of uploaded file objects
@@ -69,12 +69,25 @@ def process_files_background(
     """
     results = {"processed_files": [], "total_chunks": 0, "errors": []}
 
-    progress_bar = progress_container.progress(0)
+    # First, estimate total chunks for progress tracking
     status_text = progress_container.empty()
+    status_text.text("Estimating total processing work...")
+    total_estimated_chunks = document_processor.estimate_chunks_from_files(uploaded_files)
+    
+    # Initialize progress tracking
+    progress_bar = progress_container.progress(0)
+    total_processed_chunks = 0
+    
+    def chunk_progress_callback(new_chunk_processed):
+        """Callback to update progress as chunks are processed."""
+        nonlocal total_processed_chunks
+        total_processed_chunks += 1  # Increment by 1 for each completed chunk
+        progress = min(total_processed_chunks / total_estimated_chunks, 1.0)
+        progress_bar.progress(progress)
 
     for i, uploaded_file in enumerate(uploaded_files):
         try:
-            status_text.text(f"Processing {uploaded_file.name}...")
+            status_text.text(f"Processing {uploaded_file.name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
 
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(
@@ -84,8 +97,8 @@ def process_files_background(
                 tmp_path = Path(tmp_file.name)
 
             try:
-                # Process the file with original filename
-                result = document_processor.process_file(tmp_path, uploaded_file.name)
+                # Process the file with original filename and progress callback
+                result = document_processor.process_file(tmp_path, uploaded_file.name, chunk_progress_callback)
 
                 if result and result.get("status") == "success":
                     results["processed_files"].append(
@@ -113,15 +126,13 @@ def process_files_background(
                 if tmp_path.exists():
                     tmp_path.unlink()
 
-            # Update progress
-            progress = (i + 1) / len(uploaded_files)
-            progress_bar.progress(progress)
-
         except Exception as e:
             logger.error(f"Error processing file {uploaded_file.name}: {e}")
             results["errors"].append({"name": uploaded_file.name, "error": str(e)})
 
-    status_text.text("File processing complete!")
+    # Final progress update
+    progress_bar.progress(1.0)
+    status_text.text(f"File processing complete! Processed {results['total_chunks']} chunks from {len(uploaded_files)} files.")
     return results
 
 

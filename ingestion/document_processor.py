@@ -60,22 +60,25 @@ class DocumentProcessor:
             "modified_at": file_path.stat().st_mtime,
         }
 
-    async def process_file_async(self, chunks: List[Dict[str, Any]], doc_id: str) -> List[Dict[str, Any]]:
+    async def process_file_async(self, chunks: List[Dict[str, Any]], doc_id: str, progress_callback=None) -> List[Dict[str, Any]]:
         """Asynchronously embed chunks and store them in the graph DB.
 
         Args:
             chunks: list of chunk dicts
             doc_id: document id
+            progress_callback: optional callback function to report progress (chunk_processed_count)
 
         Returns:
             List of processed chunk summaries
         """
         processed_chunks: List[Dict[str, Any]] = []
+        processed_count = 0
 
         concurrency = getattr(settings, "embedding_concurrency")
         sem = asyncio.Semaphore(concurrency)
 
         async def _embed_and_store(chunk):
+            nonlocal processed_count
             content = chunk["content"]
             chunk_id = chunk["chunk_id"]
             metadata = chunk.get("metadata", {})
@@ -91,6 +94,11 @@ class DocumentProcessor:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, graph_db.create_chunk_node, chunk_id, doc_id, content, embedding, metadata)
 
+            # Report progress
+            processed_count += 1
+            if progress_callback:
+                progress_callback(processed_count)
+
             return {"chunk_id": chunk_id, "content": content, "metadata": metadata}
 
         tasks = [asyncio.create_task(_embed_and_store(c)) for c in chunks]
@@ -105,7 +113,7 @@ class DocumentProcessor:
         return processed_chunks
 
     def process_file(
-        self, file_path: Path, original_filename: Optional[str] = None
+        self, file_path: Path, original_filename: Optional[str] = None, progress_callback=None
     ) -> Optional[Dict[str, Any]]:
         """
         Process a single file and store it in the graph database.
@@ -113,6 +121,7 @@ class DocumentProcessor:
         Args:
             file_path: Path to the file to process
             original_filename: Optional original filename to preserve (useful for uploaded files)
+            progress_callback: Optional callback function to report chunk processing progress
 
         Returns:
             Processing result dictionary or None if failed
@@ -150,15 +159,15 @@ class DocumentProcessor:
             # Process chunks asynchronously with configurable concurrency
             try:
                 # Use asyncio.run for a synchronous wrapper
-                processed_chunks = asyncio.run(self.process_file_async(chunks, doc_id))
+                processed_chunks = asyncio.run(self.process_file_async(chunks, doc_id, progress_callback))
             except RuntimeError:
                 # If an event loop is already running, get it and run until complete
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     # Create a new task and wait for it
-                    processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id))
+                    processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id, progress_callback))
                 else:
-                    processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id))
+                    processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id, progress_callback))
 
             # Create similarity relationships between chunks
             try:
@@ -250,6 +259,65 @@ class DocumentProcessor:
     def get_supported_extensions(self) -> List[str]:
         """Get list of supported file extensions."""
         return list(self.loaders.keys())
+
+    def estimate_chunks_from_files(self, uploaded_files: List[Any]) -> int:
+        """
+        Estimate total number of chunks that will be created from uploaded files.
+        
+        Args:
+            uploaded_files: List of uploaded file objects with .name and .getvalue() methods
+            
+        Returns:
+            Estimated total number of chunks
+        """
+        import tempfile
+        
+        total_chunks = 0
+        
+        for uploaded_file in uploaded_files:
+            try:
+                file_ext = Path(uploaded_file.name).suffix.lower()
+                loader = self.loaders.get(file_ext)
+                
+                if not loader:
+                    logger.warning(f"No loader available for file type: {file_ext}")
+                    continue
+                    
+                # Save file temporarily to load content
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=file_ext
+                ) as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    tmp_path = Path(tmp_file.name)
+                
+                try:
+                    # Load content and estimate chunks
+                    content = loader.load(tmp_path)
+                    if content:
+                        # Use the same chunking logic to get accurate count
+                        chunks = document_chunker.chunk_text(content, f"temp_{uploaded_file.name}")
+                        total_chunks += len(chunks)
+                        logger.debug(f"Estimated {len(chunks)} chunks for {uploaded_file.name}")
+                finally:
+                    # Clean up temporary file
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                        
+            except Exception as e:
+                logger.error(f"Error estimating chunks for {uploaded_file.name}: {e}")
+                # Fallback estimation based on file size (rough estimate)
+                try:
+                    file_size = len(uploaded_file.getvalue())
+                    estimated_chunks = max(1, file_size // (settings.chunk_size * 2))  # Conservative estimate
+                    total_chunks += estimated_chunks
+                    logger.debug(f"Fallback estimated {estimated_chunks} chunks for {uploaded_file.name}")
+                except Exception as fallback_e:
+                    logger.error(f"Fallback estimation also failed for {uploaded_file.name}: {fallback_e}")
+                    # Last resort: assume 1 chunk
+                    total_chunks += 1
+        
+        logger.info(f"Estimated total of {total_chunks} chunks from {len(uploaded_files)} files")
+        return max(1, total_chunks)  # Ensure at least 1 chunk
 
 
 # Global document processor instance

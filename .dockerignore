@@ -68,6 +68,7 @@ docker-compose*.yml
 # Documentation
 *.md
 docs/
+data/
 
 # Test files
 tests/

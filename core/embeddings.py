@@ -6,6 +6,7 @@ import logging
 from typing import List
 import httpx
 import requests
+import asyncio
 
 import openai
 
@@ -56,16 +57,25 @@ class EmbeddingManager:
         response.raise_for_status()
         return response.json().get('embedding', [])
 
-    def get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts."""
+    async def aget_embedding(self, text: str) -> List[float]:
+        """Asynchronously generate embedding for a single text using httpx.AsyncClient."""
         try:
-            if self.provider == 'ollama':
-                return [self._get_ollama_embedding(text) for text in texts]
-            else:
-                response = openai.embeddings.create(input=texts, model=self.model)
-                return [item.embedding for item in response.data]
+            async with httpx.AsyncClient(verify=False if settings.openai_proxy else True) as client:
+                if self.provider == 'ollama':
+                    url = f"{self.ollama_base_url.rstrip('/')}/api/embeddings"
+                    resp = await client.post(url, json={"model": self.model, "prompt": text}, timeout=120.0)
+                    resp.raise_for_status()
+                    return resp.json().get('embedding', [])
+                else:
+                    base = settings.openai_base_url.rstrip('/')
+                    url = f"{base}/embeddings"
+                    headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+                    resp = await client.post(url, json={"input": text, "model": self.model}, headers=headers, timeout=120.0)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    return data.get('data', [])[0].get('embedding', [])
         except Exception as e:
-            logger.error(f"Failed to generate batch embeddings: {e}")
+            logger.error(f"Failed to generate async embedding: {e}")
             raise
 
 

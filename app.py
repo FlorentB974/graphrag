@@ -362,8 +362,8 @@ def get_rag_settings(key_suffix: str = ""):
 
     retrieval_mode = st.selectbox(
         "Retrieval Mode",
-        ["simple", "graph_enhanced", "hybrid"],
-        index=1,
+        ["auto", "simple", "graph_enhanced", "hybrid"],
+        index=2,
         key=f"retrieval_mode{key_suffix}",
     )
 

@@ -110,7 +110,7 @@ class DocumentProcessor:
             chunk_metas = [c.get("metadata", {}) for c in chunks]
 
             # Use ThreadPoolExecutor to perform blocking embedding calls concurrently.
-            max_workers = getattr(settings, "embedding_concurrency", 3) or 3
+            max_workers = getattr(settings, "embedding_concurrency")
             try:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                     # Map returns results in order of inputs

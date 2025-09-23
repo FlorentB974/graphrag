@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 from core.chunking import document_chunker
 from core.embeddings import embedding_manager
 from core.graph_db import graph_db
+from config.settings import settings
+import concurrent.futures
 from ingestion.loaders.docx_loader import DOCXLoader
 from ingestion.loaders.pdf_loader import PDFLoader
 from ingestion.loaders.text_loader import TextLoader
@@ -99,32 +101,73 @@ class DocumentProcessor:
             # Chunk the document
             chunks = document_chunker.chunk_text(content, doc_id)
 
-            # Process each chunk
+            # Process each chunk in parallel to generate embeddings
             processed_chunks = []
-            for chunk_data in chunks:
-                chunk_id = chunk_data["chunk_id"]
-                chunk_content = chunk_data["content"]
-                chunk_metadata = chunk_data["metadata"]
 
-                # Generate embedding
-                embedding = embedding_manager.get_embedding(chunk_content)
+            # Prepare inputs
+            chunk_contents = [c["content"] for c in chunks]
+            chunk_ids = [c["chunk_id"] for c in chunks]
+            chunk_metas = [c.get("metadata", {}) for c in chunks]
 
-                # Store chunk in graph database
-                graph_db.create_chunk_node(
-                    chunk_id=chunk_id,
-                    doc_id=doc_id,
-                    content=chunk_content,
-                    embedding=embedding,
-                    metadata=chunk_metadata,
-                )
+            # Use ThreadPoolExecutor to perform blocking embedding calls concurrently.
+            max_workers = getattr(settings, "embedding_concurrency", 3) or 3
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    # Map returns results in order of inputs
+                    future_to_index = {executor.submit(embedding_manager.get_embedding, text): i for i, text in enumerate(chunk_contents)}
+                    for future in concurrent.futures.as_completed(future_to_index):
+                        idx = future_to_index[future]
+                        try:
+                            embedding = future.result()
+                        except Exception as e:
+                            logger.error(f"Embedding failed for chunk {chunk_ids[idx]}: {e}")
+                            embedding = []
 
-                processed_chunks.append(
-                    {
-                        "chunk_id": chunk_id,
-                        "content": chunk_content,
-                        "metadata": chunk_metadata,
-                    }
-                )
+                        # Store chunk in graph database
+                        graph_db.create_chunk_node(
+                            chunk_id=chunk_ids[idx],
+                            doc_id=doc_id,
+                            content=chunk_contents[idx],
+                            embedding=embedding,
+                            metadata=chunk_metas[idx],
+                        )
+
+                        processed_chunks.append(
+                            {
+                                "chunk_id": chunk_ids[idx],
+                                "content": chunk_contents[idx],
+                                "metadata": chunk_metas[idx],
+                            }
+                        )
+            except Exception as e:
+                logger.error(f"Failed to generate embeddings concurrently: {e}")
+                # Fallback: process sequentially
+                processed_chunks = []
+                for chunk_data in chunks:
+                    chunk_id = chunk_data["chunk_id"]
+                    chunk_content = chunk_data["content"]
+                    chunk_metadata = chunk_data.get("metadata", {})
+                    try:
+                        embedding = embedding_manager.get_embedding(chunk_content)
+                    except Exception as e2:
+                        logger.error(f"Embedding failed for chunk {chunk_id} in fallback: {e2}")
+                        embedding = []
+
+                    graph_db.create_chunk_node(
+                        chunk_id=chunk_id,
+                        doc_id=doc_id,
+                        content=chunk_content,
+                        embedding=embedding,
+                        metadata=chunk_metadata,
+                    )
+
+                    processed_chunks.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "content": chunk_content,
+                            "metadata": chunk_metadata,
+                        }
+                    )
 
             # Create similarity relationships between chunks
             try:

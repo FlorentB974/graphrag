@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     # Embedding Configuration
     embedding_model: Optional[str] = Field("text-embedding-ada-002", env="EMBEDDING_MODEL")
+    # Number of concurrent embedding requests
+    embedding_concurrency: int = Field(3, env="EMBEDDING_CONCURRENCY")
 
     # Document Processing Configuration
     chunk_size: int = Field(1000, env="CHUNK_SIZE")

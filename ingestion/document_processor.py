@@ -4,6 +4,7 @@ Multi-format document processor for the RAG pipeline.
 
 import hashlib
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -11,7 +12,7 @@ from core.chunking import document_chunker
 from core.embeddings import embedding_manager
 from core.graph_db import graph_db
 from config.settings import settings
-import concurrent.futures
+import asyncio
 from ingestion.loaders.docx_loader import DOCXLoader
 from ingestion.loaders.pdf_loader import PDFLoader
 from ingestion.loaders.text_loader import TextLoader
@@ -59,6 +60,50 @@ class DocumentProcessor:
             "modified_at": file_path.stat().st_mtime,
         }
 
+    async def process_file_async(self, chunks: List[Dict[str, Any]], doc_id: str) -> List[Dict[str, Any]]:
+        """Asynchronously embed chunks and store them in the graph DB.
+
+        Args:
+            chunks: list of chunk dicts
+            doc_id: document id
+
+        Returns:
+            List of processed chunk summaries
+        """
+        processed_chunks: List[Dict[str, Any]] = []
+
+        concurrency = getattr(settings, "embedding_concurrency")
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _embed_and_store(chunk):
+            content = chunk["content"]
+            chunk_id = chunk["chunk_id"]
+            metadata = chunk.get("metadata", {})
+
+            async with sem:
+                try:
+                    embedding = await embedding_manager.aget_embedding(content)
+                except Exception as e:
+                    logger.error(f"Async embedding failed for {chunk_id}: {e}")
+                    embedding = []
+
+            # Persist to DB in a thread to avoid blocking the event loop
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, graph_db.create_chunk_node, chunk_id, doc_id, content, embedding, metadata)
+
+            return {"chunk_id": chunk_id, "content": content, "metadata": metadata}
+
+        tasks = [asyncio.create_task(_embed_and_store(c)) for c in chunks]
+
+        for coro in asyncio.as_completed(tasks):
+            try:
+                res = await coro
+                processed_chunks.append(res)
+            except Exception as e:
+                logger.error(f"Error in embedding task: {e}")
+
+        return processed_chunks
+
     def process_file(
         self, file_path: Path, original_filename: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
@@ -73,6 +118,7 @@ class DocumentProcessor:
             Processing result dictionary or None if failed
         """
         try:
+            start_time = time.time()
             if not file_path.exists():
                 logger.error(f"File not found: {file_path}")
                 return None
@@ -101,73 +147,18 @@ class DocumentProcessor:
             # Chunk the document
             chunks = document_chunker.chunk_text(content, doc_id)
 
-            # Process each chunk in parallel to generate embeddings
-            processed_chunks = []
-
-            # Prepare inputs
-            chunk_contents = [c["content"] for c in chunks]
-            chunk_ids = [c["chunk_id"] for c in chunks]
-            chunk_metas = [c.get("metadata", {}) for c in chunks]
-
-            # Use ThreadPoolExecutor to perform blocking embedding calls concurrently.
-            max_workers = getattr(settings, "embedding_concurrency")
+            # Process chunks asynchronously with configurable concurrency
             try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    # Map returns results in order of inputs
-                    future_to_index = {executor.submit(embedding_manager.get_embedding, text): i for i, text in enumerate(chunk_contents)}
-                    for future in concurrent.futures.as_completed(future_to_index):
-                        idx = future_to_index[future]
-                        try:
-                            embedding = future.result()
-                        except Exception as e:
-                            logger.error(f"Embedding failed for chunk {chunk_ids[idx]}: {e}")
-                            embedding = []
-
-                        # Store chunk in graph database
-                        graph_db.create_chunk_node(
-                            chunk_id=chunk_ids[idx],
-                            doc_id=doc_id,
-                            content=chunk_contents[idx],
-                            embedding=embedding,
-                            metadata=chunk_metas[idx],
-                        )
-
-                        processed_chunks.append(
-                            {
-                                "chunk_id": chunk_ids[idx],
-                                "content": chunk_contents[idx],
-                                "metadata": chunk_metas[idx],
-                            }
-                        )
-            except Exception as e:
-                logger.error(f"Failed to generate embeddings concurrently: {e}")
-                # Fallback: process sequentially
-                processed_chunks = []
-                for chunk_data in chunks:
-                    chunk_id = chunk_data["chunk_id"]
-                    chunk_content = chunk_data["content"]
-                    chunk_metadata = chunk_data.get("metadata", {})
-                    try:
-                        embedding = embedding_manager.get_embedding(chunk_content)
-                    except Exception as e2:
-                        logger.error(f"Embedding failed for chunk {chunk_id} in fallback: {e2}")
-                        embedding = []
-
-                    graph_db.create_chunk_node(
-                        chunk_id=chunk_id,
-                        doc_id=doc_id,
-                        content=chunk_content,
-                        embedding=embedding,
-                        metadata=chunk_metadata,
-                    )
-
-                    processed_chunks.append(
-                        {
-                            "chunk_id": chunk_id,
-                            "content": chunk_content,
-                            "metadata": chunk_metadata,
-                        }
-                    )
+                # Use asyncio.run for a synchronous wrapper
+                processed_chunks = asyncio.run(self.process_file_async(chunks, doc_id))
+            except RuntimeError:
+                # If an event loop is already running, get it and run until complete
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Create a new task and wait for it
+                    processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id))
+                else:
+                    processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id))
 
             # Create similarity relationships between chunks
             try:
@@ -193,6 +184,13 @@ class DocumentProcessor:
             logger.info(
                 f"Successfully processed {file_path}: {len(processed_chunks)} chunks created"
             )
+            # add processing duration
+            duration = time.time() - start_time
+            result["duration_seconds"] = duration
+
+            # Print to stdout for quick feedback
+            print(f"Processed {file_path} in {duration:.2f}s — {len(processed_chunks)} chunks")
+
             return result
 
         except Exception as e:

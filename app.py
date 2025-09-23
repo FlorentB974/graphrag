@@ -77,6 +77,7 @@ def process_files_background(
     # Initialize progress tracking
     progress_bar = progress_container.progress(0)
     total_processed_chunks = 0
+    current_file_name = ""
     
     def chunk_progress_callback(new_chunk_processed):
         """Callback to update progress as chunks are processed."""
@@ -84,9 +85,12 @@ def process_files_background(
         total_processed_chunks += 1  # Increment by 1 for each completed chunk
         progress = min(total_processed_chunks / total_estimated_chunks, 1.0)
         progress_bar.progress(progress)
+        # Update status text in real-time with current file and chunk progress
+        status_text.text(f"Processing {current_file_name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
 
     for i, uploaded_file in enumerate(uploaded_files):
         try:
+            current_file_name = uploaded_file.name
             status_text.text(f"Processing {uploaded_file.name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
 
             # Save uploaded file temporarily

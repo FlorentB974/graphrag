@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 def reason_with_graph(
-    query: str, retrieved_chunks: List[Dict[str, Any]], query_analysis: Dict[str, Any]
+    query: str,
+    retrieved_chunks: List[Dict[str, Any]],
+    query_analysis: Dict[str, Any],
+    retrieval_mode: str = "graph_enhanced",
 ) -> List[Dict[str, Any]]:
     """
     Perform graph-based reasoning to enhance context.
@@ -31,12 +34,23 @@ def reason_with_graph(
 
         enhanced_chunks = list(retrieved_chunks)  # Start with original chunks
 
-        # Only perform graph reasoning for complex or analytical queries
+        # Determine whether to run graph reasoning.
+        # Force reasoning if the retrieval_mode requires it (e.g., 'graph_enhanced' or 'hybrid').
         requires_reasoning = query_analysis.get("requires_reasoning", False)
         complexity = query_analysis.get("complexity", "simple")
 
-        if not requires_reasoning and complexity != "complex":
-            logger.info("Simple query - skipping graph reasoning")
+        # If retrieval mode explicitly requests simple retrieval, skip reasoning.
+        if retrieval_mode == "simple":
+            logger.info("Retrieval mode is 'simple' - skipping graph reasoning")
+            return enhanced_chunks
+
+        # For other modes, always run graph reasoning unless explicitly unnecessary.
+        if (
+            retrieval_mode not in ("graph_enhanced", "hybrid")
+            and not requires_reasoning
+            and complexity != "complex"
+        ):
+            logger.info("Query doesn't require reasoning - skipping graph reasoning")
             return enhanced_chunks
 
         # Find related chunks through graph traversal

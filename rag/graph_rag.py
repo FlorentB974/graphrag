@@ -95,6 +95,7 @@ class GraphRAG:
                 state.get("query", ""),
                 state.get("retrieved_chunks", []),
                 state.get("query_analysis", {}),
+                state.get("retrieval_mode", "graph_enhanced"),
             )
             return state
         except Exception as e:

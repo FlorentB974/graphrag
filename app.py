@@ -262,25 +262,142 @@ def display_document_list():
 
 def display_sources_detailed(sources: List[Dict[str, Any]]):
     """
-    Display detailed source chunks in a formatted sidebar.
+    Display detailed source chunks and entities in a formatted sidebar.
 
     Args:
-        sources: List of source chunks with metadata
+        sources: List of source chunks/entities with metadata
     """
     if not sources:
         st.write("No sources used in this response.")
         return
 
-    for i, source in enumerate(sources, 1):
-        if source.get("similarity"):
-            with st.expander(
-                f"📄 Source {i} ({source.get('filename', 'Unknown Document')})",
-                expanded=False,
-            ):
+    # Filter and sort sources by relevance
+    relevant_sources = []
+    for source in sources:
+        score = source.get("similarity", source.get("relevance_score", 0))
+        # Include all sources - don't filter out zero scores (entities might have 0.0 scores)
+        relevant_sources.append(source)
+    
+    # Sort by relevance score, prioritizing entity sources
+    def get_sort_score(source):
+        # Get base score
+        score = source.get("similarity", source.get("relevance_score", 0))
+        # If it's an entity source with 0 score, give it a reasonable default
+        if (source.get("entity_name") or source.get("entity_id")) and score == 0:
+            return 0.5  # Default entity relevance
+        return score
+    
+    relevant_sources.sort(key=get_sort_score, reverse=True)
 
-                st.write(f"**Relevance Score:** {source['similarity']:.4f}")
+    for i, source in enumerate(relevant_sources[:5], 1):  # Limit to top 5 sources
+        score = source.get("similarity", source.get("relevance_score", 0))
+        
+        # Determine source type and icon
+        if source.get("entity_name") or source.get("entity_id"):
+            # This is an entity source
+            icon = "🏷️"
+            source_type = "Entity"
+            title = source.get("entity_name", "Unknown Entity")
+        elif source.get("entity_enhanced") or source.get("contained_entities"):
+            # This is an entity-enhanced chunk source (hybrid mode)
+            icon = "🔗"
+            source_type = "Hybrid Chunk"
+            title = source.get("filename", source.get("document_name", "Unknown Document"))
+        else:
+            # This is a regular chunk source
+            icon = "📄"
+            source_type = "Chunk"
+            title = source.get("filename", source.get("document_name", "Unknown Document"))
 
-                # Display chunk content with proper formatting
+        with st.expander(
+            f"{icon} {source_type} {i}: {title}",
+            expanded=False,
+        ):            
+            if source_type == "Entity":
+                # Display entity information
+                st.write(f"**Entity Name:** {source.get('entity_name', 'Unknown')}")
+                st.write(f"**Type:** {source.get('entity_type', 'Unknown')}")
+                
+                if source.get("entity_description"):
+                    st.write(f"**Description:** {source.get('entity_description')}")
+                
+                # Show related chunks
+                if source.get("related_chunks"):
+                    st.write("**Found in chunks:**")
+                    for chunk_info in source.get("related_chunks", [])[:2]:  # Limit to 2
+                        chunk_content = chunk_info.get("content", "No content")[:150] + "..."
+                        st.text_area(
+                            "Related content:",
+                            chunk_content,
+                            height=80,
+                            key=f"entity_chunk_{i}_{chunk_info.get('chunk_id', 'unknown')}",
+                            disabled=True,
+                        )
+                elif source.get("content"):
+                    # Fallback to content if available
+                    content = source.get("content", "No content available")
+                    if len(content) > 200:
+                        st.text_area(
+                            "Context:",
+                            content[:200] + "...",
+                            height=80,
+                            key=f"entity_content_{i}",
+                            disabled=True,
+                        )
+                    else:
+                        st.text_area(
+                            "Context:",
+                            content,
+                            height=60,
+                            key=f"entity_content_full_{i}",
+                            disabled=True,
+                        )
+            elif source_type == "Hybrid Chunk":
+                # Display hybrid chunk information (chunk + entities)
+                content = source.get("content", "No content available")
+                if len(content) > 300:
+                    st.text_area(
+                        "Content Preview:",
+                        content[:300] + "...",
+                        height=100,
+                        key=f"hybrid_preview_{i}",
+                        disabled=True,
+                    )
+                    with st.expander("Show Full Content"):
+                        st.text_area(
+                            "Full Content:",
+                            content,
+                            height=200,
+                            key=f"hybrid_full_{i}",
+                            disabled=True,
+                        )
+                else:
+                    st.text_area(
+                        "Content:",
+                        content,
+                        height=max(60, min(len(content.split("\n")) * 20, 150)),
+                        key=f"hybrid_content_{i}",
+                        disabled=True,
+                    )
+                
+                # Show contained entities
+                entities = source.get("contained_entities", [])
+                if entities:
+                    st.write(f"**Contains Entities:** {', '.join(entities[:5])}")
+                    if len(entities) > 5:
+                        st.caption(f"... and {len(entities) - 5} more entities")
+                
+                # Show additional metadata for hybrid chunks
+                if source.get("document_name") and source.get("document_name") != source.get("filename"):
+                    st.write(f"**Document:** {source.get('document_name')}")
+                
+                if source.get("chunk_index") is not None:
+                    st.write(f"**Chunk:** {source.get('chunk_index') + 1}")
+                    
+            else:
+                st.write(f"**Relevance Score:** {score:.4f}")
+
+                # Display chunk information
                 content = source.get("content", "No content available")
                 if len(content) > 300:
                     st.text_area(
@@ -307,6 +424,23 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                         key=f"chunk_content_{i}",
                         disabled=True,
                     )
+                
+                # Show additional metadata for chunks
+                if source.get("document_name") and source.get("document_name") != source.get("filename"):
+                    st.write(f"**Document:** {source.get('document_name')}")
+                
+                if source.get("chunk_index") is not None:
+                    st.write(f"**Chunk:** {source.get('chunk_index') + 1}")
+                    
+                # Show entities if this chunk contains any (even in non-hybrid mode)
+                entities = source.get("contained_entities", [])
+                if entities:
+                    st.caption(f"**Contains:** {', '.join(entities[:3])}")
+                    if len(entities) > 3:
+                        st.caption(f"... +{len(entities) - 3} more")
+    
+    if len(relevant_sources) > 5:
+        st.caption(f"Showing top 5 of {len(relevant_sources)} sources")
 
 
 def display_query_analysis_detailed(analysis: Dict[str, Any]):
@@ -738,7 +872,7 @@ def main():
     #         except Exception as e:
     #             st.error(f"Error creating full graph visualization: {e}")
 
-    # # Knowledge Graph Visualization Section
+    # Knowledge Graph Visualization Section
     # st.markdown("---")
 
     # with st.expander("🔍 Advanced Graph Options", expanded=False):

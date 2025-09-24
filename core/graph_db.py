@@ -420,6 +420,51 @@ class GraphDB:
     def delete_document(self, doc_id: str) -> None:
         """Delete a document and all its chunks."""
         with self.driver.session() as session:  # type: ignore
+            # 1. Collect chunk ids for the document
+            result = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)
+                RETURN collect(c.id) as chunk_ids
+                """,
+                doc_id=doc_id,
+            )
+
+            record = result.single()
+            chunk_ids = record["chunk_ids"] if record and record["chunk_ids"] is not None else []
+
+            if chunk_ids:
+                # 2. Remove references to these chunks from Entity.source_chunks lists
+                session.run(
+                    """
+                    UNWIND $chunk_ids AS cid
+                    MATCH (e:Entity)
+                    WHERE cid IN coalesce(e.source_chunks, [])
+                    SET e.source_chunks = [s IN coalesce(e.source_chunks, []) WHERE s <> cid]
+                    """,
+                    chunk_ids=chunk_ids,
+                )
+
+                # 3. Delete CONTAINS_ENTITY relationships from the chunks (so entities lose relationships to these chunks)
+                session.run(
+                    """
+                    MATCH (c:Chunk)-[r:CONTAINS_ENTITY]->(e:Entity)
+                    WHERE c.id IN $chunk_ids
+                    DELETE r
+                    """,
+                    chunk_ids=chunk_ids,
+                )
+
+                # 4. Delete entities that are now orphaned: no source_chunks and no incoming CONTAINS_ENTITY relationships
+                session.run(
+                    """
+                    MATCH (e:Entity)
+                    WHERE (coalesce(e.source_chunks, []) = [] OR e.source_chunks IS NULL)
+                    AND NOT ( ()-[:CONTAINS_ENTITY]->(e) )
+                    DETACH DELETE e
+                    """,
+                )
+
+            # 5. Finally delete chunks and the document
             session.run(
                 """
                 MATCH (d:Document {id: $doc_id})
@@ -428,6 +473,8 @@ class GraphDB:
                 """,
                 doc_id=doc_id,
             )
+
+            logger.info(f"Deleted document {doc_id} and cleaned up {len(chunk_ids)} chunks and related entities")
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
         """Get all documents with their metadata and chunk counts."""

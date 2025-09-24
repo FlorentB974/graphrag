@@ -51,7 +51,7 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
                 CASE
                     WHEN n:Document THEN size(n.content)
                     WHEN n:Chunk THEN size(n.content)
-                    WHEN n:Entity THEN coalesce(n.confidence * 50, 20)
+                    WHEN n:Entity THEN coalesce(n.importance_score * 50, 20)
                     ELSE 0
                 END as content_size,
                 CASE
@@ -59,7 +59,7 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
                     ELSE null
                 END as entity_type,
                 CASE
-                    WHEN n:Entity THEN coalesce(n.confidence, 0.5)
+                    WHEN n:Entity THEN coalesce(n.importance_score, 0.5)
                     ELSE null
                 END as confidence
             LIMIT $limit
@@ -103,7 +103,7 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
                 elementId(n) as source_id,
                 elementId(m) as target_id,
                 type(r) as relationship_type,
-                coalesce(properties(r)['similarity'], properties(r)['confidence'], 1.0) as weight
+                coalesce(properties(r)['similarity'], properties(r)['strength'], 1.0) as weight
             LIMIT $limit
             """
 
@@ -395,20 +395,33 @@ def get_query_graph_data(
     query_results: List[Dict[str, Any]], query_text: str = "Your Question"
 ) -> Dict[str, Any]:
     """
-    Create graph data for visualizing query results and their relationships.
+    Create simplified graph data for visualizing query results with only essential relationships.
 
     Args:
         query_results: List of retrieved chunks with metadata
         query_text: The actual query text to display
 
     Returns:
-        Dictionary containing nodes and edges for the query result graph
+        Dictionary containing nodes and edges for a clean, readable query result graph
     """
     nodes = []
     edges = []
+    
+    # Extract chunk IDs for database queries
+    chunk_ids = []
+    document_ids = set()
+    
+    for result in query_results:
+        chunk_id = result.get("chunk_id")
+        if chunk_id:
+            chunk_ids.append(chunk_id)
+        
+        doc_id = result.get("document_id")
+        if doc_id:
+            document_ids.add(doc_id)
 
     # Add query node with actual query text
-    query_display = query_text[:50] + "..." if len(query_text) > 50 else query_text
+    query_display = query_text[:40] + "..." if len(query_text) > 40 else query_text
     nodes.append(
         {
             "id": "query",
@@ -416,92 +429,154 @@ def get_query_graph_data(
             "label": "Query",
             "title": query_display,
             "full_text": query_text,
-            "size": 35,
+            "size": 30,
             "node_type": "query",
         }
     )
 
-    # Add result nodes and connections
+    # Initialize variables for simplified graph
+    chunk_data = {}
+    entity_relationships = []
+
+    # Query Neo4j for only the essential relationships
+    try:
+        if graph_db.driver and chunk_ids:
+            with graph_db.driver.session() as session:
+                # Get only the most relevant entities (limit to top 3 per chunk)
+                chunk_entity_query = """
+                MATCH (c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                WHERE c.id IN $chunk_ids
+                WITH c, e
+                ORDER BY coalesce(e.importance_score, 0.5) DESC
+                WITH c.id as chunk_id, collect(e)[0..3] as top_entities
+                RETURN
+                    chunk_id,
+                    [entity IN top_entities | {
+                        id: entity.id,
+                        name: entity.name,
+                        type: entity.type,
+                        confidence: coalesce(entity.importance_score, 0.5)
+                    }] as entities
+                """
+                
+                chunk_entity_results = session.run(chunk_entity_query, chunk_ids=chunk_ids)
+                
+                for record in chunk_entity_results:
+                    data = record.data()
+                    chunk_data[data["chunk_id"]] = {"entities": data["entities"]}
+                
+                # Get only strong entity relationships (confidence > 0.4)
+                if len(chunk_ids) > 1:  # Only if we have multiple chunks
+                    strong_entity_query = """
+                    MATCH (c1:Chunk)-[:CONTAINS_ENTITY]->(e1:Entity)-[r:RELATED_TO]-(e2:Entity)<-[:CONTAINS_ENTITY]-(c2:Chunk)
+                    WHERE c1.id IN $chunk_ids AND c2.id IN $chunk_ids
+                    AND c1.id <> c2.id
+                    AND coalesce(r.strength, 0) > 0.4
+                    RETURN DISTINCT
+                        c1.id as source_chunk_id,
+                        c2.id as target_chunk_id,
+                        e1.name as entity1_name,
+                        e2.name as entity2_name,
+                        coalesce(r.strength, 0.5) as confidence
+                    LIMIT 2
+                    """
+                    
+                    entity_rel_results = session.run(strong_entity_query, chunk_ids=chunk_ids)
+                    entity_relationships = list(entity_rel_results)
+
+    except Exception as e:
+        logger.error(f"Error querying simplified graph relationships: {e}")    # Create simplified node structure - only chunks and top entities
+    added_entities = set()
+    
     for i, result in enumerate(query_results):
-        chunk_id = f"chunk_{i}"
+        chunk_id = result.get("chunk_id", f"unknown_{i}")
+        chunk_node_id = f"chunk_{i}"
         chunk_content = result.get("content", "No content")
         similarity = result.get("similarity", 0)
-        document_name = result.get(
-            "document_name", result.get("filename", "Unknown Document")
-        )
+        document_name = result.get("document_name", result.get("filename", "Unknown Document"))
 
         # Truncate content for display
         display_content = (
-            chunk_content[:80] + "..." if len(chunk_content) > 80 else chunk_content
+            chunk_content[:60] + "..." if len(chunk_content) > 60 else chunk_content
         )
 
-        nodes.append(
-            {
-                "id": chunk_id,
-                "entity_id": result.get("chunk_id", f"unknown_{i}"),
-                "label": "Chunk",
-                "title": display_content.replace("\n", " "),
-                "full_content": chunk_content,
-                "document_name": document_name,
-                "size": 15 + min(similarity * 25, 20),  # Size based on similarity
-                "similarity": similarity,
-                "node_type": "chunk",
-                "chunk_index": i,
-            }
-        )
+        # Add chunk node
+        nodes.append({
+            "id": chunk_node_id,
+            "entity_id": chunk_id,
+            "label": "Source",  # Simplified label
+            "title": display_content.replace("\n", " "),
+            "full_content": chunk_content,
+            "document_name": document_name,
+            "size": 20 + min(similarity * 15, 15),
+            "similarity": similarity,
+            "node_type": "chunk",
+            "chunk_index": i,
+        })
 
-        # Connect query to result with detailed relationship info
-        edges.append(
-            {
-                "source": "query",
-                "target": chunk_id,
-                "type": "RETRIEVED",
-                "relationship_label": f"Relevance: {similarity:.3f}",
-                "weight": similarity,
-                "edge_type": "retrieval",
-            }
-        )
+        # Connect query to chunk with readable label
+        edges.append({
+            "source": "query",
+            "target": chunk_node_id,
+            "type": "RELEVANT_TO",
+            "relationship_label": f"is relevant to ({similarity:.2f})",
+            "weight": similarity,
+            "edge_type": "retrieval",
+        })
 
-    # Try to find relationships between chunks using content similarity and document source
-    for i, result1 in enumerate(query_results):
-        for j, result2 in enumerate(query_results[i + 1 :], i + 1):
-            # Check if chunks are from same document
-            doc1 = result1.get("document_name", result1.get("filename", ""))
-            doc2 = result2.get("document_name", result2.get("filename", ""))
+        # Add only top 2 entities per chunk to avoid overcrowding
+        if chunk_id in chunk_data:
+            entities = chunk_data[chunk_id].get("entities", [])[:2]  # Limit to top 2
+            for entity in entities:
+                if entity.get("id") and entity["id"] not in added_entities and entity.get("confidence", 0) > 0.3:
+                    entity_node_id = f"entity_{entity['id']}"
+                    entity_name = entity.get("name", "Unknown Entity")
+                    
+                    nodes.append({
+                        "id": entity_node_id,
+                        "entity_id": entity["id"],
+                        "label": "Entity",
+                        "title": entity_name,
+                        "entity_type": entity.get("type", "Unknown"),
+                        "confidence": entity.get("confidence", 0.5),
+                        "size": 25,  # Fixed size for consistency
+                        "node_type": "entity",
+                    })
+                    added_entities.add(entity["id"])
 
-            if doc1 == doc2 and doc1:  # Same document relationship
-                edges.append(
-                    {
-                        "source": f"chunk_{i}",
-                        "target": f"chunk_{j}",
-                        "type": "SAME_DOCUMENT",
-                        "relationship_label": f"From: {doc1[:20]}...",
-                        "weight": 0.8,
-                        "edge_type": "document_relation",
-                    }
-                )
-            else:
-                # Simple word overlap similarity for different documents
-                words1 = set(result1.get("content", "").lower().split())
-                words2 = set(result2.get("content", "").lower().split())
+                    # Connect chunk to entity with readable label
+                    edges.append({
+                        "source": chunk_node_id,
+                        "target": entity_node_id,
+                        "type": "MENTIONS",
+                        "relationship_label": f"mentions {entity_name}",
+                        "weight": entity.get("confidence", 0.5),
+                        "edge_type": "entity_relation",
+                    })
 
-                if words1 and words2:
-                    overlap = len(words1.intersection(words2))
-                    if overlap >= 3:  # Minimum word overlap threshold
-                        similarity_score = overlap / len(words1.union(words2))
-                        if (
-                            similarity_score > 0.15
-                        ):  # Slightly higher threshold for cross-doc relations
-                            edges.append(
-                                {
-                                    "source": f"chunk_{i}",
-                                    "target": f"chunk_{j}",
-                                    "type": "CONTENT_SIMILAR",
-                                    "relationship_label": f"Similarity: {similarity_score:.2f}",
-                                    "weight": similarity_score,
-                                    "edge_type": "content_relation",
-                                }
-                            )
+    # Add only strong entity relationships
+    for rel in entity_relationships:
+        source_chunk_id = rel["source_chunk_id"]
+        target_chunk_id = rel["target_chunk_id"]
+        
+        source_node_id = None
+        target_node_id = None
+        
+        for i, result in enumerate(query_results):
+            if result.get("chunk_id") == source_chunk_id:
+                source_node_id = f"chunk_{i}"
+            elif result.get("chunk_id") == target_chunk_id:
+                target_node_id = f"chunk_{i}"
+        
+        if source_node_id and target_node_id:
+            edges.append({
+                "source": source_node_id,
+                "target": target_node_id,
+                "type": "CONNECTED_VIA",
+                "relationship_label": f"connected via {rel['entity1_name']} ↔ {rel['entity2_name']}",
+                "weight": rel["confidence"],
+                "edge_type": "entity_connection",
+            })
 
     return {
         "nodes": nodes,
@@ -515,13 +590,14 @@ def create_query_result_graph(
     query_results: List[Dict[str, Any]], query_text: str = "Your Question"
 ) -> go.Figure:
     """
-    Create a graph visualization for query results.
+    Create an enhanced graph visualization for query results with full database relationships.
 
     Args:
         query_results: List of retrieved chunks with metadata
+        query_text: The actual query text to display
 
     Returns:
-        Plotly figure showing query relationships
+        Plotly figure showing query relationships with enhanced styling
     """
     graph_data = get_query_graph_data(query_results, query_text)
 
@@ -536,179 +612,212 @@ def create_query_result_graph(
         )
         return fig
 
-    # Create NetworkX graph for layout
+    # Create NetworkX graph for layout calculation
     G = create_networkx_graph(graph_data)
-    pos = nx.spring_layout(G, k=3, iterations=50)  # Increased k for better spacing
+    pos = nx.spring_layout(G, k=2, iterations=50)
 
-    # Create node trace
-    node_trace = go.Scatter(
-        x=[],
-        y=[],
-        text=[],
-        textposition="middle center",
-        mode="markers+text",
-        hoverinfo="text",
-        marker=dict(size=[], color=[]),
-    )
-
-    # Enhanced color map for different node types
+    # Enhanced color map for different node types (matching full graph)
     color_map = {
-        "Query": "#FF6B6B",  # Red for query
-        "Chunk": "#4ECDC4",  # Teal for chunks
+        "Query": "#E74C3C",      # Bright red for query
+        "Document": "#FF6B6B",   # Red for documents
+        "Chunk": "#4ECDC4",      # Teal for chunks
+        "Entity": "#9B59B6",     # Purple for entities
+        "Unknown": "#95A5A6"     # Gray for unknown
+    }
+    
+    # Shape map for different node types (using symbols)
+    symbol_map = {
+        "Query": "star",
+        "Document": "square",
+        "Chunk": "circle",
+        "Entity": "diamond",
+        "Unknown": "circle"
     }
 
-    hover_texts = []
-    x_coords = []
-    y_coords = []
-    text_labels = []
-    sizes = []
-    colors = []
+    # Prepare node traces by type for better legend support
+    node_types = {}
+    for node in graph_data["nodes"]:
+        node_type = node["label"]
+        if node_type not in node_types:
+            node_types[node_type] = {
+                "x": [], "y": [], "text": [], "sizes": [], "colors": [],
+                "hover_texts": [], "symbols": []
+            }
 
+    # Organize nodes by type
     for node in graph_data["nodes"]:
         node_id = node["id"]
         if node_id in pos:
             x, y = pos[node_id]
-            x_coords.append(x)
-            y_coords.append(y)
-
-            # Show abbreviated text on node
-            if node["label"] == "Query":
-                text_labels.append("Q")
-                hover_text = (
-                    f"<b>Your Query:</b><br>{node.get('full_text', 'Your Question')}"
-                )
-            else:
-                chunk_num = node_id.split("_")[1]
-                text_labels.append(f"C{int(chunk_num) + 1}")
+            node_type = node["label"]
+            
+            node_types[node_type]["x"].append(x)
+            node_types[node_type]["y"].append(y)
+            
+            # Create appropriate display text based on node type
+            if node_type == "Query":
+                display_text = "Q"
+                hover_text = f"<b>Your Query:</b><br>{node.get('full_text', 'Your Question')}"
+            elif node_type == "Document":
+                display_text = "📄"
+                file_size = node.get("file_size", 0)
+                size_str = ""
+                if file_size:
+                    if file_size > 1024 * 1024:
+                        size_str = f" ({file_size / (1024 * 1024):.1f} MB)"
+                    elif file_size > 1024:
+                        size_str = f" ({file_size / 1024:.1f} KB)"
+                hover_text = f"<b>Document:</b> {node['title']}{size_str}"
+            elif node_type == "Entity":
+                display_text = node["title"][:3]
+                entity_type = node.get("entity_type", "Unknown")
+                confidence = node.get("confidence", 0)
+                hover_text = f"<b>Entity:</b> {node['title']}<br><b>Type:</b> {entity_type}<br><b>Confidence:</b> {confidence:.2f}"
+            else:  # Chunk
+                chunk_num = node.get("chunk_index", 0)
+                display_text = f"C{chunk_num + 1}"
                 similarity = node.get("similarity", 0)
                 doc_name = node.get("document_name", "Unknown Document")
                 content_preview = node.get("full_content", node["title"])[:150] + "..."
-                hover_text = (
-                    f"<b>Chunk {int(chunk_num) + 1}</b><br>"
-                    f"<b>Document:</b> {doc_name}<br>"
-                    f"<b>Relevance:</b> {similarity:.3f}<br>"
-                    f"<b>Content:</b> {content_preview}"
-                )
+                hover_text = f"<b>Chunk {chunk_num + 1}</b><br><b>Document:</b> {doc_name}<br><b>Relevance:</b> {similarity:.3f}<br><b>Content:</b> {content_preview}"
+            
+            node_types[node_type]["text"].append(display_text)
+            node_types[node_type]["sizes"].append(node["size"])
+            node_types[node_type]["colors"].append(color_map.get(node_type, "#95A5A6"))
+            node_types[node_type]["symbols"].append(symbol_map.get(node_type, "circle"))
+            node_types[node_type]["hover_texts"].append(hover_text)
 
-            hover_texts.append(hover_text)
-            sizes.append(node["size"])
-            colors.append(color_map.get(node["label"], "#95A5A6"))
+    # Create separate traces for each node type
+    node_traces = []
+    for node_type, data in node_types.items():
+        if data["x"]:  # Only create trace if there are nodes of this type
+            node_trace = go.Scatter(
+                x=data["x"],
+                y=data["y"],
+                text=data["text"],
+                textposition="middle center",
+                mode="markers+text",
+                hovertext=data["hover_texts"],
+                hoverinfo="text",
+                name=node_type,
+                marker=dict(
+                    size=data["sizes"],
+                    color=color_map.get(node_type, "#95A5A6"),
+                    symbol=data["symbols"][0] if data["symbols"] else "circle",
+                    line=dict(width=2, color="white")
+                ),
+                showlegend=True
+            )
+            node_traces.append(node_trace)
 
-    # Update node trace with collected data
-    node_trace.update(
-        x=x_coords,
-        y=y_coords,
-        text=text_labels,
-        hovertext=hover_texts,
-        marker=dict(size=sizes, color=colors, line=dict(width=2)),
-    )
-
-    # Set hover text
-    node_trace["hoverinfo"] = "text"
-
-    # Create edge traces with labels
+    # Prepare simplified edge traces with readable labels
     edge_traces = []
-    edge_labels = []
+    edge_labels = []  # Store labels to display on edges
+    
+    edge_color_map = {
+        "RELEVANT_TO": {"color": "rgba(231,76,60,0.8)", "width": 3, "name": "Relevant To"},
+        "MENTIONS": {"color": "rgba(155,89,182,0.7)", "width": 2, "name": "Mentions"},
+        "CONNECTED_VIA": {"color": "rgba(52,152,219,0.6)", "width": 2, "name": "Connected Via"}
+    }
 
+    edge_legend_added = set()  # Track which edge types have been added to legend
+    
     for edge in graph_data["edges"]:
         source_id, target_id = edge["source"], edge["target"]
         if source_id in pos and target_id in pos:
             x0, y0 = pos[source_id]
             x1, y1 = pos[target_id]
 
-            # Different styling for different edge types
-            edge_type = edge.get("edge_type", edge["type"])
+            # Get edge styling
+            edge_style = edge_color_map.get(
+                edge["type"],
+                {"color": "rgba(125,125,125,0.5)", "width": 1, "name": "Related"}
+            )
+            
+            line_dict = {
+                "color": edge_style["color"],
+                "width": edge_style["width"]
+            }
 
-            if edge_type == "retrieval" or edge["type"] == "RETRIEVED":
-                # Line width and opacity based on similarity/weight
-                line_width = max(2, edge["weight"] * 6)
-                alpha = max(0.6, edge["weight"])
-                color = f"rgba(78,205,196,{alpha})"
-                dash_style = None
-            elif edge_type == "document_relation" or edge["type"] == "SAME_DOCUMENT":
-                line_width = 3
-                alpha = 0.7
-                color = f"rgba(52,152,219,{alpha})"  # Blue for same document
-                dash_style = "dot"
-            else:  # content_relation or CONTENT_SIMILAR
-                line_width = max(1, edge["weight"] * 4)
-                alpha = max(0.4, edge["weight"])
-                color = f"rgba(255,107,107,{alpha})"  # Red for content similarity
-                dash_style = "dash"
-
-            # Create edge trace
-            line_dict = dict(color=color, width=line_width)
-            if dash_style:
-                line_dict["dash"] = dash_style
+            # Determine if this edge type should show in legend
+            show_legend = edge["type"] not in edge_legend_added
+            if show_legend:
+                edge_legend_added.add(edge["type"])
 
             edge_trace = go.Scatter(
                 x=[x0, x1, None],
                 y=[y0, y1, None],
                 mode="lines",
                 line=line_dict,
-                hoverinfo="none",
-                showlegend=False,
+                hoverinfo="text",
+                hovertext=edge.get("relationship_label", edge_style["name"]),
+                name=edge_style["name"],
+                showlegend=show_legend,
+                legendgroup="edges"
             )
             edge_traces.append(edge_trace)
-
-            # Add relationship label at midpoint of edge
-            if "relationship_label" in edge:
+            
+            # Add edge label at midpoint for better readability
+            if edge.get("relationship_label"):
                 mid_x, mid_y = (x0 + x1) / 2, (y0 + y1) / 2
-                edge_labels.append(
-                    {
-                        "x": mid_x,
-                        "y": mid_y,
-                        "text": edge["relationship_label"],
-                        "font_size": 8,
-                        "font_color": "rgba(100,100,100,0.8)",
-                    }
-                )
+                edge_labels.append({
+                    "x": mid_x,
+                    "y": mid_y,
+                    "text": edge["relationship_label"],
+                    "font_size": 9,
+                    "font_color": "rgba(80,80,80,0.8)",
+                })
 
     # Add edge labels as text annotations
-    edge_label_traces = []
-    if edge_labels:
-        for label in edge_labels:
-            edge_label_trace = go.Scatter(
-                x=[label["x"]],
-                y=[label["y"]],
-                text=[label["text"]],
-                mode="text",
-                textfont=dict(size=label["font_size"], color=label["font_color"]),
-                showlegend=False,
-                hoverinfo="none",
-            )
-            edge_label_traces.append(edge_label_trace)
+    for label in edge_labels:
+        edge_label_trace = go.Scatter(
+            x=[label["x"]],
+            y=[label["y"]],
+            text=[label["text"]],
+            mode="text",
+            textfont=dict(size=label["font_size"], color=label["font_color"]),
+            showlegend=False,
+            hoverinfo="none",
+        )
+        edge_traces.append(edge_label_trace)
 
     # Create figure with all traces
-    fig = go.Figure(data=[node_trace] + edge_traces + edge_label_traces)
+    fig = go.Figure(data=node_traces + edge_traces)
 
+    # Create title
+    title_text = f"Query Context Graph ({graph_data['total_nodes']} nodes, {graph_data['total_edges']} edges)"
+
+    # Update layout with enhanced styling
     fig.update_layout(
-        showlegend=False,
+        title={
+            "text": title_text,
+            "x": 0.5,
+            "xanchor": "center",
+        },
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1
+        ),
         hovermode="closest",
-        margin=dict(b=40, l=5, r=5, t=40),
+        margin=dict(b=20, l=5, r=5, t=60),
         annotations=[
             dict(
-                text="Teal lines: Query relevance | Blue dots: Same document | Red dashes: Content similarity",
-                showarrow=True,
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=-0.08,
-                xanchor="center",
-                yanchor="top",
-                font=dict(color="gray", size=10),
-            ),
-            dict(
-                text="Hover over nodes for detailed information",
+                text="Context visualization showing retrieved chunks and their relationships | Hover for details",
                 showarrow=False,
                 xref="paper",
                 yref="paper",
                 x=0.5,
-                y=-0.12,
+                y=-0.05,
                 xanchor="center",
-                yanchor="top",
-                font=dict(color="gray", size=9),
-            ),
+                yanchor="bottom",
+                font=dict(color="gray", size=10),
+            )
         ],
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),

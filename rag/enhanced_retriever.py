@@ -178,6 +178,7 @@ class EnhancedDocumentRetriever:
                         existing = combined_results[chunk_id]
                         existing["retrieval_source"] = "hybrid"
                         existing["relevant_entities"] = result.get("contained_entities", [])
+                        existing["contained_entities"] = result.get("contained_entities", [])
                         # Boost score for chunks found by both methods
                         existing["hybrid_score"] = existing.get("chunk_score", 0.0) * 1.2
                     else:

@@ -13,22 +13,31 @@ from core.graph_db import graph_db
 logger = logging.getLogger(__name__)
 
 
-def get_graph_data(limit: int = 100) -> Dict[str, Any]:
+def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict[str, Any]:
     """
-    Retrieve graph data from Neo4j for visualization.
+    Retrieve graph data from Neo4j for visualization based on retrieval mode.
 
     Args:
         limit: Maximum number of nodes to retrieve
+        retrieval_mode: "chunk_only", "entity_only", or "hybrid"
 
     Returns:
         Dictionary containing nodes and edges for visualization
     """
     try:
         with graph_db.driver.session() as session:  # type: ignore
-            # Get nodes (documents and chunks)
-            nodes_query = """
+            # Build node query based on retrieval mode
+            if retrieval_mode == "chunk_only":
+                node_filters = "n:Document OR n:Chunk"
+            elif retrieval_mode == "entity_only":
+                node_filters = "n:Document OR n:Entity"
+            else:  # hybrid mode
+                node_filters = "n:Document OR n:Chunk OR n:Entity"
+            
+            # Get nodes (documents, chunks, and/or entities)
+            nodes_query = f"""
             MATCH (n)
-            WHERE n:Document OR n:Chunk
+            WHERE {node_filters}
             RETURN
                 elementId(n) as node_id,
                 labels(n) as labels,
@@ -36,13 +45,23 @@ def get_graph_data(limit: int = 100) -> Dict[str, Any]:
                 CASE
                     WHEN n:Document THEN n.filename
                     WHEN n:Chunk THEN substring(n.content, 0, 50) + "..."
+                    WHEN n:Entity THEN n.name
                     ELSE "Unknown"
                 END as title,
                 CASE
                     WHEN n:Document THEN size(n.content)
                     WHEN n:Chunk THEN size(n.content)
+                    WHEN n:Entity THEN coalesce(n.confidence * 50, 20)
                     ELSE 0
-                END as content_size
+                END as content_size,
+                CASE
+                    WHEN n:Entity THEN n.type
+                    ELSE null
+                END as entity_type,
+                CASE
+                    WHEN n:Entity THEN coalesce(n.confidence, 0.5)
+                    ELSE null
+                END as confidence
             LIMIT $limit
             """
 
@@ -54,31 +73,37 @@ def get_graph_data(limit: int = 100) -> Dict[str, Any]:
                 node_data = record.data()
                 if node_data["content_size"] is None:
                     node_data["content_size"] = 0
-                nodes.append(
-                    {
-                        "id": str(node_data["node_id"]),
-                        "entity_id": node_data["entity_id"],
-                        "label": (
-                            node_data["labels"][0] if node_data["labels"] else "Unknown"
-                        ),
-                        "title": node_data["title"] or "Untitled",
-                        "size": min(
-                            max(int(node_data["content_size"]) / 100, 10), 50
-                        ),  # Scale size
-                    }
-                )
+                
+                node_info = {
+                    "id": str(node_data["node_id"]),
+                    "entity_id": node_data["entity_id"],
+                    "label": (
+                        node_data["labels"][0] if node_data["labels"] else "Unknown"
+                    ),
+                    "title": node_data["title"] or "Untitled",
+                    "size": min(
+                        max(int(node_data["content_size"]) / 100, 10), 50
+                    ),  # Scale size
+                }
+                
+                # Add entity-specific properties
+                if node_data.get("entity_type"):
+                    node_info["entity_type"] = node_data["entity_type"]
+                    node_info["confidence"] = node_data["confidence"]
+                
+                nodes.append(node_info)
                 node_ids.add(str(node_data["node_id"]))
 
             # Get relationships between the nodes
-            edges_query = """
+            edges_query = f"""
             MATCH (n)-[r]-(m)
-            WHERE (n:Document OR n:Chunk) AND (m:Document OR m:Chunk)
+            WHERE ({node_filters}) AND ({node_filters.replace('n:', 'm:')})
             AND elementId(n) IN $node_ids AND elementId(m) IN $node_ids
             RETURN
                 elementId(n) as source_id,
                 elementId(m) as target_id,
                 type(r) as relationship_type,
-                coalesce(properties(r)['similarity'], 1.0) as weight
+                coalesce(properties(r)['similarity'], properties(r)['confidence'], 1.0) as weight
             LIMIT $limit
             """
 
@@ -103,11 +128,12 @@ def get_graph_data(limit: int = 100) -> Dict[str, Any]:
                 "edges": edges,
                 "total_nodes": len(nodes),
                 "total_edges": len(edges),
+                "retrieval_mode": retrieval_mode,
             }
 
     except Exception as e:
         logger.error(f"Failed to retrieve graph data: {e}")
-        return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0}
+        return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0, "retrieval_mode": retrieval_mode}
 
 
 def create_networkx_graph(graph_data: Dict[str, Any]) -> nx.Graph:
@@ -146,7 +172,7 @@ def create_plotly_graph(
     graph_data: Dict[str, Any], layout_algorithm: str = "spring"
 ) -> go.Figure:
     """
-    Create an interactive Plotly graph visualization.
+    Create an interactive Plotly graph visualization with support for entities.
 
     Args:
         graph_data: Dictionary containing nodes and edges
@@ -177,84 +203,181 @@ def create_plotly_graph(
     else:  # default to spring
         pos = nx.spring_layout(G, k=1, iterations=50)
 
-    # Color map for different node types
-    color_map = {"Document": "#FF6B6B", "Chunk": "#4ECDC4", "Unknown": "#95A5A6"}
+    # Enhanced color map for different node types
+    color_map = {
+        "Document": "#FF6B6B",  # Red for documents
+        "Chunk": "#4ECDC4",     # Teal for chunks
+        "Entity": "#9B59B6",    # Purple for entities
+        "Unknown": "#95A5A6"    # Gray for unknown
+    }
+    
+    # Shape map for different node types (using symbols)
+    symbol_map = {
+        "Document": "square",
+        "Chunk": "circle",
+        "Entity": "diamond",
+        "Unknown": "circle"
+    }
+    
+    # Size scaling for better entity visibility
+    size_map = {
+        "Document": lambda size: max(size * 1.2, 25),  # Larger documents
+        "Chunk": lambda size: max(size, 15),          # Normal chunks
+        "Entity": lambda size: max(size * 1.5, 20),   # Larger entities for visibility
+        "Unknown": lambda size: max(size, 15)
+    }
 
-    # Prepare node traces
-    x_coords = []
-    y_coords = []
-    text_labels = []
-    sizes = []
-    colors = []
+    # Prepare node traces by type for better legend support
+    node_types = {}
+    for node in graph_data["nodes"]:
+        node_type = node["label"]
+        if node_type not in node_types:
+            node_types[node_type] = {
+                "x": [], "y": [], "text": [], "sizes": [], "colors": [],
+                "hover_texts": [], "symbols": []
+            }
 
+    # Organize nodes by type
     for node in graph_data["nodes"]:
         node_id = node["id"]
         if node_id in pos:
             x, y = pos[node_id]
-            x_coords.append(x)
-            y_coords.append(y)
-            text_labels.append(node["title"][:20])  # Truncate long titles
-            sizes.append(max(node["size"], 15))
-            colors.append(color_map.get(node["label"], "#95A5A6"))
+            node_type = node["label"]
+            
+            node_types[node_type]["x"].append(x)
+            node_types[node_type]["y"].append(y)
+            node_types[node_type]["text"].append(node["title"][:15])  # Truncate for display
+            
+            # Apply size scaling based on node type
+            raw_size = max(node["size"], 15)
+            scaled_size = size_map.get(node_type, lambda s: s)(raw_size)
+            node_types[node_type]["sizes"].append(scaled_size)
+            
+            node_types[node_type]["colors"].append(color_map.get(node_type, "#95A5A6"))
+            node_types[node_type]["symbols"].append(symbol_map.get(node_type, "circle"))
+            
+            # Create detailed hover text
+            hover_text = f"<b>{node_type}:</b> {node['title']}<br>"
+            hover_text += f"<b>ID:</b> {node.get('entity_id', 'N/A')}<br>"
+            
+            if node.get("entity_type"):
+                hover_text += f"<b>Type:</b> {node['entity_type']}<br>"
+                hover_text += f"<b>Confidence:</b> {node.get('confidence', 0):.2f}<br>"
+            
+            node_types[node_type]["hover_texts"].append(hover_text)
 
-    # Create node trace
-    node_trace = go.Scatter(
-        x=x_coords,
-        y=y_coords,
-        text=text_labels,
-        textposition="middle center",
-        mode="markers+text",
-        hoverinfo="text",
-        marker=dict(size=sizes, color=colors, line=dict(width=2)),
-    )
+    # Create separate traces for each node type
+    node_traces = []
+    for node_type, data in node_types.items():
+        if data["x"]:  # Only create trace if there are nodes of this type
+            node_trace = go.Scatter(
+                x=data["x"],
+                y=data["y"],
+                text=data["text"],
+                textposition="middle center",
+                mode="markers+text",
+                hovertext=data["hover_texts"],
+                hoverinfo="text",
+                name=node_type,
+                marker=dict(
+                    size=data["sizes"],
+                    color=color_map.get(node_type, "#95A5A6"),
+                    symbol=data["symbols"][0] if data["symbols"] else "circle",
+                    line=dict(width=2, color="white")
+                ),
+                showlegend=True
+            )
+            node_traces.append(node_trace)
 
-    # Prepare edge traces
+    # Prepare edge traces with enhanced styling
     edge_traces = []
+    edge_color_map = {
+        "HAS_CHUNK": {"color": "rgba(125,125,125,0.5)", "width": 2, "name": "Document-Chunk"},
+        "SIMILAR_TO": {"color": "rgba(255,107,107,0.7)", "width": 1, "dash": "dash", "name": "Similar Content"},
+        "CONTAINS_ENTITY": {"color": "rgba(155,89,182,0.6)", "width": 2, "dash": "dot", "name": "Contains Entity"},
+        "RELATED_TO": {"color": "rgba(52,152,219,0.6)", "width": 1.5, "dash": "dashdot", "name": "Entity Relation"}
+    }
 
+    edge_legend_added = set()  # Track which edge types have been added to legend
+    
     for edge in graph_data["edges"]:
         source_id, target_id = edge["source"], edge["target"]
         if source_id in pos and target_id in pos:
             x0, y0 = pos[source_id]
             x1, y1 = pos[target_id]
 
-            # Different line styles for different relationship types
-            line_style = {
-                "HAS_CHUNK": dict(color="rgba(125,125,125,0.5)", width=2),
-                "SIMILAR_TO": dict(color="rgba(255,107,107,0.7)", width=1, dash="dash"),
-            }.get(edge["type"], dict(color="rgba(125,125,125,0.3)", width=1))
+            # Get edge styling
+            edge_style = edge_color_map.get(
+                edge["type"],
+                {"color": "rgba(125,125,125,0.3)", "width": 1, "name": "Other"}
+            )
+            
+            line_dict = {
+                "color": edge_style["color"],
+                "width": edge_style["width"]
+            }
+            if "dash" in edge_style:
+                line_dict["dash"] = edge_style["dash"]
+
+            # Determine if this edge type should show in legend
+            show_legend = edge["type"] not in edge_legend_added
+            if show_legend:
+                edge_legend_added.add(edge["type"])
 
             edge_trace = go.Scatter(
                 x=[x0, x1, None],
                 y=[y0, y1, None],
                 mode="lines",
-                line=line_style,
-                hoverinfo="none",
-                showlegend=False,
+                line=line_dict,
+                hoverinfo="text" if show_legend else "none",
+                hovertext=f"{edge_style['name']}: {edge.get('weight', 1.0):.2f}" if show_legend else None,
+                name=edge_style["name"],
+                showlegend=show_legend,
+                legendgroup="edges" if show_legend else None
             )
             edge_traces.append(edge_trace)
 
-    # Create figure
-    fig = go.Figure(data=[node_trace] + edge_traces)
+    # Create figure with all traces
+    fig = go.Figure(data=node_traces + edge_traces)
 
-    # Update layout
+    # Determine title based on retrieval mode
+    retrieval_mode = graph_data.get("retrieval_mode", "unknown")
+    mode_descriptions = {
+        "chunk_only": "Chunk-based Knowledge Graph",
+        "entity_only": "Entity-based Knowledge Graph",
+        "hybrid": "Hybrid Knowledge Graph (Chunks + Entities)"
+    }
+    title_text = mode_descriptions.get(retrieval_mode, "Knowledge Graph")
+    title_text += f" ({graph_data['total_nodes']} nodes, {graph_data['total_edges']} edges)"
+
+    # Update layout with enhanced styling
     fig.update_layout(
         title={
-            "text": f"Knowledge Graph ({graph_data['total_nodes']} nodes, {graph_data['total_edges']} edges)",
+            "text": title_text,
             "x": 0.5,
             "xanchor": "center",
         },
-        showlegend=False,
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1
+        ),
         hovermode="closest",
-        margin=dict(b=20, l=5, r=5, t=40),
+        margin=dict(b=20, l=5, r=5, t=60),
         annotations=[
             dict(
-                text="Documents (red) connected to Chunks (teal). Dashed lines show similarity relationships.",
+                text=f"Mode: {retrieval_mode.replace('_', ' ').title()} | Hover over nodes and edges for details",
                 showarrow=False,
                 xref="paper",
                 yref="paper",
-                x=0.005,
-                y=-0.002,
-                xanchor="left",
+                x=0.5,
+                y=-0.05,
+                xanchor="center",
                 yanchor="bottom",
                 font=dict(color="gray", size=10),
             )
@@ -262,7 +385,7 @@ def create_plotly_graph(
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         plot_bgcolor="white",
-        height=600,
+        height=700,  # Slightly taller to accommodate legend
     )
 
     return fig

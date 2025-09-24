@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from neo4j import Driver, GraphDatabase
 
 from config.settings import settings
+from core.embeddings import embedding_manager
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,143 @@ class GraphDB:
         )
         return results
 
+    def create_entity_similarities(self, doc_id: str = None, threshold: float = None) -> int:  # type: ignore
+        """Create similarity relationships between entities based on their embeddings."""
+        if threshold is None:
+            threshold = settings.similarity_threshold
+
+        with self.driver.session() as session:  # type: ignore
+            # Build query based on whether we're processing specific doc or all entities
+            if doc_id:
+                # Get entities for specific document
+                result = session.run(
+                    """
+                    MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                    WHERE e.embedding IS NOT NULL
+                    RETURN DISTINCT e.id as entity_id, e.embedding as embedding, e.name as name, e.type as type
+                    """,
+                    doc_id=doc_id,
+                )
+            else:
+                # Get all entities with embeddings
+                result = session.run(
+                    """
+                    MATCH (e:Entity)
+                    WHERE e.embedding IS NOT NULL
+                    RETURN e.id as entity_id, e.embedding as embedding, e.name as name, e.type as type
+                    """
+                )
+
+            entities_data = [
+                (record["entity_id"], record["embedding"], record["name"], record["type"])
+                for record in result
+            ]
+
+            if len(entities_data) < 2:
+                scope = f"document {doc_id}" if doc_id else "database"
+                logger.info(f"Skipping entity similarity creation for {scope}: less than 2 entities with embeddings")
+                return 0
+
+            relationships_created = 0
+            max_connections = settings.max_similarity_connections
+
+            # Calculate similarities between all pairs of entities
+            for i in range(len(entities_data)):
+                entity_id1, embedding1, name1, type1 = entities_data[i]
+                similarities = []
+
+                for j in range(len(entities_data)):
+                    if i != j:
+                        entity_id2, embedding2, name2, type2 = entities_data[j]
+                        
+                        # Skip if same entity type and name (likely duplicate)
+                        if type1 == type2 and name1 == name2:
+                            continue
+                            
+                        similarity = self._calculate_cosine_similarity(embedding1, embedding2)
+
+                        if similarity >= threshold:
+                            similarities.append((entity_id2, similarity))
+
+                # Sort by similarity and take top connections
+                similarities.sort(key=lambda x: x[1], reverse=True)
+                top_similarities = similarities[:max_connections]
+
+                # Create relationships
+                for entity_id2, similarity in top_similarities:
+                    self._create_entity_similarity_relationship(entity_id1, entity_id2, similarity)
+                    relationships_created += 1
+
+            scope = f"document {doc_id}" if doc_id else "all entities"
+            logger.info(f"Created {relationships_created} entity similarity relationships for {scope}")
+            return relationships_created
+
+    def create_all_entity_similarities(self, threshold: float = None, batch_size: int = 10) -> Dict[str, int]:  # type: ignore
+        """Create entity similarity relationships for all documents in the database."""
+        if threshold is None:
+            threshold = settings.similarity_threshold
+
+        with self.driver.session() as session:  # type: ignore
+            # Get all document IDs that have entities
+            result = session.run(
+                """
+                MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                RETURN DISTINCT d.id as doc_id
+                """
+            )
+            doc_ids = [record["doc_id"] for record in result]
+
+        if not doc_ids:
+            logger.info("No documents with entities found")
+            return {}
+
+        total_relationships = 0
+        processed_docs = 0
+        results = {}
+
+        for doc_id in doc_ids:
+            try:
+                relationships_created = self.create_entity_similarities(doc_id, threshold)
+                results[doc_id] = relationships_created
+                total_relationships += relationships_created
+                processed_docs += 1
+
+                logger.info(
+                    f"Processed document {doc_id}: {relationships_created} entity relationships"
+                )
+
+                # Process in batches to avoid memory issues
+                if processed_docs % batch_size == 0:
+                    logger.info(
+                        f"Processed {processed_docs}/{len(doc_ids)} documents so far"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to create entity similarities for document {doc_id}: {e}"
+                )
+                results[doc_id] = 0
+
+        logger.info(
+            f"Entity similarity batch processing complete: {total_relationships} total relationships created for {processed_docs} documents"
+        )
+        return results
+
+    def _create_entity_similarity_relationship(self, entity_id1: str, entity_id2: str, similarity: float) -> None:
+        """Create a similarity relationship between two entities."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (e1:Entity {id: $entity_id1})
+                MATCH (e2:Entity {id: $entity_id2})
+                MERGE (e1)-[r:SIMILAR_TO]-(e2)
+                SET r.similarity = $similarity, r.created_at = datetime()
+                """,
+                entity_id1=entity_id1,
+                entity_id2=entity_id2,
+                similarity=similarity,
+            )
+
     def vector_similarity_search(
         self, query_embedding: List[float], top_k: int = 5
     ) -> List[Dict[str, Any]]:
@@ -316,15 +454,20 @@ class GraphDB:
         with self.driver.session() as session:  # type: ignore
             result = session.run(
                 """
-                MATCH (d:Document)
+                OPTIONAL MATCH (d:Document)
                 WITH count(d) AS documents
-                MATCH (c:Chunk)
+                OPTIONAL MATCH (c:Chunk)
                 WITH documents, count(c) AS chunks
-                MATCH ()-[r]-()
-                WITH documents, chunks,
+                OPTIONAL MATCH (e:Entity)
+                WITH documents, chunks, count(e) AS entities
+                OPTIONAL MATCH ()-[r]-()
+                WITH documents, chunks, entities,
                      sum(CASE WHEN type(r) = 'HAS_CHUNK' THEN 1 ELSE 0 END) AS has_chunk_relations,
-                     sum(CASE WHEN type(r) = 'SIMILAR_TO' THEN 1 ELSE 0 END) AS similarity_relations
-                RETURN documents, chunks, has_chunk_relations, similarity_relations
+                     sum(CASE WHEN type(r) = 'SIMILAR_TO' AND (startNode(r):Chunk OR endNode(r):Chunk) THEN 1 ELSE 0 END) AS similarity_relations,
+                     sum(CASE WHEN type(r) = 'RELATED_TO' OR (type(r) = 'SIMILAR_TO' AND startNode(r):Entity AND endNode(r):Entity) THEN 1 ELSE 0 END) AS entity_relations,
+                     sum(CASE WHEN type(r) = 'CONTAINS_ENTITY' THEN 1 ELSE 0 END) AS chunk_entity_relations
+                RETURN documents, chunks, entities, has_chunk_relations,
+                       similarity_relations, entity_relations, chunk_entity_relations
                 """
             )
             record = result.single()
@@ -334,8 +477,11 @@ class GraphDB:
                 return {
                     "documents": 0,
                     "chunks": 0,
+                    "entities": 0,
                     "has_chunk_relations": 0,
                     "similarity_relations": 0,
+                    "entity_relations": 0,
+                    "chunk_entity_relations": 0,
                 }
 
     def setup_indexes(self) -> None:
@@ -344,7 +490,269 @@ class GraphDB:
             # Create indexes for faster lookups
             session.run("CREATE INDEX IF NOT EXISTS FOR (d:Document) ON (d.id)")
             session.run("CREATE INDEX IF NOT EXISTS FOR (c:Chunk) ON (c.id)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.id)")
+            session.run("CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.name)")
             logger.info("Database indexes created successfully")
+
+    # Entity-related methods
+
+    def create_entity_node(
+        self, entity_id: str, name: str, entity_type: str, description: str,
+        importance_score: float = 0.5, source_chunks: Optional[List[str]] = None
+    ) -> None:
+        """Create an entity node in the graph with embedding."""
+        if source_chunks is None:
+            source_chunks = []
+
+        # Generate embedding for the entity using name and description
+        entity_text = f"{name}: {description}"
+        embedding = embedding_manager.get_embedding(entity_text)
+
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MERGE (e:Entity {id: $entity_id})
+                SET e.name = $name,
+                    e.type = $entity_type,
+                    e.description = $description,
+                    e.importance_score = $importance_score,
+                    e.source_chunks = $source_chunks,
+                    e.embedding = $embedding,
+                    e.updated_at = timestamp()
+                """,
+                entity_id=entity_id,
+                name=name,
+                entity_type=entity_type,
+                description=description,
+                importance_score=importance_score,
+                source_chunks=source_chunks,
+                embedding=embedding,
+            )
+
+    def update_entities_with_embeddings(self) -> int:
+        """Update existing entities that don't have embeddings."""
+        updated_count = 0
+        
+        with self.driver.session() as session:  # type: ignore
+            # Get entities without embeddings
+            result = session.run(
+                """
+                MATCH (e:Entity)
+                WHERE e.embedding IS NULL
+                RETURN e.id as entity_id, e.name as name, e.description as description
+                """
+            )
+            
+            entities_to_update = [
+                (record["entity_id"], record["name"], record["description"])
+                for record in result
+            ]
+            
+            logger.info(f"Found {len(entities_to_update)} entities without embeddings")
+            
+            # Update entities with embeddings
+            for entity_id, name, description in entities_to_update:
+                try:
+                    entity_text = f"{name}: {description}" if description else name
+                    embedding = embedding_manager.get_embedding(entity_text)
+                    
+                    session.run(
+                        """
+                        MATCH (e:Entity {id: $entity_id})
+                        SET e.embedding = $embedding
+                        """,
+                        entity_id=entity_id,
+                        embedding=embedding,
+                    )
+                    updated_count += 1
+                    
+                    if updated_count % 100 == 0:
+                        logger.info(f"Updated {updated_count}/{len(entities_to_update)} entities with embeddings")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to update entity {entity_id} with embedding: {e}")
+            
+            logger.info(f"Successfully updated {updated_count} entities with embeddings")
+            return updated_count
+
+    def create_entity_relationship(
+        self, entity_id1: str, entity_id2: str, relationship_type: str,
+        description: str, strength: float = 0.5, source_chunks: Optional[List[str]] = None
+    ) -> None:
+        """Create a relationship between two entities."""
+        if source_chunks is None:
+            source_chunks = []
+
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (e1:Entity {id: $entity_id1})
+                MATCH (e2:Entity {id: $entity_id2})
+                MERGE (e1)-[r:RELATED_TO]-(e2)
+                SET r.type = $relationship_type,
+                    r.description = $description,
+                    r.strength = $strength,
+                    r.source_chunks = $source_chunks,
+                    r.updated_at = timestamp()
+                """,
+                entity_id1=entity_id1,
+                entity_id2=entity_id2,
+                relationship_type=relationship_type,
+                description=description,
+                strength=strength,
+                source_chunks=source_chunks,
+            )
+
+    def create_chunk_entity_relationship(self, chunk_id: str, entity_id: str) -> None:
+        """Create a relationship between a chunk and an entity it contains."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (c:Chunk {id: $chunk_id})
+                MATCH (e:Entity {id: $entity_id})
+                MERGE (c)-[:CONTAINS_ENTITY]->(e)
+                """,
+                chunk_id=chunk_id,
+                entity_id=entity_id,
+            )
+
+    def get_entities_by_type(self, entity_type: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get entities of a specific type."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (e:Entity {type: $entity_type})
+                RETURN e.id as entity_id, e.name as name, e.description as description,
+                       e.importance_score as importance_score, e.source_chunks as source_chunks
+                ORDER BY e.importance_score DESC
+                LIMIT $limit
+                """,
+                entity_type=entity_type,
+                limit=limit,
+            )
+            return [record.data() for record in result]
+
+    def get_entity_relationships(self, entity_id: str) -> List[Dict[str, Any]]:
+        """Get all relationships for a specific entity."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (e1:Entity {id: $entity_id})-[r:RELATED_TO]-(e2:Entity)
+                RETURN e2.id as related_entity_id, e2.name as related_entity_name,
+                       e2.type as related_entity_type, r.type as relationship_type,
+                       r.description as relationship_description, r.strength as strength
+                ORDER BY r.strength DESC
+                """,
+                entity_id=entity_id,
+            )
+            return [record.data() for record in result]
+
+    def entity_similarity_search(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Search entities by text similarity using full-text search."""
+        with self.driver.session() as session:  # type: ignore
+            # Create full-text index if it doesn't exist
+            try:
+                session.run(
+                    "CREATE FULLTEXT INDEX entity_text IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, e.description]"
+                )
+            except Exception:
+                pass  # Index might already exist
+
+            result = session.run(
+                """
+                CALL db.index.fulltext.queryNodes('entity_text', $query_text)
+                YIELD node, score
+                RETURN node.id as entity_id, node.name as name, node.type as type,
+                       node.description as description, node.importance_score as importance_score,
+                       score
+                ORDER BY score DESC
+                LIMIT $top_k
+                """,
+                query_text=query_text,
+                top_k=top_k,
+            )
+            return [record.data() for record in result]
+
+    def get_entities_for_chunks(self, chunk_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get all entities contained in the specified chunks."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                WHERE c.id IN $chunk_ids
+                RETURN DISTINCT e.id as entity_id, e.name as name, e.type as type,
+                       e.description as description, e.importance_score as importance_score,
+                       collect(c.id) as source_chunks
+                """,
+                chunk_ids=chunk_ids,
+            )
+            return [record.data() for record in result]
+
+    def get_chunks_for_entities(self, entity_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get all chunks that contain the specified entities."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                WHERE e.id IN $entity_ids
+                OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(c)
+                RETURN DISTINCT c.id as chunk_id, c.content as content,
+                       d.filename as document_name, d.id as document_id,
+                       collect(e.name) as contained_entities
+                """,
+                entity_ids=entity_ids,
+            )
+            return [record.data() for record in result]
+
+    def get_entity_graph_neighborhood(
+        self, entity_id: str, max_depth: int = 2, max_entities: int = 50
+    ) -> Dict[str, Any]:
+        """Get a subgraph around a specific entity."""
+        with self.driver.session() as session:  # type: ignore
+            if max_depth == 1:
+                query = """
+                    MATCH (start:Entity {id: $entity_id})-[r:RELATED_TO]-(related:Entity)
+                    RETURN collect(DISTINCT start) + collect(DISTINCT related) as entities,
+                           collect({
+                               start: startNode(r).id,
+                               end: endNode(r).id,
+                               type: r.type,
+                               description: r.description,
+                               strength: r.strength
+                           }) as relationships
+                    """
+            else:
+                query = """
+                    MATCH (start:Entity {id: $entity_id})-[*1..2]-(related:Entity)
+                    WITH start, related
+                    MATCH (e1:Entity)-[r:RELATED_TO]-(e2:Entity)
+                    WHERE (e1.id = start.id OR e1.id = related.id)
+                      AND (e2.id = start.id OR e2.id = related.id)
+                    RETURN collect(DISTINCT start) + collect(DISTINCT related) as entities,
+                           collect(DISTINCT {
+                               start: startNode(r).id,
+                               end: endNode(r).id,
+                               type: r.type,
+                               description: r.description,
+                               strength: r.strength
+                           }) as relationships
+                    """
+            
+            result = session.run(query, entity_id=entity_id)
+            record = result.single()
+            if record:
+                entities = [
+                    {
+                        "id": node["id"],
+                        "name": node["name"],
+                        "type": node["type"],
+                        "description": node["description"],
+                        "importance_score": node["importance_score"],
+                    }
+                    for node in record["entities"]
+                ]
+                return {"entities": entities, "relationships": record["relationships"]}
+            return {"entities": [], "relationships": []}
 
 
 # Global database instance

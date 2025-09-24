@@ -34,24 +34,18 @@ def reason_with_graph(
 
         enhanced_chunks = list(retrieved_chunks)  # Start with original chunks
 
-        # Determine whether to run graph reasoning.
-        # Force reasoning if the retrieval_mode requires it (e.g., 'graph_enhanced' or 'hybrid').
-        requires_reasoning = query_analysis.get("requires_reasoning", False)
-        complexity = query_analysis.get("complexity", "simple")
-
         # If retrieval mode explicitly requests simple retrieval, skip reasoning.
         if retrieval_mode == "simple":
             logger.info("Retrieval mode is 'simple' - skipping graph reasoning")
             return enhanced_chunks
 
-        # For other modes, always run graph reasoning unless explicitly unnecessary.
-        if (
-            retrieval_mode not in ("graph_enhanced", "hybrid")
-            and not requires_reasoning
-            and complexity != "complex"
-        ):
-            logger.info("Query doesn't require reasoning - skipping graph reasoning")
+        # For chunk_only mode, skip graph reasoning entirely
+        if retrieval_mode == "chunk_only":
+            logger.info("Chunk-only mode selected - skipping graph reasoning")
             return enhanced_chunks
+
+        # For entity_only and hybrid modes, always run graph reasoning to respect user's choice
+        logger.info(f"Running graph reasoning for {retrieval_mode} mode")
 
         # Find related chunks through graph traversal
         seen_chunk_ids = {chunk.get("chunk_id") for chunk in retrieved_chunks}

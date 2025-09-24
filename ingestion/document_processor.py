@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from core.chunking import document_chunker
 from core.embeddings import embedding_manager
 from core.graph_db import graph_db
+from core.entity_extraction import EntityExtractor
 from config.settings import settings
 import asyncio
 from ingestion.loaders.docx_loader import DOCXLoader
@@ -35,11 +36,23 @@ class DocumentProcessor:
             ".html": TextLoader(),
             ".css": TextLoader(),
         }
+        
+        # Initialize entity extractor if enabled
+        if settings.enable_entity_extraction:
+            self.entity_extractor = EntityExtractor()
+            logger.info("Entity extraction enabled")
+        else:
+            self.entity_extractor = None
+            logger.info("Entity extraction disabled")
 
     def _generate_document_id(self, file_path: Path) -> str:
         """Generate a unique document ID based on file path and modification time."""
         content = f"{file_path}_{file_path.stat().st_mtime}"
         return hashlib.md5(content.encode()).hexdigest()
+
+    def _generate_entity_id(self, entity_name: str) -> str:
+        """Generate a consistent entity ID from entity name."""
+        return hashlib.md5(entity_name.lower().encode()).hexdigest()[:16]
 
     def _extract_metadata(
         self, file_path: Path, original_filename: Optional[str] = None
@@ -169,6 +182,71 @@ class DocumentProcessor:
                 else:
                     processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id, progress_callback))
 
+            # Extract entities if enabled
+            entity_count = 0
+            relationship_count = 0
+            
+            # Check if entity extraction is enabled (either at startup or temporarily overridden)
+            should_extract_entities = settings.enable_entity_extraction
+            if should_extract_entities and self.entity_extractor is None:
+                # Initialize entity extractor if needed (for temporary overrides)
+                logger.info("Initializing entity extractor for this processing session...")
+                self.entity_extractor = EntityExtractor()
+            
+            if should_extract_entities and self.entity_extractor:
+                try:
+                    logger.info(f"Extracting entities from {len(chunks)} chunks...")
+                    
+                    # Prepare chunks for entity extraction
+                    chunks_for_extraction = [
+                        {"chunk_id": chunk["chunk_id"], "content": chunk["content"]}
+                        for chunk in chunks
+                    ]
+                    
+                    # Extract entities and relationships
+                    entity_dict, relationship_dict = asyncio.run(
+                        self.entity_extractor.extract_from_chunks(chunks_for_extraction)
+                    )
+                    
+                    # Store entities and relationships in the graph
+                    for entity in entity_dict.values():
+                        entity_id = self._generate_entity_id(entity.name)
+                        graph_db.create_entity_node(
+                            entity_id=entity_id,
+                            name=entity.name,
+                            entity_type=entity.type,
+                            description=entity.description,
+                            importance_score=entity.importance_score,
+                            source_chunks=entity.source_chunks or []
+                        )
+                        
+                        # Create chunk-entity relationships
+                        for chunk_id in entity.source_chunks or []:
+                            graph_db.create_chunk_entity_relationship(chunk_id, entity_id)
+                        
+                        entity_count += 1
+                    
+                    # Store entity relationships
+                    for relationships in relationship_dict.values():
+                        for relationship in relationships:
+                            source_id = self._generate_entity_id(relationship.source_entity)
+                            target_id = self._generate_entity_id(relationship.target_entity)
+                            graph_db.create_entity_relationship(
+                                entity_id1=source_id,
+                                entity_id2=target_id,
+                                relationship_type="RELATED_TO",
+                                description=relationship.description,
+                                strength=relationship.strength,
+                                source_chunks=relationship.source_chunks or []
+                            )
+                            relationship_count += 1
+                    
+                    logger.info(f"Extracted {entity_count} entities and {relationship_count} relationships")
+                    
+                except Exception as e:
+                    logger.warning(f"Entity extraction failed for document {doc_id}: {e}")
+                    # Continue processing without entities
+
             # Create similarity relationships between chunks
             try:
                 relationships_created = graph_db.create_chunk_similarities(doc_id)
@@ -185,6 +263,8 @@ class DocumentProcessor:
                 "document_id": doc_id,
                 "file_path": str(file_path),
                 "chunks_created": len(processed_chunks),
+                "entities_created": entity_count,
+                "entity_relationships_created": relationship_count,
                 "similarity_relationships_created": relationships_created,
                 "metadata": metadata,
                 "status": "success",

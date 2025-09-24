@@ -55,7 +55,7 @@ def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None
 
 
 def process_files_background(
-    uploaded_files: List[Any], progress_container
+    uploaded_files: List[Any], progress_container, processing_mode: str = "chunk_only"
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
@@ -67,7 +67,7 @@ def process_files_background(
     Returns:
         Dictionary with processing results
     """
-    results = {"processed_files": [], "total_chunks": 0, "errors": []}
+    results = {"processed_files": [], "total_chunks": 0, "total_entities": 0, "total_entity_relationships": 0, "errors": []}
 
     # First, estimate total chunks for progress tracking
     status_text = progress_container.empty()
@@ -101,18 +101,37 @@ def process_files_background(
                 tmp_path = Path(tmp_file.name)
 
             try:
+                # Temporarily override entity extraction setting based on processing mode
+                original_setting = settings.enable_entity_extraction
+                settings.enable_entity_extraction = (processing_mode == "entity_extraction")
+                
                 # Process the file with original filename and progress callback
                 result = document_processor.process_file(tmp_path, uploaded_file.name, chunk_progress_callback)
+                
+                # Restore original setting
+                settings.enable_entity_extraction = original_setting
 
                 if result and result.get("status") == "success":
-                    results["processed_files"].append(
-                        {
-                            "name": uploaded_file.name,
-                            "chunks": result.get("chunks_created", 0),
-                            "document_id": result.get("document_id"),
-                        }
-                    )
+                    file_info = {
+                        "name": uploaded_file.name,
+                        "chunks": result.get("chunks_created", 0),
+                        "document_id": result.get("document_id"),
+                    }
+                    
+                    # Add entity information if available
+                    if result.get("entities_created", 0) > 0:
+                        file_info["entities"] = result.get("entities_created", 0)
+                        file_info["entity_relationships"] = result.get("entity_relationships_created", 0)
+                    
+                    results["processed_files"].append(file_info)
                     results["total_chunks"] += result.get("chunks_created", 0)
+                    
+                    # Track entity statistics
+                    if "total_entities" not in results:
+                        results["total_entities"] = 0
+                        results["total_entity_relationships"] = 0
+                    results["total_entities"] += result.get("entities_created", 0)
+                    results["total_entity_relationships"] += result.get("entity_relationships_created", 0)
                 else:
                     results["errors"].append(
                         {
@@ -146,14 +165,25 @@ def display_stats():
         stats = graph_db.get_graph_stats()
 
         st.markdown("### 📊 Database Stats")
+        
+        # Main metrics
         col1, col2 = st.columns(2)
-
         with col1:
             st.metric("Documents", stats.get("documents", 0))
-            st.metric("Relationships", stats.get("similarity_relations", 0))
+            st.metric("Chunks", stats.get("chunks", 0))
+            st.metric("Entities", stats.get("entities", 0))
 
         with col2:
-            st.metric("Chunks", stats.get("chunks", 0))
+            st.metric("Chunk Relations", stats.get("similarity_relations", 0))
+            st.metric("Entity Relations", stats.get("entity_relations", 0))
+            st.metric("Chunk-Entity Links", stats.get("chunk_entity_relations", 0))
+
+        # Show entity extraction status
+        if stats.get("entities", 0) > 0:
+            entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
+            st.caption(f"✅ Entity extraction active ({entity_coverage:.1f}% chunk coverage)")
+        else:
+            st.caption("⚠️ No entities extracted yet")
 
     except Exception as e:
         st.error(f"Could not fetch database stats: {e}")
@@ -307,6 +337,27 @@ def display_query_analysis_detailed(analysis: Dict[str, Any]):
 def display_document_upload():
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
+
+    # Processing mode selection in expander
+    with st.expander("⚙️ Processing Options", expanded=True):
+        processing_mode = st.radio(
+            "Processing Mode",
+            ["chunk_only", "entity_extraction"],
+            format_func=lambda x: "Chunk Only (Fast)" if x == "chunk_only" else "Entity Extraction (Slow)",
+            help="Chunk Only: Traditional processing (fast)\nEntity Extraction: Extract entities and relationships (slower but more comprehensive)",
+            key="processing_mode",
+            index=0  # Default to chunk_only
+        )
+        
+        # Store in session state immediately when changed
+        st.session_state["selected_processing_mode"] = processing_mode
+        
+        # Show current status
+        if processing_mode == "entity_extraction":
+            st.info("🔬 Entity extraction will create relationships between concepts")
+        else:
+            st.info("⚡ Fast processing will only create text chunks")
+    
     uploaded_files = st.file_uploader(
         "Choose files to upload",
         type=["pdf", "docx", "txt", "md"],
@@ -324,12 +375,22 @@ def display_document_upload():
                 st.markdown("### 📝 Processing Progress")
                 progress_container = st.container()
 
+                # Get processing mode from session state
+                current_processing_mode = st.session_state.get("selected_processing_mode", "chunk_only")
+                st.info(f"Processing with mode: {current_processing_mode}")
+                
                 # Process files
-                results = process_files_background(uploaded_files, progress_container)
+                results = process_files_background(uploaded_files, progress_container, current_processing_mode)
 
                 # Display results
                 if results["processed_files"]:
-                    st.toast(icon="✅", body=f"Successfully processed {len(results['processed_files'])} files ({results['total_chunks']} chunks created)")
+                    # Create comprehensive success message
+                    success_msg = f"Successfully processed {len(results['processed_files'])} files ({results['total_chunks']} chunks created"
+                    if results.get("total_entities", 0) > 0:
+                        success_msg += f", {results['total_entities']} entities, {results['total_entity_relationships']} relationships"
+                    success_msg += ")"
+                    
+                    st.toast(icon="✅", body=success_msg)
 
                 if results["errors"]:
                     st.toast(icon="❌", body=f"Failed to process {len(results['errors'])} files")
@@ -356,23 +417,48 @@ def get_rag_settings(key_suffix: str = ""):
             the settings are rendered from multiple places in the UI.
 
     Returns:
-        Tuple of (retrieval_mode, top_k, temperature)
+        Tuple of (retrieval_mode, top_k, temperature, chunk_weight, graph_expansion)
     """
     st.markdown("### 🧠 RAG Settings")
 
+    # Update retrieval modes to match hybrid approach
+    mode_options = ["chunk_only", "entity_only", "hybrid"]
+    mode_labels = [
+        "Chunk Only (Traditional)",
+        "Entity Only (GraphRAG)",
+        "Hybrid (Best of Both)"
+    ]
+    
+    # Show entity extraction status
+    if settings.enable_entity_extraction:
+        st.info("✅ Entity extraction enabled - All modes available")
+        default_mode = 2  # hybrid
+    else:
+        st.warning("⚠️ Entity extraction disabled - Only chunk mode available")
+        mode_options = ["chunk_only"]
+        mode_labels = ["Chunk Only (Traditional)"]
+        default_mode = 0
+
     retrieval_mode = st.selectbox(
-        "Retrieval Mode",
-        ["auto", "simple", "graph_enhanced", "hybrid"],
-        index=2,
+        "Retrieval Strategy",
+        mode_options,
+        format_func=lambda x: mode_labels[mode_options.index(x)] if x in mode_options else x,
+        index=min(default_mode, len(mode_options) - 1),
         key=f"retrieval_mode{key_suffix}",
+        help="""
+        • **Chunk Only**: Traditional vector similarity search (fastest)
+        • **Entity Only**: GraphRAG-style entity relationship search (slowest, most comprehensive)
+        • **Hybrid**: Combines chunk similarity + entity relationships (recommended)
+        """
     )
 
     top_k = st.slider(
         "Number of chunks to retrieve",
         min_value=1,
-        max_value=10,
+        max_value=15,
         value=5,
         key=f"top_k{key_suffix}",
+        help="More chunks provide better context but may include less relevant information"
     )
 
     temperature = st.slider(
@@ -382,9 +468,33 @@ def get_rag_settings(key_suffix: str = ""):
         value=0.1,
         step=0.1,
         key=f"temperature{key_suffix}",
+        help="Lower values produce more focused responses, higher values more creative"
     )
 
-    return retrieval_mode, top_k, temperature
+    # Show additional hybrid settings if hybrid mode is selected
+    chunk_weight = settings.hybrid_chunk_weight  # Default values
+    graph_expansion = settings.enable_graph_expansion
+    
+    if retrieval_mode == "hybrid" and settings.enable_entity_extraction:
+        with st.expander("🔧 Advanced Hybrid Settings", expanded=False):
+            chunk_weight = st.slider(
+                "Chunk Weight (vs Entity Weight)",
+                min_value=0.0,
+                max_value=1.0,
+                value=settings.hybrid_chunk_weight,
+                step=0.1,
+                key=f"chunk_weight{key_suffix}",
+                help="Higher values favor chunk-based results, lower values favor entity-based results"
+            )
+            
+            graph_expansion = st.checkbox(
+                "Enable Graph Expansion",
+                value=settings.enable_graph_expansion,
+                key=f"graph_expansion{key_suffix}",
+                help="Use entity relationships to expand context (slower but more comprehensive)"
+            )
+
+    return retrieval_mode, top_k, temperature, chunk_weight, graph_expansion
 
 
 def main():
@@ -478,7 +588,7 @@ def main():
                         display_document_upload()
                         
                     with tab5:
-                        retrieval_mode, top_k, temperature = get_rag_settings(key_suffix="_latest")
+                        retrieval_mode, top_k, temperature, chunk_weight, graph_expansion = get_rag_settings(key_suffix="_latest")
 
             else:
                 # tab1, tab2, tab3 = st.tabs(["📊 Database", "📂 Upload File", "⚙️"])
@@ -497,7 +607,7 @@ def main():
                     display_document_upload()
                     
                 with tab5:
-                    retrieval_mode, top_k, temperature = get_rag_settings(key_suffix="_default")
+                    retrieval_mode, top_k, temperature, chunk_weight, graph_expansion = get_rag_settings(key_suffix="_default")
                                 
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -628,16 +738,16 @@ def main():
     #         except Exception as e:
     #             st.error(f"Error creating full graph visualization: {e}")
 
-    # Knowledge Graph Visualization Section (moved to bottom)
+    # # Knowledge Graph Visualization Section
     # st.markdown("---")
 
     # with st.expander("🔍 Advanced Graph Options", expanded=False):
-    #     st.markdown("### 📊 Advanced Knowledge Graph Visualization")
+    #     st.markdown("### 📊 Knowledge Graph Visualization")
 
     #     col1, col2, col3 = st.columns([2, 1, 1])
 
     #     with col1:
-    #         if st.button("🔍 Show Advanced Graph", key="show_advanced_graph"):
+    #         if st.button("🔍 Show Knowledge Graph", key="show_advanced_graph"):
     #             st.session_state.show_graph = True
 
     #     with col2:
@@ -661,15 +771,34 @@ def main():
     #             # Import here to avoid issues if dependencies aren't installed
     #             from core.graph_viz import get_graph_data, create_plotly_graph
 
-    #             with st.spinner("Loading advanced knowledge graph..."):
-    #                 graph_data = get_graph_data(limit=node_limit)
+    #             # Get current retrieval mode for graph visualization
+    #             current_retrieval_mode = st.session_state.get(
+    #                 "retrieval_mode_latest",
+    #                 st.session_state.get("retrieval_mode_default", "chunk_only"),
+    #             )
+
+    #             with st.spinner("Loading knowledge graph..."):
+    #                 graph_data = get_graph_data(limit=node_limit, retrieval_mode=current_retrieval_mode)
 
     #                 if graph_data['nodes']:
     #                     fig = create_plotly_graph(graph_data, layout_algorithm=layout_algo)
     #                     st.plotly_chart(fig, use_container_width=True)
 
-    #                     # Show graph statistics
-    #                     st.info(f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges")
+    #                     # Show enhanced graph statistics
+    #                     stats_text = f"📊 Graph contains {graph_data['total_nodes']} nodes and {graph_data['total_edges']} edges"
+    #                     if current_retrieval_mode != "chunk_only":
+    #                         stats_text += f" (Mode: {current_retrieval_mode.replace('_', ' ').title()})"
+    #                     st.info(stats_text)
+                        
+    #                     # Show node type breakdown if available
+    #                     node_types = {}
+    #                     for node in graph_data['nodes']:
+    #                         node_type = node.get('label', 'Unknown')
+    #                         node_types[node_type] = node_types.get(node_type, 0) + 1
+                        
+    #                     if len(node_types) > 1:
+    #                         breakdown = " | ".join([f"{node_type}: {count}" for node_type, count in node_types.items()])
+    #                         st.caption(f"Node breakdown: {breakdown}")
     #                 else:
     #                     st.warning("No graph data available. Upload some documents first!")
 

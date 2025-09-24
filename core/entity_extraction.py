@@ -9,6 +9,7 @@ import asyncio
 from dataclasses import dataclass
 
 from core.llm import llm_manager
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -153,10 +154,16 @@ RELATIONSHIPS:
         """Extract entities and relationships from a single text chunk."""
         try:
             prompt = self._get_extraction_prompt(text)
-            response = llm_manager.generate_response(
-                prompt=prompt,
-                max_tokens=4000,
-                temperature=0.1
+
+            # Offload synchronous/blocking LLM call to a thread executor
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: llm_manager.generate_response(
+                    prompt=prompt,
+                    max_tokens=4000,
+                    temperature=0.1
+                ),
             )
 
             return self._parse_extraction_response(response, chunk_id)
@@ -177,13 +184,28 @@ RELATIONSHIPS:
         """
         logger.info(f"Starting entity extraction from {len(chunks)} chunks")
         
-        # Extract from all chunks
-        extraction_tasks = [
-            self.extract_from_chunk(chunk["content"], chunk["chunk_id"])
-            for chunk in chunks
-        ]
-        
-        results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+        # Concurrency limit from settings (use embedding_concurrency to match pattern)
+        concurrency = getattr(settings, "llm_concurrency")
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _sem_extract(chunk):
+            async with sem:
+                try:
+                    return await self.extract_from_chunk(chunk["content"], chunk["chunk_id"])
+                except Exception as e:
+                    logger.error(f"Extraction failed for chunk {chunk.get('chunk_id')}: {e}")
+                    return [], []
+
+        # Schedule tasks with semaphore control
+        extraction_tasks = [asyncio.create_task(_sem_extract(chunk)) for chunk in chunks]
+
+        results = []
+        for coro in asyncio.as_completed(extraction_tasks):
+            try:
+                res = await coro
+                results.append(res)
+            except Exception as e:
+                logger.error(f"Error in extraction task: {e}")
         
         # Consolidate entities and relationships
         all_entities = {}

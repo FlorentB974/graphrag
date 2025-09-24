@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="text-embedding-ada-002", description="Embedding model")
     # Number of concurrent embedding requests
     embedding_concurrency: int = Field(default=3, description="Embedding concurrency")
+    llm_concurrency: int = Field(default=2, description="LLM concurrency")
 
     # Document Processing Configuration
     chunk_size: int = Field(default=1000, description="Document chunk size")
@@ -45,17 +46,10 @@ class Settings(BaseSettings):
 
     # Entity Extraction Configuration
     enable_entity_extraction: bool = Field(default=True, description="Enable entity extraction")
-    entity_extraction_model: str = Field(default="gpt-oss-120b", description="Model for entity extraction")
-    entity_extraction_concurrency: int = Field(default=2, description="Entity extraction concurrency")
-    entity_importance_threshold: float = Field(default=0.3, description="Entity importance threshold")
-    relationship_strength_threshold: float = Field(default=0.4, description="Relationship strength threshold")
-    max_entities_per_chunk: int = Field(default=20, description="Max entities per chunk")
 
     # Retrieval Configuration
-    default_retrieval_mode: str = Field(default="hybrid", description="Default retrieval mode")
     hybrid_chunk_weight: float = Field(default=0.6, description="Weight for chunk-based results")
     enable_graph_expansion: bool = Field(default=True, description="Enable graph expansion")
-    max_expansion_depth: int = Field(default=2, description="Max expansion depth")
 
     # Application Configuration
     log_level: str = Field(default="INFO", description="Logging level")

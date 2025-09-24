@@ -20,6 +20,8 @@ async def retrieve_documents_async(
     query_analysis: Dict[str, Any],
     retrieval_mode: str = "hybrid",
     top_k: int = 5,
+    chunk_weight: float = 0.5,
+    graph_expansion: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Retrieve relevant documents based on query and analysis using enhanced retriever.
@@ -41,10 +43,25 @@ async def retrieve_documents_async(
 
         # Adjust top_k based on query complexity
         adjusted_top_k = top_k
+        adjustment_reason = None
         if complexity == "complex" or requires_multiple:
             adjusted_top_k = min(top_k + 3, 10)
+            adjustment_reason = "complexity or multiple sources required"
         elif query_type == "comparative":
             adjusted_top_k = min(top_k + 5, 12)
+            adjustment_reason = "comparative query"
+
+        # Log why top_k was adjusted (if it changed)
+        if adjusted_top_k != top_k:
+            logger.info(
+                "Adjusted top_k from %d to %d (%s) — query_type=%s, complexity=%s, requires_multiple=%s",
+                top_k,
+                adjusted_top_k,
+                adjustment_reason or "adjusted",
+                query_type,
+                complexity,
+                requires_multiple,
+            )
 
         # Map retrieval modes to enhanced retriever modes
         mode_mapping = {
@@ -59,17 +76,20 @@ async def retrieve_documents_async(
         # Get the appropriate retrieval mode
         enhanced_mode = mode_mapping.get(retrieval_mode, RetrievalMode.HYBRID)
         
-        # Use enhanced retriever with graph expansion for complex queries
-        if complexity == "complex" or query_type == "comparative":
+        # Use enhanced retriever. Prefer graph expansion when configured
+        if (complexity == "complex" or query_type == "comparative") and graph_expansion:
             chunks = await enhanced_retriever.retrieve_with_graph_expansion(
                 query=query,
-                top_k=adjusted_top_k
+                mode=enhanced_mode,
+                top_k=adjusted_top_k,
             )
         else:
+            # Pass chunk_weight through to hybrid retriever if present
             chunks = await enhanced_retriever.retrieve(
                 query=query,
                 mode=enhanced_mode,
-                top_k=adjusted_top_k
+                top_k=adjusted_top_k,
+                chunk_weight=chunk_weight,
             )
 
         logger.info(
@@ -87,6 +107,8 @@ def retrieve_documents(
     query_analysis: Dict[str, Any],
     retrieval_mode: str = "hybrid",
     top_k: int = 5,
+    chunk_weight: float = 0.5,
+    graph_expansion: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Synchronous wrapper for document retrieval.
@@ -101,14 +123,26 @@ def retrieve_documents(
         List of relevant document chunks
     """
     try:
-        return asyncio.run(retrieve_documents_async(query, query_analysis, retrieval_mode, top_k))
+        return asyncio.run(
+            retrieve_documents_async(
+                query, query_analysis, retrieval_mode, top_k, chunk_weight, graph_expansion
+            )
+        )
     except RuntimeError:
         # If event loop is already running, create new task
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            return loop.run_until_complete(retrieve_documents_async(query, query_analysis, retrieval_mode, top_k))
+            return loop.run_until_complete(
+                retrieve_documents_async(
+                    query, query_analysis, retrieval_mode, top_k, chunk_weight, graph_expansion
+                )
+            )
         else:
-            return loop.run_until_complete(retrieve_documents_async(query, query_analysis, retrieval_mode, top_k))
+            return loop.run_until_complete(
+                retrieve_documents_async(
+                    query, query_analysis, retrieval_mode, top_k, chunk_weight, graph_expansion
+                )
+            )
     except Exception as e:
         logger.error(f"Error in synchronous retrieval wrapper: {e}")
         return []

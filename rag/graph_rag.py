@@ -75,11 +75,17 @@ class GraphRAG:
         """Retrieve relevant documents (dict-based state for LangGraph)."""
         try:
             logger.info("Retrieving relevant documents")
+            # Pass additional retrieval tuning parameters from state
+            chunk_weight = state.get("chunk_weight", 0.5)
+            graph_expansion = state.get("graph_expansion", True)
+
             state["retrieved_chunks"] = retrieve_documents(
                 state.get("query", ""),
                 state.get("query_analysis", {}),
                 state.get("retrieval_mode", "graph_enhanced"),
                 state.get("top_k", 5),
+                chunk_weight=chunk_weight,
+                graph_expansion=graph_expansion,
             )
             return state
         except Exception as e:
@@ -132,6 +138,8 @@ class GraphRAG:
         retrieval_mode: str = "graph_enhanced",
         top_k: int = 5,
         temperature: float = 0.7,
+        chunk_weight: float = 0.5,
+        graph_expansion: bool = True,
     ) -> Dict[str, Any]:
         """
         Process a user query through the RAG pipeline.
@@ -155,6 +163,9 @@ class GraphRAG:
             state["retrieval_mode"] = retrieval_mode
             state["top_k"] = top_k
             state["temperature"] = temperature
+            # Include hybrid tuning options provided by caller
+            state["chunk_weight"] = chunk_weight
+            state["graph_expansion"] = graph_expansion
 
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")

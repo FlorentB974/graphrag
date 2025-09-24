@@ -101,15 +101,9 @@ def process_files_background(
                 tmp_path = Path(tmp_file.name)
 
             try:
-                # Temporarily override entity extraction setting based on processing mode
-                original_setting = settings.enable_entity_extraction
-                settings.enable_entity_extraction = (processing_mode == "entity_extraction")
-                
-                # Process the file with original filename and progress callback
+                # Process the file: always perform chunk extraction immediately.
+                # Entity extraction (if enabled) will run in background from the processor.
                 result = document_processor.process_file(tmp_path, uploaded_file.name, chunk_progress_callback)
-                
-                # Restore original setting
-                settings.enable_entity_extraction = original_setting
 
                 if result and result.get("status") == "success":
                     file_info = {
@@ -181,7 +175,15 @@ def display_stats():
         # Show entity extraction status
         if stats.get("entities", 0) > 0:
             entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
-            st.caption(f"✅ Entity extraction active ({entity_coverage:.1f}% chunk coverage)")
+            # If background entity extraction is running, show an updating caption
+            try:
+                if document_processor.is_entity_extraction_running():
+                    st.caption(f"🔄 Entity extraction running in background — updating database ({entity_coverage:.1f}% chunk coverage)")
+                else:
+                    st.caption(f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)")
+            except Exception:
+                # Fallback to default caption if detection fails
+                st.caption(f"✅ Entity extraction active ({entity_coverage:.1f}% chunk coverage)")
         else:
             st.caption("⚠️ No entities extracted yet")
 
@@ -472,25 +474,7 @@ def display_document_upload():
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
 
-    # Processing mode selection in expander
-    with st.expander("⚙️ Processing Options", expanded=True):
-        processing_mode = st.radio(
-            "Processing Mode",
-            ["chunk_only", "entity_extraction"],
-            format_func=lambda x: "Chunk Only (Fast)" if x == "chunk_only" else "Entity Extraction (Slow)",
-            help="Chunk Only: Traditional processing (fast)\nEntity Extraction: Extract entities and relationships (slower but more comprehensive)",
-            key="processing_mode",
-            index=0  # Default to chunk_only
-        )
-        
-        # Store in session state immediately when changed
-        st.session_state["selected_processing_mode"] = processing_mode
-        
-        # Show current status
-        if processing_mode == "entity_extraction":
-            st.info("🔬 Entity extraction will create relationships between concepts")
-        else:
-            st.info("⚡ Fast processing will only create text chunks")
+    st.info("Chunks are created and usable immediately. Entity extraction runs in background.")
     
     uploaded_files = st.file_uploader(
         "Choose files to upload",
@@ -509,12 +493,10 @@ def display_document_upload():
                 st.markdown("### 📝 Processing Progress")
                 progress_container = st.container()
 
-                # Get processing mode from session state
-                current_processing_mode = st.session_state.get("selected_processing_mode", "chunk_only")
-                st.info(f"Processing with mode: {current_processing_mode}")
-                
-                # Process files
-                results = process_files_background(uploaded_files, progress_container, current_processing_mode)
+                st.info("Processing uploaded files (chunk extraction).")
+
+                # Process files (chunks only). Entity extraction runs in background.
+                results = process_files_background(uploaded_files, progress_container)
 
                 # Display results
                 if results["processed_files"]:
@@ -587,7 +569,7 @@ def get_rag_settings(key_suffix: str = ""):
     )
 
     top_k = st.slider(
-        "Number of chunks to retrieve",
+        "Number of chunks to retrieve (value can be adjusted after query analysis)",
         min_value=1,
         max_value=15,
         value=5,
@@ -801,11 +783,21 @@ def main():
 
                         with st.spinner("🔍 Generating response..."):
                             # Process query through RAG pipeline
+                            # Ensure hybrid tuning options are read from session state
+                            chunk_weight = st.session_state.get(
+                                "chunk_weight_latest", st.session_state.get("chunk_weight_default", 0.5)
+                            )
+                            graph_expansion = st.session_state.get(
+                                "graph_expansion_latest", st.session_state.get("graph_expansion_default", True)
+                            )
+
                             result = graph_rag.query(
                                 user_query,
                                 retrieval_mode=retrieval_mode,
                                 top_k=top_k,
                                 temperature=temperature,
+                                chunk_weight=chunk_weight,
+                                graph_expansion=graph_expansion,
                             )
 
                         # Stream the response

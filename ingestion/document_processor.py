@@ -12,6 +12,7 @@ from core.chunking import document_chunker
 from core.embeddings import embedding_manager
 from core.graph_db import graph_db
 from core.entity_extraction import EntityExtractor
+import threading
 from config.settings import settings
 import asyncio
 from ingestion.loaders.docx_loader import DOCXLoader
@@ -44,6 +45,10 @@ class DocumentProcessor:
         else:
             self.entity_extractor = None
             logger.info("Entity extraction disabled")
+
+        # Track background entity extraction threads so the UI can detect ongoing work
+        self._bg_entity_threads = []
+        self._bg_lock = threading.Lock()
 
     def _generate_document_id(self, file_path: Path) -> str:
         """Generate a unique document ID based on file path and modification time."""
@@ -169,7 +174,7 @@ class DocumentProcessor:
             # Chunk the document
             chunks = document_chunker.chunk_text(content, doc_id)
 
-            # Process chunks asynchronously with configurable concurrency
+            # Process chunks asynchronously with configurable concurrency (embeddings + storing)
             try:
                 # Use asyncio.run for a synchronous wrapper
                 processed_chunks = asyncio.run(self.process_file_async(chunks, doc_id, progress_callback))
@@ -182,90 +187,104 @@ class DocumentProcessor:
                 else:
                     processed_chunks = loop.run_until_complete(self.process_file_async(chunks, doc_id, progress_callback))
 
-            # Extract entities if enabled
+            # After chunk processing finishes, schedule entity extraction in background (if enabled)
             entity_count = 0
             relationship_count = 0
-            
-            # Check if entity extraction is enabled (either at startup or temporarily overridden)
+
             should_extract_entities = settings.enable_entity_extraction
             if should_extract_entities and self.entity_extractor is None:
-                # Initialize entity extractor if needed (for temporary overrides)
-                logger.info("Initializing entity extractor for this processing session...")
+                # Initialize entity extractor if the global setting enabled it at startup
+                logger.info("Initializing entity extractor for background processing...")
                 self.entity_extractor = EntityExtractor()
-            
+
             if should_extract_entities and self.entity_extractor:
-                try:
-                    logger.info(f"Extracting entities from {len(chunks)} chunks...")
-                    
-                    # Prepare chunks for entity extraction
-                    chunks_for_extraction = [
-                        {"chunk_id": chunk["chunk_id"], "content": chunk["content"]}
-                        for chunk in chunks
-                    ]
-                    
-                    # Extract entities and relationships
-                    entity_dict, relationship_dict = asyncio.run(
-                        self.entity_extractor.extract_from_chunks(chunks_for_extraction)
-                    )
-                    
-                    # Store entities and relationships in the graph
-                    concurrency = getattr(settings, "embedding_concurrency")
-                    sem = asyncio.Semaphore(concurrency)
+                extractor = self.entity_extractor
+                # Prepare chunks for entity extraction
+                chunks_for_extraction = [
+                    {"chunk_id": chunk["chunk_id"], "content": chunk["content"]}
+                    for chunk in chunks
+                ]
 
-                    async def _create_entity_and_relationship(entity):
-                        entity_id = self._generate_entity_id(entity.name)
-                        async with sem:
-                            loop = asyncio.get_running_loop()
-                            await loop.run_in_executor(
-                                None,
-                                graph_db.create_entity_node,
-                                entity_id,
-                                entity.name,
-                                entity.type,
-                                entity.description,
-                                entity.importance_score,
-                                entity.source_chunks or []
-                            )
-                        # Create chunk-entity relationships
-                        for chunk_id in entity.source_chunks or []:
-                            await loop.run_in_executor(None, graph_db.create_chunk_entity_relationship, chunk_id, entity_id)
-                        return 1
-
-                    async def run_entity_tasks():
-                        tasks = [_create_entity_and_relationship(entity) for entity in entity_dict.values()]
-                        return await asyncio.gather(*tasks)
-
-                    entity_results = []
+                # Start background thread to perform entity extraction without blocking
+                def _background_entity_worker(doc_id_local, chunks_local):
                     try:
-                        entity_results = asyncio.run(run_entity_tasks())
-                    except RuntimeError:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            entity_results = loop.run_until_complete(run_entity_tasks())
-                        else:
-                            entity_results = loop.run_until_complete(run_entity_tasks())
-                    entity_count += sum(entity_results)
-                    
-                    # Store entity relationships
-                    for relationships in relationship_dict.values():
-                        for relationship in relationships:
-                            source_id = self._generate_entity_id(relationship.source_entity)
-                            target_id = self._generate_entity_id(relationship.target_entity)
-                            graph_db.create_entity_relationship(
-                                entity_id1=source_id,
-                                entity_id2=target_id,
-                                relationship_type="RELATED_TO",
-                                description=relationship.description,
-                                strength=relationship.strength,
-                                source_chunks=relationship.source_chunks or []
+                        logger.info(f"Background entity extraction started for document {doc_id_local}")
+                        # Run the async extraction in this thread
+                        try:
+                            entity_dict, relationship_dict = asyncio.run(
+                                extractor.extract_from_chunks(chunks_local)
                             )
-                            relationship_count += 1
-                    
-                    logger.info(f"Extracted {entity_count} entities and {relationship_count} relationships")
-                    
-                except Exception as e:
-                    logger.warning(f"Entity extraction failed for document {doc_id}: {e}")
-                    # Continue processing without entities
+                        except Exception as e:
+                            logger.error(f"Entity extractor failed in background for {doc_id_local}: {e}")
+                            return
+
+                        # Persist entities and relationships
+                        created_entities = 0
+                        created_relationships = 0
+
+                        for entity in entity_dict.values():
+                            try:
+                                entity_id = self._generate_entity_id(entity.name)
+                                graph_db.create_entity_node(
+                                    entity_id,
+                                    entity.name,
+                                    entity.type,
+                                    entity.description,
+                                    entity.importance_score,
+                                    entity.source_chunks or [],
+                                )
+                                # Link chunks to entity
+                                for chunk_id in entity.source_chunks or []:
+                                    try:
+                                        graph_db.create_chunk_entity_relationship(chunk_id, entity_id)
+                                    except Exception as e:
+                                        logger.debug(f"Failed to create chunk-entity rel {chunk_id}->{entity_id}: {e}")
+                                created_entities += 1
+                            except Exception as e:
+                                logger.error(f"Failed to persist entity {entity.name} for doc {doc_id_local}: {e}")
+
+                        # Store entity relationships
+                        for relationships in relationship_dict.values():
+                            for relationship in relationships:
+                                try:
+                                    source_id = self._generate_entity_id(relationship.source_entity)
+                                    target_id = self._generate_entity_id(relationship.target_entity)
+                                    graph_db.create_entity_relationship(
+                                        entity_id1=source_id,
+                                        entity_id2=target_id,
+                                        relationship_type="RELATED_TO",
+                                        description=relationship.description,
+                                        strength=relationship.strength,
+                                        source_chunks=relationship.source_chunks or [],
+                                    )
+                                    created_relationships += 1
+                                except Exception as e:
+                                    logger.debug(f"Failed to persist relationship for doc {doc_id_local}: {e}")
+
+                        # Optionally create entity similarities for this document
+                        try:
+                            graph_db.create_entity_similarities(doc_id_local)
+                        except Exception as e:
+                            logger.debug(f"Failed to create entity similarities for {doc_id_local}: {e}")
+
+                        logger.info(f"Background entity extraction finished for {doc_id_local}: {created_entities} entities, {created_relationships} relationships")
+                    except Exception as e:
+                        logger.error(f"Unhandled error in background entity worker for {doc_id_local}: {e}")
+                    finally:
+                        # Remove this thread from the tracking list when finished
+                        try:
+                            with self._bg_lock:
+                                current = threading.current_thread()
+                                if current in self._bg_entity_threads:
+                                    self._bg_entity_threads.remove(current)
+                        except Exception:
+                            pass
+
+                # Start thread and track it so the UI can detect background work
+                t = threading.Thread(target=_background_entity_worker, args=(doc_id, chunks_for_extraction), daemon=True)
+                with self._bg_lock:
+                    self._bg_entity_threads.append(t)
+                t.start()
 
             # Create similarity relationships between chunks
             try:
@@ -305,6 +324,13 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Failed to process file {file_path}: {e}")
             return {"file_path": str(file_path), "status": "error", "error": str(e)}
+
+    def is_entity_extraction_running(self) -> bool:
+        """Return True if any background entity extraction threads are currently running."""
+        with self._bg_lock:
+            # Clean up dead threads
+            self._bg_entity_threads = [t for t in self._bg_entity_threads if t.is_alive()]
+            return len(self._bg_entity_threads) > 0
 
     def process_directory(
         self, directory_path: Path, recursive: bool = True

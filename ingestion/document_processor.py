@@ -209,22 +209,42 @@ class DocumentProcessor:
                     )
                     
                     # Store entities and relationships in the graph
-                    for entity in entity_dict.values():
+                    concurrency = getattr(settings, "embedding_concurrency")
+                    sem = asyncio.Semaphore(concurrency)
+
+                    async def _create_entity_and_relationship(entity):
                         entity_id = self._generate_entity_id(entity.name)
-                        graph_db.create_entity_node(
-                            entity_id=entity_id,
-                            name=entity.name,
-                            entity_type=entity.type,
-                            description=entity.description,
-                            importance_score=entity.importance_score,
-                            source_chunks=entity.source_chunks or []
-                        )
-                        
+                        async with sem:
+                            loop = asyncio.get_running_loop()
+                            await loop.run_in_executor(
+                                None,
+                                graph_db.create_entity_node,
+                                entity_id,
+                                entity.name,
+                                entity.type,
+                                entity.description,
+                                entity.importance_score,
+                                entity.source_chunks or []
+                            )
                         # Create chunk-entity relationships
                         for chunk_id in entity.source_chunks or []:
-                            graph_db.create_chunk_entity_relationship(chunk_id, entity_id)
-                        
-                        entity_count += 1
+                            await loop.run_in_executor(None, graph_db.create_chunk_entity_relationship, chunk_id, entity_id)
+                        return 1
+
+                    async def run_entity_tasks():
+                        tasks = [_create_entity_and_relationship(entity) for entity in entity_dict.values()]
+                        return await asyncio.gather(*tasks)
+
+                    entity_results = []
+                    try:
+                        entity_results = asyncio.run(run_entity_tasks())
+                    except RuntimeError:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            entity_results = loop.run_until_complete(run_entity_tasks())
+                        else:
+                            entity_results = loop.run_until_complete(run_entity_tasks())
+                    entity_count += sum(entity_results)
                     
                     # Store entity relationships
                     for relationships in relationship_dict.values():

@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+# typing not needed for current function signatures
 
 # Add the project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -80,6 +81,96 @@ def show_stats():
         return False
 
 
+def find_and_fix_bad_embeddings(session, apply: bool = False):
+    """Scan chunks for missing/empty/invalid embeddings and optionally recompute them.
+
+    Notes:
+    - This routine uses hardcoded behavior: it inspects up to 10000 chunks and shows 3 previews.
+    - If `apply` is False the function performs a dry-run and only prints what would be changed.
+    """
+    from core.embeddings import embedding_manager
+
+    # Hardcoded parameters per request
+    params: dict = {}
+    params["limit"] = 10000
+    query = (
+        "MATCH (c:Chunk) RETURN c.id as id, c.embedding as embedding, c.content as content,"
+        " c.filename as filename ORDER BY c.id LIMIT $limit"
+    )
+
+    result = session.run(query, **params)
+
+    total = 0
+    missing = []
+    empty = []
+    bad_type = []
+    samples = []
+    updates = 0
+
+    # preview count hardcoded
+    preview = 3
+    for record in result:
+        total += 1
+        cid = record["id"]
+        emb = record["embedding"]
+        content = record.get("content") or ""
+
+        is_bad = False
+        if emb is None:
+            missing.append(cid)
+            is_bad = True
+        elif isinstance(emb, list):
+            if len(emb) == 0:
+                empty.append(cid)
+                is_bad = True
+        else:
+            bad_type.append((cid, type(emb).__name__))
+            is_bad = True
+
+        if is_bad and len(samples) < preview:
+            samples.append((cid, content[:120]))
+
+        if is_bad:
+            # Recompute embedding
+            try:
+                new_emb = embedding_manager.get_embedding(content)
+            except Exception as e:
+                logger.error(f"Failed computing embedding for chunk {cid}: {e}")
+                continue
+
+            if not apply:
+                print(f"DRY-RUN: chunk {cid} -> new embedding length {len(new_emb)}")
+            else:
+                try:
+                    session.run("MATCH (c:Chunk {id:$cid}) SET c.embedding = $emb", cid=cid, emb=new_emb)
+                    updates += 1
+                    logger.info(f"Updated embedding for chunk {cid} (len={len(new_emb)})")
+                except Exception as e:
+                    logger.error(f"Failed to update chunk {cid}: {e}")
+
+    print(f"Inspected: {total}")
+    print(f"Missing embeddings: {len(missing)}")
+    print(f"Empty embeddings: {len(empty)}")
+    if bad_type:
+        print(f"Embeddings with unexpected type: {len(bad_type)}")
+        for cid, tname in bad_type[:10]:
+            print(f" - {cid}: {tname}")
+
+    if samples:
+        print("Sample problematic chunks:")
+        for cid, preview_text in samples:
+            print(f" - {cid}: preview={preview_text!r}")
+
+    print(f"Updates applied: {updates} (apply={apply})")
+    return {
+        "inspected": total,
+        "missing": missing,
+        "empty": empty,
+        "bad_type": bad_type,
+        "updates": updates,
+    }
+
+
 def main():
     """Main entry point for the Neo4j setup script."""
     parser = argparse.ArgumentParser(
@@ -119,6 +210,19 @@ Examples:
         "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
 
+    # Embeddings fix flag (other parameters are hardcoded)
+    parser.add_argument(
+        "--fix-embeddings",
+        action="store_true",
+        help="Scan for bad embeddings and optionally recompute them (dry-run by default)",
+    )
+
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply updates to the DB when fixing embeddings (otherwise dry-run)",
+    )
+
     args = parser.parse_args()
 
     # Set verbose logging if requested
@@ -137,6 +241,12 @@ Examples:
     try:
         if args.test:
             success &= test_connection()
+
+        # Handle embeddings fix option (uses hardcoded parameters)
+        if args.fix_embeddings:
+            from core.graph_db import graph_db
+            with graph_db.driver.session() as session:  # type: ignore
+                find_and_fix_bad_embeddings(session, apply=args.apply)
 
         if args.clear:
             # Ask for confirmation before clearing
@@ -169,7 +279,11 @@ Examples:
         sys.exit(1)
     finally:
         # Ensure database connection is closed
-        graph_db.close()
+        try:
+            from core.graph_db import graph_db
+            graph_db.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

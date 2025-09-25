@@ -6,8 +6,6 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-# typing not needed for current function signatures
-
 # Add the project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 

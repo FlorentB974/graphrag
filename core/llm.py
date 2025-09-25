@@ -128,7 +128,12 @@ class LLMManager:
             system_message = """You are a helpful assistant that answers questions based on the provided context.
 Use only the information from the given context to answer the question.
 If the context doesn't contain enough information to answer the question, say so clearly.
-Be concise and accurate in your responses."""
+Be concise and accurate in your responses.
+
+Formatting rules: return plain text only (no HTML). If the model would normally use HTML tags such as <br> or <p>, convert them to plain-text equivalents. When presenting markdown-style tables (rows with `|`), do not insert HTML tags — keep each table cell's content together on the same row. Replace `<br>` inside markdown table rows with a single space so the cell stays on one line; outside tables, replace `<br>` with a newline.
+
+Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and `\\[...\\]` but preserve the mathematical content.
+"""
 
             prompt = f"""Context:
 {context}
@@ -143,8 +148,52 @@ Please provide a comprehensive answer based on the context provided above."""
                 temperature=temperature,  # Use the passed temperature
             )
 
+            # Post-processing: remove HTML tags like <br> and strip LaTeX wrappers
+            def _clean_text(text: str) -> str:
+                import re
+
+                if not isinstance(text, str):
+                    return text
+
+                # Process line-by-line: table rows (with '|') will be treated specially
+
+                def _process_line(line: str) -> str:
+                    # If line looks like a table row, replace <br> with a space
+                    if '|' in line:
+                        line = re.sub(r'(?i)<br\s*/?>', ' ', line)
+                        line = re.sub(r'(?i)<p\s*/?>', '', line)
+                        line = re.sub(r'(?i)</p>', '', line)
+                    else:
+                        line = re.sub(r'(?i)<br\s*/?>', '\n', line)
+                        line = re.sub(r'(?i)<p\s*/?>', '\n', line)
+                        line = re.sub(r'(?i)</p>', '\n', line)
+                    return line
+
+                # Apply line-wise processing to preserve table-row behavior
+                lines = text.splitlines()
+                processed_lines = [_process_line(ln) for ln in lines]
+                text = '\n'.join(processed_lines)
+
+                # Collapse excessive newlines
+                text = re.sub(r'\n{3,}', '\n\n', text)
+
+                # Strip LaTeX delimiters but keep content
+                text = re.sub(r"\$\$(.*?)\$\$", lambda m: m.group(1), text, flags=re.S)
+                text = re.sub(r"\$(.*?)\$", lambda m: m.group(1), text, flags=re.S)
+                text = re.sub(r"\\\\\((.*?)\\\\\)", lambda m: m.group(1), text, flags=re.S)
+                text = re.sub(r"\\\\\[(.*?)\\\\\]", lambda m: m.group(1), text, flags=re.S)
+                text = re.sub(r"\\begin\{([a-zA-Z*]+)\}(.*?)\\end\{\1\}", lambda m: m.group(2), text, flags=re.S)
+
+                return text.strip()
+
+            cleaned = response
+            try:
+                cleaned = _clean_text(response)
+            except Exception:
+                cleaned = response
+
             result = {
-                "answer": response,
+                "answer": cleaned,
                 "query": query,
                 "context_chunks": context_chunks if include_sources else [],
                 "num_chunks_used": len(context_chunks),

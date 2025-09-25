@@ -139,7 +139,7 @@ def find_and_fix_bad_embeddings(session, apply: bool = False):
                 print(f"DRY-RUN: chunk {cid} -> new embedding length {len(new_emb)}")
             else:
                 try:
-                    session.run("MATCH (c:Chunk {id:$cid}) SET c.embedding = $emb", cid=cid, emb=new_emb)
+                    session.run("MATCH (c:Chunk {id: $cid}) SET c.embedding = $emb", cid=cid, emb=new_emb)
                     updates += 1
                     logger.info(f"Updated embedding for chunk {cid} (len={len(new_emb)})")
                 except Exception as e:

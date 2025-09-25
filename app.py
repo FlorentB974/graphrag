@@ -428,8 +428,10 @@ def main():
     main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar
     
     with main_col:
-        # Display chat messages in main column
+        # Display chat title and clear chat button side-by-side
         st.title("💬 Chat with your documents")
+
+        # Render chat messages below the title/actions
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
@@ -442,8 +444,8 @@ def main():
             st.markdown('<div class="floating">', unsafe_allow_html=True)
             # st.markdown("### 📊 Context Information")
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "🕸️ Context Graph",
                 "📚 Sources",
+                "🕸️ Context Graph",
                 "📊 Database",
                 "📁 Upload File",
                 "⚙️"
@@ -459,16 +461,30 @@ def main():
 
                 if latest_message:
                     with tab1:
+                        # Display sources in sidebar
+                        if "sources" in latest_message:
+                            display_sources_detailed(latest_message["sources"])
+
+                            # Small clear chat button placed next to the title
+                            if st.button("🧹 Clear chat", key="clear_chat_top", help="Clear conversation, graph and sources"):
+                                st.session_state.messages = []
+                                for k in ["latest_message", "latest_graph", "latest_sources"]:
+                                    if k in st.session_state:
+                                        del st.session_state[k]
+                                # Also clear any latest widget-bound settings
+                                for sfx in ["_latest"]:
+                                    for key_base in ["retrieval_mode", "top_k", "temperature"]:
+                                        k = f"{key_base}{sfx}"
+                                        if k in st.session_state:
+                                            del st.session_state[k]
+                                st.rerun()
+                            
+                    with tab2:
                         # Display graph in sidebar
                         if "graph_fig" in latest_message:
                             st.plotly_chart(
                                 latest_message["graph_fig"], use_container_width=True
                             )
-                            
-                    with tab2:
-                        # Display sources in sidebar
-                        if "sources" in latest_message:
-                            display_sources_detailed(latest_message["sources"])
                             
                     with tab3:
                         display_stats()

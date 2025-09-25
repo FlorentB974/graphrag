@@ -392,9 +392,23 @@ class GraphDB:
                 MATCH path = (start)-[*1..{max_depth}]-(related:Chunk)
                 WHERE ALL(r in relationships(path) WHERE type(r) IN $relationship_types)
                 OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(related)
+                WITH related, d, length(path) as distance, 
+                     [r in relationships(path) WHERE type(r) = 'SIMILAR_TO' | r.score] as similarity_scores
+                WITH related, d, distance,
+                     CASE 
+                         WHEN size(similarity_scores) > 0 THEN 
+                             reduce(avg = 0.0, s in similarity_scores | avg + s) / size(similarity_scores)
+                         ELSE 
+                             CASE distance
+                                 WHEN 1 THEN 0.3
+                                 WHEN 2 THEN 0.2
+                                 ELSE 0.15
+                             END
+                     END as calculated_similarity
                 RETURN DISTINCT related.id as chunk_id, related.content as content,
-                       length(path) as distance, d.filename as document_name, d.id as document_id
-                ORDER BY distance ASC
+                       distance, d.filename as document_name, d.id as document_id,
+                       calculated_similarity as similarity
+                ORDER BY distance ASC, calculated_similarity DESC
                 """
 
             result = session.run(

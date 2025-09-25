@@ -293,7 +293,7 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
 
     for i, source in enumerate(relevant_sources[:5], 1):  # Limit to top 5 sources
         score = source.get("similarity", source.get("relevance_score", 0))
-        
+                
         # Determine source type and icon
         if source.get("entity_name") or source.get("entity_id"):
             # This is an entity source
@@ -314,7 +314,9 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         with st.expander(
             f"{icon} {source_type} {i}: {title}",
             expanded=False,
-        ):            
+        ):  
+            st.write(f"**Relevance Score:** {score:.4f}")
+          
             if source_type == "Entity":
                 # Display entity information
                 st.write(f"**Entity Name:** {source.get('entity_name', 'Unknown')}")
@@ -397,7 +399,6 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                     st.write(f"**Chunk:** {source.get('chunk_index') + 1}")
                     
             else:
-                st.write(f"**Relevance Score:** {score:.4f}")
 
                 # Display chunk information
                 content = source.get("content", "No content available")

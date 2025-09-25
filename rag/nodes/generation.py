@@ -39,17 +39,23 @@ def generate_response(
                 },
             }
 
-        # Generate response using LLM
+        # Filter out chunks with 0.000 similarity before processing sources
+        relevant_chunks = [
+            chunk for chunk in context_chunks
+            if chunk.get("similarity", chunk.get("hybrid_score", 0.0)) > 0.0
+        ]
+        
+        # Generate response using LLM with only relevant chunks
         response_data = llm_manager.generate_rag_response(
             query=query,
-            context_chunks=context_chunks,
+            context_chunks=relevant_chunks,
             include_sources=True,
             temperature=temperature,
         )
 
         # Prepare sources information with entity support
         sources = []
-        for i, chunk in enumerate(context_chunks):
+        for i, chunk in enumerate(relevant_chunks):
             source_info = {
                 "chunk_id": chunk.get("chunk_id", f"chunk_{i}"),
                 "content": chunk.get("content", ""),
@@ -109,14 +115,17 @@ def generate_response(
         complexity = query_analysis.get("complexity", "simple")
 
         metadata = {
-            "chunks_used": len(context_chunks),
+            "chunks_used": len(relevant_chunks),
+            "chunks_filtered": len(context_chunks) - len(relevant_chunks),
             "query_type": query_type,
             "complexity": complexity,
             "requires_reasoning": query_analysis.get("requires_reasoning", False),
             "key_concepts": query_analysis.get("key_concepts", []),
         }
 
-        logger.info(f"Generated response using {len(context_chunks)} chunks")
+        if len(relevant_chunks) < len(context_chunks):
+            logger.info(f"Filtered out {len(context_chunks) - len(relevant_chunks)} chunks with 0.000 similarity")
+        logger.info(f"Generated response using {len(relevant_chunks)} relevant chunks")
 
         return {
             "response": response_data.get("answer", ""),

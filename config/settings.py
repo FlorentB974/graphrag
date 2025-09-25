@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     enable_entity_extraction: bool = Field(default=True, description="Enable entity extraction")
 
     # Retrieval Configuration
+    min_retrieval_similarity: float = Field(default=0.1, description="Minimum similarity for chunk retrieval")
     hybrid_chunk_weight: float = Field(default=0.6, description="Weight for chunk-based results")
     enable_graph_expansion: bool = Field(default=True, description="Enable graph expansion")
 

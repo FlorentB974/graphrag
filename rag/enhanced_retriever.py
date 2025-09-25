@@ -76,14 +76,25 @@ class EnhancedDocumentRetriever:
             List of similar chunks with metadata
         """
         try:
+            from config.settings import settings
+            
             # Generate query embedding
             query_embedding = embedding_manager.get_embedding(query)
 
-            # Perform vector similarity search
-            similar_chunks = graph_db.vector_similarity_search(query_embedding, top_k)
+            # Perform vector similarity search with larger top_k to allow filtering
+            similar_chunks = graph_db.vector_similarity_search(query_embedding, top_k * 3)
+            
+            # Filter chunks by minimum similarity threshold
+            filtered_chunks = [
+                chunk for chunk in similar_chunks 
+                if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
+            ]
+            
+            # Return only top_k after filtering
+            final_chunks = filtered_chunks[:top_k]
 
-            logger.info(f"Retrieved {len(similar_chunks)} chunks using chunk-based retrieval")
-            return similar_chunks
+            logger.info(f"Retrieved {len(similar_chunks)} chunks, filtered to {len(filtered_chunks)}, returning {len(final_chunks)} chunks using chunk-based retrieval")
+            return final_chunks
 
         except Exception as e:
             logger.error(f"Chunk-based retrieval failed: {e}")
@@ -116,19 +127,54 @@ class EnhancedDocumentRetriever:
             # Get chunks that contain these entities
             relevant_chunks = graph_db.get_chunks_for_entities(entity_ids)
             
-            # Enhance chunks with entity information
+            # Calculate similarity scores for chunks based on query
+            query_embedding = embedding_manager.get_embedding(query)
+            
+            # Enhance chunks with entity information and similarity scores
             for chunk in relevant_chunks:
                 chunk["retrieval_mode"] = "entity_based"
                 chunk["relevant_entities"] = chunk.get("contained_entities", [])
+                
+                # Calculate similarity score if chunk has content
+                if chunk.get("content"):
+                    # Get or calculate chunk embedding
+                    chunk_embedding = None
+                    chunk_id = chunk.get("chunk_id")
+                    if chunk_id:
+                        # Get embedding from database
+                        with graph_db.driver.session() as session:  # type: ignore
+                            result = session.run(
+                                "MATCH (c:Chunk {id: $chunk_id}) RETURN c.embedding as embedding",
+                                chunk_id=chunk_id
+                            )
+                            record = result.single()
+                            if record and record["embedding"]:
+                                chunk_embedding = record["embedding"]
+                    
+                    if chunk_embedding:
+                        # Calculate cosine similarity
+                        similarity = graph_db._calculate_cosine_similarity(query_embedding, chunk_embedding)
+                        chunk["similarity"] = similarity
+                    else:
+                        # No embedding available - this chunk should be filtered out
+                        chunk["similarity"] = 0.0
+                else:
+                    # No content - this chunk should be filtered out
+                    chunk["similarity"] = 0.0
             
-            # Sort by relevance if we have more than top_k
-            if len(relevant_chunks) > top_k:
-                # For now, just take first top_k, but could implement better ranking
-                final_chunks = relevant_chunks[:top_k]
-                logger.info(f"Entity-based retrieval: found {len(relevant_chunks)} chunks, returning top {len(final_chunks)}")
-            else:
-                final_chunks = relevant_chunks
-                logger.info(f"Entity-based retrieval: found {len(final_chunks)} chunks (all returned)")
+            # Filter chunks by minimum similarity threshold
+            from config.settings import settings
+            filtered_chunks = [
+                chunk for chunk in relevant_chunks
+                if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
+            ]
+            
+            # Sort by similarity score
+            filtered_chunks.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+            
+            # Return top_k chunks
+            final_chunks = filtered_chunks[:top_k]
+            logger.info(f"Entity-based retrieval: found {len(relevant_chunks)} chunks, filtered to {len(filtered_chunks)}, returning {len(final_chunks)} with scores")
             
             return final_chunks
 
@@ -154,24 +200,60 @@ class EnhancedDocumentRetriever:
             expanded_entities = set(initial_entities)
             total_relationships = 0
             
+            # Track entity relationship strengths for scoring
+            entity_scores = {}
+            for entity_id in initial_entities:
+                entity_scores[entity_id] = 1.0  # Initial entities get full score
+            
             # Expand entity network by following relationships
             for entity_id in initial_entities:
                 relationships = graph_db.get_entity_relationships(entity_id)
                 total_relationships += len(relationships)
                 for rel in relationships:
-                    expanded_entities.add(rel["related_entity_id"])
+                    related_id = rel["related_entity_id"]
+                    expanded_entities.add(related_id)
+                    # Score related entities based on relationship strength
+                    strength = rel.get("strength", 0.5)
+                    entity_scores[related_id] = max(entity_scores.get(related_id, 0.0), strength * 0.7)
             
             # Get chunks for expanded entity set
             expanded_chunks = graph_db.get_chunks_for_entities(list(expanded_entities))
             
-            # Add expansion metadata
+            # Add expansion metadata and similarity scores
             for chunk in expanded_chunks:
                 chunk["retrieval_mode"] = "entity_expansion"
                 chunk["expansion_depth"] = expansion_depth
+                
+                # Calculate similarity based on contained entities' scores
+                contained_entities = chunk.get("contained_entities", [])
+                if contained_entities:
+                    # Get entity IDs for contained entities
+                    contained_entity_ids = self._get_entity_ids_from_names(contained_entities)
+                    if contained_entity_ids:
+                        # Use the highest score among contained entities
+                        max_entity_score = max(
+                            entity_scores.get(entity_id, 0.0) for entity_id in contained_entity_ids
+                            if entity_id in entity_scores
+                        ) if any(eid in entity_scores for eid in contained_entity_ids) else 0.0
+                        chunk["similarity"] = max_entity_score
+                    else:
+                        chunk["similarity"] = 0.0  # No entity match
+                else:
+                    chunk["similarity"] = 0.0  # No entities
             
-            final_chunks = expanded_chunks[:max_chunks]
+            # Filter by minimum similarity threshold
+            from config.settings import settings
+            filtered_chunks = [
+                chunk for chunk in expanded_chunks
+                if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
+            ]
+            
+            # Sort by similarity score
+            filtered_chunks.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+            
+            final_chunks = filtered_chunks[:max_chunks]
             logger.info(f"Entity expansion: {len(initial_entities)} entities → {len(expanded_entities)} expanded entities "
-                       f"({total_relationships} relationships) → {len(expanded_chunks)} chunks → {len(final_chunks)} returned")
+                        f"({total_relationships} relationships) → {len(expanded_chunks)} chunks → {len(filtered_chunks)} filtered → {len(final_chunks)} returned")
             
             return final_chunks
 
@@ -224,10 +306,13 @@ class EnhancedDocumentRetriever:
                         existing["relevant_entities"] = result.get("contained_entities", [])
                         existing["contained_entities"] = result.get("contained_entities", [])
                         # Boost score for chunks found by both methods
-                        existing["hybrid_score"] = existing.get("chunk_score", 0.0) * 1.2
+                        chunk_score = existing.get("chunk_score", 0.0)
+                        entity_score = result.get("similarity", 0.3)
+                        existing["hybrid_score"] = min(1.0, (chunk_score + entity_score) * 0.8)  # Combined score with cap
                     else:
                         result["retrieval_source"] = "entity_based"
-                        result["hybrid_score"] = result.get("similarity", 0.5)
+                        # Use actual similarity score, with better fallback
+                        result["hybrid_score"] = result.get("similarity", 0.3)
                         combined_results[chunk_id] = result
             
             # Sort by hybrid score and return top_k
@@ -240,7 +325,7 @@ class EnhancedDocumentRetriever:
             hybrid_count = sum(1 for r in final_results if r.get("retrieval_source") == "hybrid")
             
             logger.info(f"Hybrid retrieval: {len(chunk_results)} chunk + {len(entity_results)} entity → "
-                       f"{len(final_results)} total ({chunk_only_count} chunk-only, {entity_only_count} entity-only, {hybrid_count} overlapping)")
+                        f"{len(final_results)} total ({chunk_only_count} chunk-only, {entity_only_count} entity-only, {hybrid_count} overlapping)")
             
             return final_results[:top_k]
 
@@ -328,6 +413,8 @@ class EnhancedDocumentRetriever:
                                 entity_ids, expansion_depth=expand_depth
                             )
                             
+                            source_similarity = chunk.get("similarity", chunk.get("hybrid_score", 0.3))
+                            
                             for exp_chunk in expanded:
                                 exp_chunk_id = exp_chunk.get("chunk_id")
                                 if exp_chunk_id and exp_chunk_id not in seen_chunk_ids:
@@ -335,6 +422,9 @@ class EnhancedDocumentRetriever:
                                         "source_chunk": chunk.get("chunk_id"),
                                         "expansion_type": "entity_relationship"
                                     }
+                                    # Inherit similarity with decay for expansion, but don't force minimum
+                                    if not exp_chunk.get("similarity") or exp_chunk.get("similarity", 0.0) == 0.0:
+                                        exp_chunk["similarity"] = source_similarity * 0.6
                                     expanded_chunks.append(exp_chunk)
                                     seen_chunk_ids.add(exp_chunk_id)
 
@@ -347,6 +437,8 @@ class EnhancedDocumentRetriever:
                             chunk_id, max_depth=expand_depth
                         )
                         
+                        source_similarity = chunk.get("similarity", chunk.get("hybrid_score", 0.3))
+                        
                         for rel_chunk in related_chunks:
                             rel_chunk_id = rel_chunk.get("chunk_id")
                             if rel_chunk_id and rel_chunk_id not in seen_chunk_ids:
@@ -354,19 +446,31 @@ class EnhancedDocumentRetriever:
                                     "source_chunk": chunk_id,
                                     "expansion_type": "chunk_similarity"
                                 }
+                                # Calculate similarity based on distance and source similarity
+                                distance = rel_chunk.get("distance", 1)
+                                # Decay factor based on graph distance
+                                decay_factor = 1.0 / (distance + 1)
+                                rel_chunk["similarity"] = source_similarity * decay_factor
                                 expanded_chunks.append(rel_chunk)
                                 seen_chunk_ids.add(rel_chunk_id)
 
-            # Count expansion types
-            original_count = sum(1 for chunk in expanded_chunks if not chunk.get("expansion_context"))
-            entity_expansion_count = sum(1 for chunk in expanded_chunks 
-                                        if chunk.get("expansion_context", {}).get("expansion_type") == "entity_relationship")
-            chunk_expansion_count = sum(1 for chunk in expanded_chunks 
-                                       if chunk.get("expansion_context", {}).get("expansion_type") == "chunk_similarity")
+            # Filter out chunks with similarity below threshold
+            from config.settings import settings
+            filtered_chunks = [
+                chunk for chunk in expanded_chunks
+                if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
+            ]
             
-            logger.info(f"Graph expansion ({mode.value}): {len(initial_chunks)} initial → {len(expanded_chunks)} total "
-                       f"({original_count} original + {entity_expansion_count} entity-expanded + {chunk_expansion_count} similarity-expanded)")
-            return expanded_chunks
+            # Count expansion types
+            original_count = sum(1 for chunk in filtered_chunks if not chunk.get("expansion_context"))
+            entity_expansion_count = sum(1 for chunk in filtered_chunks
+                                         if chunk.get("expansion_context", {}).get("expansion_type") == "entity_relationship")
+            chunk_expansion_count = sum(1 for chunk in filtered_chunks
+                                        if chunk.get("expansion_context", {}).get("expansion_type") == "chunk_similarity")
+            
+            logger.info(f"Graph expansion ({mode.value}): {len(initial_chunks)} initial → {len(expanded_chunks)} total → {len(filtered_chunks)} filtered "
+                        f"({original_count} original + {entity_expansion_count} entity-expanded + {chunk_expansion_count} similarity-expanded)")
+            return filtered_chunks
 
         except Exception as e:
             logger.error(f"Graph expansion retrieval failed: {e}")

@@ -404,8 +404,26 @@ def get_query_graph_data(
     Returns:
         Dictionary containing nodes and edges for a clean, readable query result graph
     """
+    from config.settings import settings
+    
     nodes = []
     edges = []
+    
+    # Filter out chunks with low or missing similarity scores
+    filtered_results = []
+    for result in query_results:
+        similarity = result.get("similarity")
+        if similarity is not None and similarity >= settings.min_retrieval_similarity:
+            filtered_results.append(result)
+        elif similarity is not None:
+            logger.debug(f"Filtered chunk with similarity {similarity} (below threshold {settings.min_retrieval_similarity})")
+    
+    # Use filtered results for the rest of the function
+    query_results = filtered_results
+    
+    if not query_results:
+        # Return empty graph if no results meet the threshold
+        return {"nodes": nodes, "edges": edges}
     
     # Extract chunk IDs for database queries
     chunk_ids = []
@@ -492,7 +510,7 @@ def get_query_graph_data(
         chunk_id = result.get("chunk_id", f"unknown_{i}")
         chunk_node_id = f"chunk_{i}"
         chunk_content = result.get("content", "No content")
-        similarity = result.get("similarity", 0)
+        similarity = result.get("similarity", 0.0)  # Should be filtered already, but keep for safety
         document_name = result.get("document_name", result.get("filename", "Unknown Document"))
 
         # Truncate content for display
@@ -676,7 +694,7 @@ def create_query_result_graph(
             else:  # Chunk
                 chunk_num = node.get("chunk_index", 0)
                 display_text = f"C{chunk_num + 1}"
-                similarity = node.get("similarity", 0)
+                similarity = node.get("similarity", 0.0)
                 doc_name = node.get("document_name", "Unknown Document")
                 content_preview = node.get("full_content", node["title"])[:150] + "..."
                 hover_text = f"<b>Chunk {chunk_num + 1}</b><br><b>Document:</b> {doc_name}<br><b>Relevance:</b> {similarity:.3f}<br><b>Content:</b> {content_preview}"

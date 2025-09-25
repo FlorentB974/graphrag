@@ -89,8 +89,7 @@ def find_and_fix_bad_embeddings(session, apply: bool = False):
     from core.embeddings import embedding_manager
 
     # Hardcoded parameters per request
-    params: dict = {}
-    params["limit"] = 10000
+    params = {"limit": 10000}
     query = (
         "MATCH (c:Chunk) RETURN c.id as id, c.embedding as embedding, c.content as content,"
         " c.filename as filename ORDER BY c.id LIMIT $limit"

@@ -30,6 +30,37 @@ class EnhancedDocumentRetriever:
     def _generate_entity_id(self, entity_name: str) -> str:
         """Generate a consistent entity ID from entity name."""
         return hashlib.md5(entity_name.upper().strip().encode()).hexdigest()
+    
+    def _get_entity_ids_from_names(self, entity_names: List[str]) -> List[str]:
+        """Get actual entity IDs from entity names by querying the database.
+        
+        Args:
+            entity_names: List of entity names to look up
+            
+        Returns:
+            List of actual entity IDs found in database
+        """
+        if not entity_names:
+            return []
+            
+        with graph_db.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (e:Entity)
+                WHERE e.name IN $entity_names
+                RETURN e.id as entity_id, e.name as name
+                """,
+                entity_names=entity_names,
+            )
+            found_entities = [record.data() for record in result]
+            
+        entity_ids = [entity["entity_id"] for entity in found_entities]
+        
+        if len(entity_ids) < len(entity_names):
+            missing_count = len(entity_names) - len(entity_ids)
+            logger.debug(f"Found {len(entity_ids)}/{len(entity_names)} entities in database. {missing_count} not found.")
+            
+        return entity_ids
 
     async def chunk_based_retrieval(
         self, query: str, top_k: int = 5
@@ -90,15 +121,23 @@ class EnhancedDocumentRetriever:
                 chunk["retrieval_mode"] = "entity_based"
                 chunk["relevant_entities"] = chunk.get("contained_entities", [])
             
-            logger.info(f"Retrieved {len(relevant_chunks)} chunks using entity-based retrieval")
-            return relevant_chunks[:top_k]
+            # Sort by relevance if we have more than top_k
+            if len(relevant_chunks) > top_k:
+                # For now, just take first top_k, but could implement better ranking
+                final_chunks = relevant_chunks[:top_k]
+                logger.info(f"Entity-based retrieval: found {len(relevant_chunks)} chunks, returning top {len(final_chunks)}")
+            else:
+                final_chunks = relevant_chunks
+                logger.info(f"Entity-based retrieval: found {len(final_chunks)} chunks (all returned)")
+            
+            return final_chunks
 
         except Exception as e:
             logger.error(f"Entity-based retrieval failed: {e}")
             return []
 
     async def entity_expansion_retrieval(
-        self, initial_entities: List[str], expansion_depth: int = 1, max_chunks: int = 10
+        self, initial_entities: List[str], expansion_depth: int = 1, max_chunks: int = 50
     ) -> List[Dict[str, Any]]:
         """
         Expand retrieval by following entity relationships.
@@ -113,10 +152,12 @@ class EnhancedDocumentRetriever:
         """
         try:
             expanded_entities = set(initial_entities)
+            total_relationships = 0
             
             # Expand entity network by following relationships
             for entity_id in initial_entities:
                 relationships = graph_db.get_entity_relationships(entity_id)
+                total_relationships += len(relationships)
                 for rel in relationships:
                     expanded_entities.add(rel["related_entity_id"])
             
@@ -128,8 +169,11 @@ class EnhancedDocumentRetriever:
                 chunk["retrieval_mode"] = "entity_expansion"
                 chunk["expansion_depth"] = expansion_depth
             
-            logger.info(f"Entity expansion retrieved {len(expanded_chunks)} chunks")
-            return expanded_chunks[:max_chunks]
+            final_chunks = expanded_chunks[:max_chunks]
+            logger.info(f"Entity expansion: {len(initial_entities)} entities → {len(expanded_entities)} expanded entities "
+                       f"({total_relationships} relationships) → {len(expanded_chunks)} chunks → {len(final_chunks)} returned")
+            
+            return final_chunks
 
         except Exception as e:
             logger.error(f"Entity expansion retrieval failed: {e}")
@@ -190,9 +234,13 @@ class EnhancedDocumentRetriever:
             final_results = list(combined_results.values())
             final_results.sort(key=lambda x: x.get("hybrid_score", 0.0), reverse=True)
             
-            logger.info(f"Hybrid retrieval combined {len(chunk_results)} chunk results "
-                        f"and {len(entity_results)} entity results into "
-                        f"{len(final_results)} final results")
+            # Count overlaps for better reporting
+            chunk_only_count = sum(1 for r in final_results if r.get("retrieval_source") == "chunk_based")
+            entity_only_count = sum(1 for r in final_results if r.get("retrieval_source") == "entity_based")
+            hybrid_count = sum(1 for r in final_results if r.get("retrieval_source") == "hybrid")
+            
+            logger.info(f"Hybrid retrieval: {len(chunk_results)} chunk + {len(entity_results)} entity → "
+                       f"{len(final_results)} total ({chunk_only_count} chunk-only, {entity_only_count} entity-only, {hybrid_count} overlapping)")
             
             return final_results[:top_k]
 
@@ -274,20 +322,21 @@ class EnhancedDocumentRetriever:
                 for chunk in initial_chunks:
                     entities = chunk.get("contained_entities", [])
                     if entities:
-                        entity_ids = [self._generate_entity_id(name) for name in entities]
-                        expanded = await self.entity_expansion_retrieval(
-                            entity_ids, expansion_depth=expand_depth
-                        )
-                        
-                        for exp_chunk in expanded:
-                            exp_chunk_id = exp_chunk.get("chunk_id")
-                            if exp_chunk_id and exp_chunk_id not in seen_chunk_ids:
-                                exp_chunk["expansion_context"] = {
-                                    "source_chunk": chunk.get("chunk_id"),
-                                    "expansion_type": "entity_relationship"
-                                }
-                                expanded_chunks.append(exp_chunk)
-                                seen_chunk_ids.add(exp_chunk_id)
+                        entity_ids = self._get_entity_ids_from_names(entities)
+                        if entity_ids:  # Only expand if we found valid entity IDs
+                            expanded = await self.entity_expansion_retrieval(
+                                entity_ids, expansion_depth=expand_depth
+                            )
+                            
+                            for exp_chunk in expanded:
+                                exp_chunk_id = exp_chunk.get("chunk_id")
+                                if exp_chunk_id and exp_chunk_id not in seen_chunk_ids:
+                                    exp_chunk["expansion_context"] = {
+                                        "source_chunk": chunk.get("chunk_id"),
+                                        "expansion_type": "entity_relationship"
+                                    }
+                                    expanded_chunks.append(exp_chunk)
+                                    seen_chunk_ids.add(exp_chunk_id)
 
             if mode in [RetrievalMode.CHUNK_ONLY, RetrievalMode.HYBRID]:
                 # Chunk similarity expansion
@@ -308,7 +357,15 @@ class EnhancedDocumentRetriever:
                                 expanded_chunks.append(rel_chunk)
                                 seen_chunk_ids.add(rel_chunk_id)
 
-            logger.info(f"Graph expansion: {len(initial_chunks)} -> {len(expanded_chunks)} chunks")
+            # Count expansion types
+            original_count = sum(1 for chunk in expanded_chunks if not chunk.get("expansion_context"))
+            entity_expansion_count = sum(1 for chunk in expanded_chunks 
+                                        if chunk.get("expansion_context", {}).get("expansion_type") == "entity_relationship")
+            chunk_expansion_count = sum(1 for chunk in expanded_chunks 
+                                       if chunk.get("expansion_context", {}).get("expansion_type") == "chunk_similarity")
+            
+            logger.info(f"Graph expansion ({mode.value}): {len(initial_chunks)} initial → {len(expanded_chunks)} total "
+                       f"({original_count} original + {entity_expansion_count} entity-expanded + {chunk_expansion_count} similarity-expanded)")
             return expanded_chunks
 
         except Exception as e:

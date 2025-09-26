@@ -479,9 +479,9 @@ def display_document_upload():
     
     uploaded_files = st.file_uploader(
         "Choose files to upload",
-        type=["pdf", "docx", "txt", "md"],
+        type=["pdf", "docx", "txt", "md", "csv", "pptx", "xlsx", "xls"],
         accept_multiple_files=True,
-        help="Upload documents to expand the knowledge base",
+        help="Upload documents to expand the knowledge base. Supports PDF, Word, Text, Markdown, CSV, PowerPoint, and Excel files.",
         key=f"file_uploader_{st.session_state.file_uploader_key}",
     )
 

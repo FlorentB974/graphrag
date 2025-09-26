@@ -18,6 +18,9 @@ import asyncio
 from ingestion.loaders.docx_loader import DOCXLoader
 from ingestion.loaders.pdf_loader import PDFLoader
 from ingestion.loaders.text_loader import TextLoader
+from ingestion.loaders.csv_loader import CSVLoader
+from ingestion.loaders.pptx_loader import PPTXLoader
+from ingestion.loaders.xlsx_loader import XLSXLoader
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,10 @@ class DocumentProcessor:
             ".js": TextLoader(),
             ".html": TextLoader(),
             ".css": TextLoader(),
+            ".csv": CSVLoader(),
+            ".pptx": PPTXLoader(),
+            ".xlsx": XLSXLoader(),
+            ".xls": XLSXLoader(),  # Also support legacy Excel format
         }
         
         # Initialize entity extractor if enabled

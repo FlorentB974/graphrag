@@ -6,7 +6,8 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 
 - 🔄 **LangGraph Orchestration**: Graph-based RAG workflow with intelligent reasoning
 - 🌐 **Streamlit Web Interface**: Interactive document management, chat interface, and graph visualization
-- 🗂️ **Multi-format Document Support**: PDF, DOCX, TXT, and more
+- 🗂️ **Multi-format Document Support**: PDF, DOCX, TXT, CSV, PPTX, XLSX with intelligent processing
+- 📊 **Structured Data Processing**: Smart analysis of spreadsheets and presentations with business context detection
 - 📊 **Neo4j Graph Database**: Persistent storage with relationship mapping
 - 🔧 **Configurable OpenAI and Ollama API**: Custom base URL, API key, model, and proxy settings
 - 📈 **Interactive Graph Visualization**: Real-time view of document relationships and retrieval paths
@@ -192,6 +193,24 @@ python scripts/setup_neo4j.py
 
 ### Data Ingestion
 
+GraphRAG4 supports intelligent processing of multiple document formats with specialized loaders:
+
+#### Supported Document Types:
+- **PDF** (`.pdf`) - Text extraction with page structure
+- **Word** (`.docx`) - Document text, tables, and formatting
+- **Text** (`.txt`, `.md`) - Plain text and markdown files
+- **CSV** (`.csv`) - Intelligent data analysis with business context detection
+- **PowerPoint** (`.pptx`) - Slide content with structure and visual element analysis
+- **Excel** (`.xlsx`, `.xls`) - Multi-sheet processing with data type recognition
+
+#### Processing Features:
+- **Intelligent Analysis**: Automatic detection of data types, business contexts, and relationships
+- **Structure Preservation**: Maintains document hierarchy and formatting context
+- **Progress Tracking**: Real-time feedback during file processing
+- **Batch Processing**: Upload and process multiple files simultaneously
+
+See [DOCUMENT_FORMATS.md](DOCUMENT_FORMATS.md) for detailed information about intelligent processing capabilities.
+
 Data ingestion can be achieved in two ways: Web interface or using the ingest_documents.py script.
 
 Ingest documents using the CLI script:
@@ -244,9 +263,12 @@ graphrag/
 │   ├── document_processor.py   # Multi-format document processing
 │   └── loaders/                # Document loaders by type
 │       ├── __init__.py
-│       ├── pdf_loader.py
-│       ├── docx_loader.py
-│       └── text_loader.py
+│       ├── pdf_loader.py       # PDF document processing
+│       ├── docx_loader.py      # Word document processing
+│       ├── text_loader.py      # Plain text files
+│       ├── csv_loader.py       # CSV with intelligent data analysis
+│       ├── pptx_loader.py      # PowerPoint with slide structure analysis
+│       └── xlsx_loader.py      # Excel with multi-sheet processing
 ├── rag/
 │   ├── __init__.py
 │   ├── graph_rag.py            # LangGraph RAG implementation

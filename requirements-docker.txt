@@ -15,6 +15,8 @@ neo4j>=5.0.0
 # Document processing - essential loaders
 pypdf>=3.17.0
 python-docx>=0.8.11
+python-pptx>=0.6.21
+openpyxl>=3.1.0
 
 # Configuration and environment
 pydantic>=2.0.0

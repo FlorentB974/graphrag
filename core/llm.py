@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, Optional
 import httpx
 import requests
+import time
 
 import openai
 
@@ -64,19 +65,51 @@ class LLMManager:
             raise
 
     def _generate_openai_response(self, prompt: str, system_message: Optional[str], temperature: float, max_tokens: int) -> str:
-        """Generate response using OpenAI."""
+        """Generate response using OpenAI with retry logic."""
         messages = []
         if system_message:
             messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": prompt})
         
-        response = openai.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content or ""
+        max_retries = 5
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                response = openai.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content or ""
+            except openai.RateLimitError:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"LLM rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"LLM rate limit exceeded after {max_retries} attempts")
+                    raise
+            except (openai.APIError, openai.InternalServerError) as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"LLM API error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"LLM API error after {max_retries} attempts: {e}")
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"LLM call failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"LLM call failed after {max_retries} attempts: {e}")
+                    raise
     
     def _generate_ollama_response(self, prompt: str, system_message: Optional[str], temperature: float, max_tokens: int) -> str:
         """Generate response using Ollama."""

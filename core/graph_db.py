@@ -815,6 +815,242 @@ class GraphDB:
                 return {"entities": entities, "relationships": record["relationships"]}
             return {"entities": [], "relationships": []}
 
+    def validate_chunk_embeddings(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Validate embeddings for chunks, checking for empty/invalid embeddings.
+        
+        Args:
+            doc_id: Optional document ID to validate only specific document chunks
+            
+        Returns:
+            Dictionary with validation results
+        """
+        with self.driver.session() as session:  # type: ignore
+            if doc_id:
+                query = """
+                    MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)
+                    RETURN c.id as chunk_id, c.embedding as embedding, c.content as content
+                """
+                result = session.run(query, doc_id=doc_id)
+            else:
+                query = """
+                    MATCH (c:Chunk)
+                    RETURN c.id as chunk_id, c.embedding as embedding, c.content as content
+                """
+                result = session.run(query)
+
+            total_chunks = 0
+            invalid_chunks = []
+            empty_embeddings = 0
+            wrong_size_embeddings = 0
+            
+            # Detect embedding size from existing embeddings instead of hardcoding
+            expected_embedding_size = None
+
+            for record in result:
+                total_chunks += 1
+                chunk_id = record["chunk_id"]
+                embedding = record["embedding"]
+                content = record["content"]
+
+                # Check for empty or None embeddings
+                if not embedding:
+                    empty_embeddings += 1
+                    invalid_chunks.append({
+                        "chunk_id": chunk_id,
+                        "issue": "empty_embedding",
+                        "content_preview": content[:100] + "..." if len(content) > 100 else content
+                    })
+                    continue
+
+                # Detect expected embedding size from first valid embedding
+                if expected_embedding_size is None and embedding:
+                    expected_embedding_size = len(embedding)
+                    logger.info(f"Detected embedding size: {expected_embedding_size}")
+
+                # Check embedding size consistency (only flag if significantly different)
+                if expected_embedding_size and embedding and len(embedding) != expected_embedding_size:
+                    wrong_size_embeddings += 1
+                    invalid_chunks.append({
+                        "chunk_id": chunk_id,
+                        "issue": f"wrong_size_{len(embedding)}_expected_{expected_embedding_size}",
+                        "content_preview": content[:100] + "..." if len(content) > 100 else content
+                    })
+
+            validation_results = {
+                "total_chunks": total_chunks,
+                "valid_chunks": total_chunks - len(invalid_chunks),
+                "invalid_chunks": len(invalid_chunks),
+                "empty_embeddings": empty_embeddings,
+                "wrong_size_embeddings": wrong_size_embeddings,
+                "invalid_chunk_details": invalid_chunks,
+                "validation_passed": len(invalid_chunks) == 0
+            }
+
+            logger.info(f"Chunk embedding validation: {validation_results['valid_chunks']}/{total_chunks} valid")
+            if invalid_chunks:
+                logger.warning(f"Found {len(invalid_chunks)} invalid chunk embeddings")
+
+            return validation_results
+
+    def validate_entity_embeddings(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Validate embeddings for entities, checking for empty/invalid embeddings.
+        
+        Args:
+            doc_id: Optional document ID to validate only entities from specific document
+            
+        Returns:
+            Dictionary with validation results
+        """
+        with self.driver.session() as session:  # type: ignore
+            if doc_id:
+                query = """
+                    MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                    RETURN DISTINCT e.id as entity_id, e.embedding as embedding, e.name as entity_name
+                """
+                result = session.run(query, doc_id=doc_id)
+            else:
+                query = """
+                    MATCH (e:Entity)
+                    RETURN e.id as entity_id, e.embedding as embedding, e.name as entity_name
+                """
+                result = session.run(query)
+
+            total_entities = 0
+            invalid_entities = []
+            empty_embeddings = 0
+            wrong_size_embeddings = 0
+            no_embeddings = 0  # Entities may not have embeddings by design
+            
+            # Detect embedding size from existing embeddings instead of hardcoding
+            expected_embedding_size = None
+
+            for record in result:
+                total_entities += 1
+                entity_id = record["entity_id"]
+                embedding = record["embedding"]
+                entity_name = record["entity_name"]
+
+                # Skip entities without embeddings (they may be designed this way)
+                if embedding is None:
+                    no_embeddings += 1
+                    continue
+
+                # Check for empty embeddings
+                if not embedding:
+                    empty_embeddings += 1
+                    invalid_entities.append({
+                        "entity_id": entity_id,
+                        "issue": "empty_embedding",
+                        "entity_name": entity_name
+                    })
+                    continue
+
+                # Detect expected embedding size from first valid embedding
+                if expected_embedding_size is None and embedding:
+                    expected_embedding_size = len(embedding)
+                    logger.info(f"Detected entity embedding size: {expected_embedding_size}")
+
+                # Check embedding size consistency (only flag if significantly different)
+                if expected_embedding_size and embedding and len(embedding) != expected_embedding_size:
+                    wrong_size_embeddings += 1
+                    invalid_entities.append({
+                        "entity_id": entity_id,
+                        "issue": f"wrong_size_{len(embedding)}_expected_{expected_embedding_size}",
+                        "entity_name": entity_name
+                    })
+
+            validation_results = {
+                "total_entities": total_entities,
+                "entities_with_embeddings": total_entities - no_embeddings,
+                "valid_embeddings": (total_entities - no_embeddings) - len(invalid_entities),
+                "invalid_embeddings": len(invalid_entities),
+                "empty_embeddings": empty_embeddings,
+                "wrong_size_embeddings": wrong_size_embeddings,
+                "no_embeddings": no_embeddings,
+                "invalid_entity_details": invalid_entities,
+                "validation_passed": len(invalid_entities) == 0
+            }
+
+            logger.info(f"Entity embedding validation: {validation_results['valid_embeddings']}/{validation_results['entities_with_embeddings']} valid")
+            if invalid_entities:
+                logger.warning(f"Found {len(invalid_entities)} invalid entity embeddings")
+
+            return validation_results
+
+    def fix_invalid_embeddings(self, chunk_ids: Optional[List[str]] = None, entity_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Fix invalid embeddings by regenerating them.
+        
+        Args:
+            chunk_ids: List of chunk IDs to fix (if None, fixes all invalid chunk embeddings)
+            entity_ids: List of entity IDs to fix (if None, fixes all invalid entity embeddings)
+            
+        Returns:
+            Dictionary with fix results
+        """
+        results = {"chunks_fixed": 0, "entities_fixed": 0, "errors": []}
+
+        # Fix chunk embeddings
+        if chunk_ids is not None:
+            with self.driver.session() as session:  # type: ignore
+                for chunk_id in chunk_ids:
+                    try:
+                        # Get chunk content
+                        result = session.run(
+                            "MATCH (c:Chunk {id: $chunk_id}) RETURN c.content as content",
+                            chunk_id=chunk_id
+                        )
+                        record = result.single()
+                        if record:
+                            content = record["content"]
+                            # Generate new embedding
+                            embedding = embedding_manager.get_embedding(content)
+                            # Update chunk with new embedding
+                            session.run(
+                                "MATCH (c:Chunk {id: $chunk_id}) SET c.embedding = $embedding",
+                                chunk_id=chunk_id,
+                                embedding=embedding
+                            )
+                            results["chunks_fixed"] += 1
+                            logger.info(f"Fixed embedding for chunk {chunk_id}")
+                    except Exception as e:
+                        error_msg = f"Failed to fix embedding for chunk {chunk_id}: {e}"
+                        results["errors"].append(error_msg)
+                        logger.error(error_msg)
+
+        # Fix entity embeddings (if they're supposed to have embeddings)
+        if entity_ids is not None:
+            with self.driver.session() as session:  # type: ignore
+                for entity_id in entity_ids:
+                    try:
+                        # Get entity name/description for embedding
+                        result = session.run(
+                            "MATCH (e:Entity {id: $entity_id}) RETURN e.name as name, e.description as description",
+                            entity_id=entity_id
+                        )
+                        record = result.single()
+                        if record:
+                            # Use entity name + description for embedding
+                            text = f"{record['name']}: {record['description']}"
+                            # Generate new embedding
+                            embedding = embedding_manager.get_embedding(text)
+                            # Update entity with new embedding
+                            session.run(
+                                "MATCH (e:Entity {id: $entity_id}) SET e.embedding = $embedding",
+                                entity_id=entity_id,
+                                embedding=embedding
+                            )
+                            results["entities_fixed"] += 1
+                            logger.info(f"Fixed embedding for entity {entity_id}")
+                    except Exception as e:
+                        error_msg = f"Failed to fix embedding for entity {entity_id}: {e}"
+                        results["errors"].append(error_msg)
+                        logger.error(error_msg)
+
+        return results
+
 
 # Global database instance
 graph_db = GraphDB()

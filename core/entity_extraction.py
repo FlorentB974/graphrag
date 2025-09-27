@@ -6,12 +6,62 @@ import logging
 import re
 from typing import Any, Dict, List, Tuple, Optional
 import asyncio
+import random
+import time
 from dataclasses import dataclass
 
 from core.llm import llm_manager
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+
+def retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0):
+    """
+    Decorator for retrying LLM calls with exponential backoff on rate limiting errors.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds
+        max_delay: Maximum delay in seconds
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    # Check for rate limiting error (429) or connection errors
+                    if attempt == max_retries:
+                        logger.error(f"Max retries ({max_retries}) exceeded for {func.__name__}")
+                        raise
+                    
+                    # Check if this is a retryable error
+                    is_retryable = False
+                    if hasattr(e, 'status_code') and getattr(e, 'status_code', None) == 429:
+                        is_retryable = True
+                        logger.warning(f"Rate limit hit in {func.__name__}, attempt {attempt + 1}/{max_retries}")
+                    elif "Too Many Requests" in str(e) or "429" in str(e):
+                        is_retryable = True
+                        logger.warning(f"Rate limit detected in {func.__name__}, attempt {attempt + 1}/{max_retries}")
+                    elif "Connection" in str(e) or "Timeout" in str(e):
+                        is_retryable = True
+                        logger.warning(f"Connection error in {func.__name__}, attempt {attempt + 1}/{max_retries}")
+                    
+                    if not is_retryable:
+                        raise
+                    
+                    # Calculate delay with exponential backoff and jitter
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = random.uniform(0.1, 0.3) * delay  # Add 10-30% jitter
+                    total_delay = delay + jitter
+                    
+                    logger.info(f"Retrying in {total_delay:.2f} seconds...")
+                    time.sleep(total_delay)
+            
+            return None  # Should never reach here
+        return wrapper
+    return decorator
 
 
 @dataclass
@@ -151,19 +201,24 @@ RELATIONSHIPS:
         return entities, relationships
     
     async def extract_from_chunk(self, text: str, chunk_id: str) -> Tuple[List[Entity], List[Relationship]]:
-        """Extract entities and relationships from a single text chunk."""
+        """Extract entities and relationships from a single text chunk with retry logic."""
+        
+        @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
+        def _generate_response_with_retry(prompt):
+            return llm_manager.generate_response(
+                prompt=prompt,
+                max_tokens=4000,
+                temperature=0.1
+            )
+        
         try:
             prompt = self._get_extraction_prompt(text)
 
-            # Offload synchronous/blocking LLM call to a thread executor
+            # Offload synchronous/blocking LLM call to a thread executor with retry
             loop = asyncio.get_running_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: llm_manager.generate_response(
-                    prompt=prompt,
-                    max_tokens=4000,
-                    temperature=0.1
-                ),
+                lambda: _generate_response_with_retry(prompt)
             )
 
             return self._parse_extraction_response(response, chunk_id)
@@ -191,6 +246,8 @@ RELATIONSHIPS:
         async def _sem_extract(chunk):
             async with sem:
                 try:
+                    # Add small delay to prevent API flooding
+                    await asyncio.sleep(random.uniform(0.2, 0.5))
                     return await self.extract_from_chunk(chunk["content"], chunk["chunk_id"])
                 except Exception as e:
                     logger.error(f"Extraction failed for chunk {chunk.get('chunk_id')}: {e}")

@@ -59,6 +59,9 @@ def process_files_background(
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
+    
+    First processes ALL files for chunks, then does entity extraction for ALL files together.
+    This prevents rate limiting issues when uploading multiple files.
 
     Args:
         uploaded_files: List of uploaded file objects
@@ -88,10 +91,13 @@ def process_files_background(
         # Update status text in real-time with current file and chunk progress
         status_text.text(f"Processing {current_file_name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
 
+    # Phase 1: Process ALL files for chunks only (no entity extraction)
+    processed_documents = []  # Store document IDs for batch entity extraction
+    
     for i, uploaded_file in enumerate(uploaded_files):
         try:
             current_file_name = uploaded_file.name
-            status_text.text(f"Processing {uploaded_file.name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
+            status_text.text(f"Processing {uploaded_file.name} chunks... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
 
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(
@@ -101,9 +107,8 @@ def process_files_background(
                 tmp_path = Path(tmp_file.name)
 
             try:
-                # Process the file: always perform chunk extraction immediately.
-                # Entity extraction (if enabled) will run in background from the processor.
-                result = document_processor.process_file(tmp_path, uploaded_file.name, chunk_progress_callback)
+                # Process the file with chunks only (disable entity extraction for this phase)
+                result = document_processor.process_file_chunks_only(tmp_path, uploaded_file.name, chunk_progress_callback)
 
                 if result and result.get("status") == "success":
                     file_info = {
@@ -112,20 +117,14 @@ def process_files_background(
                         "document_id": result.get("document_id"),
                     }
                     
-                    # Add entity information if available
-                    if result.get("entities_created", 0) > 0:
-                        file_info["entities"] = result.get("entities_created", 0)
-                        file_info["entity_relationships"] = result.get("entity_relationships_created", 0)
-                    
                     results["processed_files"].append(file_info)
                     results["total_chunks"] += result.get("chunks_created", 0)
                     
-                    # Track entity statistics
-                    if "total_entities" not in results:
-                        results["total_entities"] = 0
-                        results["total_entity_relationships"] = 0
-                    results["total_entities"] += result.get("entities_created", 0)
-                    results["total_entity_relationships"] += result.get("entity_relationships_created", 0)
+                    # Store document info for batch entity extraction
+                    processed_documents.append({
+                        "document_id": result.get("document_id"),
+                        "file_name": uploaded_file.name
+                    })
                 else:
                     results["errors"].append(
                         {
@@ -147,9 +146,33 @@ def process_files_background(
             logger.error(f"Error processing file {uploaded_file.name}: {e}")
             results["errors"].append({"name": uploaded_file.name, "error": str(e)})
 
-    # Final progress update
+    # Final progress update for chunk phase
     progress_bar.progress(1.0)
-    status_text.text(f"File processing complete! Processed {results['total_chunks']} chunks from {len(uploaded_files)} files.")
+    status_text.text(f"Chunk processing complete! Processed {results['total_chunks']} chunks from {len(uploaded_files)} files.")
+    
+    # Phase 2: Start batch entity extraction for ALL processed documents
+    if processed_documents and settings.enable_entity_extraction:
+        status_text.text("Starting entity extraction for all files in background...")
+        try:
+            # Start batch entity extraction in background thread
+            entity_stats = document_processor.process_batch_entities(processed_documents)
+            
+            # Update results with entity statistics when available
+            if entity_stats:
+                results["total_entities"] = entity_stats.get("total_entities", 0)
+                results["total_entity_relationships"] = entity_stats.get("total_relationships", 0)
+                
+                # Update individual file info with entity stats
+                for file_info in results["processed_files"]:
+                    doc_id = file_info.get("document_id")
+                    if doc_id in entity_stats.get("by_document", {}):
+                        doc_stats = entity_stats["by_document"][doc_id]
+                        file_info["entities"] = doc_stats.get("entities", 0)
+                        file_info["entity_relationships"] = doc_stats.get("relationships", 0)
+        
+        except Exception as e:
+            logger.error(f"Error in batch entity extraction: {e}")
+    
     return results
 
 
@@ -314,9 +337,8 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         with st.expander(
             f"{icon} {source_type} {i}: {title}",
             expanded=False,
-        ):  
+        ):
             st.write(f"**Relevance Score:** {score:.4f}")
-          
             if source_type == "Entity":
                 # Display entity information
                 st.write(f"**Entity Name:** {source.get('entity_name', 'Unknown')}")

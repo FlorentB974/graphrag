@@ -69,6 +69,7 @@ docker-compose*.yml
 *.md
 docs/
 data/
+big_tech_docs/
 
 # Test files
 tests/

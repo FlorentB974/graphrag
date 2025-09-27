@@ -55,7 +55,7 @@ def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None
 
 
 def process_files_background(
-    uploaded_files: List[Any], progress_container
+    uploaded_files: List[Any], progress_container, extract_entities: bool = True
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
@@ -66,6 +66,7 @@ def process_files_background(
     Args:
         uploaded_files: List of uploaded file objects
         progress_container: Streamlit container for progress updates
+        extract_entities: Whether to run entity extraction in background
 
     Returns:
         Dictionary with processing results
@@ -150,8 +151,8 @@ def process_files_background(
     progress_bar.progress(1.0)
     status_text.text(f"Chunk processing complete! Processed {results['total_chunks']} chunks from {len(uploaded_files)} files.")
     
-    # Phase 2: Start batch entity extraction for ALL processed documents
-    if processed_documents and settings.enable_entity_extraction:
+    # Phase 2: Start batch entity extraction for ALL processed documents (if enabled)
+    if processed_documents and extract_entities and settings.enable_entity_extraction:
         status_text.text("Starting entity extraction for all files in background...")
         try:
             # Start batch entity extraction in background thread
@@ -172,6 +173,8 @@ def process_files_background(
         
         except Exception as e:
             logger.error(f"Error in batch entity extraction: {e}")
+    elif not extract_entities:
+        status_text.text("Entity extraction skipped per user preference.")
     
     return results
 
@@ -215,15 +218,45 @@ def display_stats():
 
 
 def display_document_list():
-    """Display list of documents in the database with delete options."""
+    """Display list of documents in the database with delete options and entity extraction status."""
     try:
         documents = graph_db.get_all_documents()
+        
+        # Get entity extraction status for all documents
+        extraction_status = graph_db.get_entity_extraction_status()
+        extraction_by_doc = {doc["document_id"]: doc for doc in extraction_status["documents"]}
 
         if not documents:
             st.info("No documents in the database yet.")
             return
 
         st.markdown("### 📂 Documents in Database")
+        
+        # Show overall entity extraction status
+        if extraction_status["documents_without_entities"] > 0:
+            st.warning(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
+            
+            # Global entity extraction button
+            if settings.enable_entity_extraction:
+                if document_processor.is_entity_extraction_running():
+                    st.info("🔄 Entity extraction running in background...")
+                
+                else:
+                    if st.button("🧠 Extract Entities for All Documents", 
+                               key="extract_entities_global_db", 
+                               type="primary",
+                               help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction"):
+                        result = document_processor.extract_entities_for_all_documents()
+                        if result:
+                            if result["status"] == "started":
+                                st.success(f"✅ {result['message']}")
+                                st.rerun()
+                            elif result["status"] == "no_action_needed":
+                                st.info(f"ℹ️ {result['message']}")
+                            else:
+                                st.error(f"❌ {result['message']}")
+        else:
+            st.success("✅ All documents have entities extracted")
 
         # Add a session state for delete confirmations
         if "confirm_delete" not in st.session_state:
@@ -234,6 +267,11 @@ def display_document_list():
             filename = doc.get("filename", "Unknown")
             chunk_count = doc.get("chunk_count", 0)
             file_size = doc.get("file_size", 0)
+            
+            # Get entity status for this document
+            entity_status = extraction_by_doc.get(doc_id, {})
+            entities_extracted = entity_status.get("entities_extracted", False)
+            total_entities = entity_status.get("total_entities", 0)
 
             # Format file size
             if file_size:
@@ -246,9 +284,40 @@ def display_document_list():
             else:
                 size_str = "Unknown size"
 
-            with st.expander(f"📄 {filename}", expanded=False):
+            # Add entity status indicator to filename
+            entity_indicator = "✅" if entities_extracted else "⚠️"
+            
+            with st.expander(f"{entity_indicator} {filename}", expanded=False):
                 st.write(f"**Chunks:** {chunk_count}")
                 st.write(f"**Size:** {size_str}")
+                
+                # Entity extraction status
+                if entities_extracted and total_entities > 0:
+                    st.write(f"**Entities:** {total_entities} ✅")
+                    
+                    # Show extracted entities for this document
+                    try:
+                        doc_entities = graph_db.get_document_entities(doc_id)
+                        if doc_entities:
+                            with st.expander("View Extracted Entities", expanded=False):
+                                for entity in doc_entities[:10]:  # Limit to first 10 entities
+                                    entity_name = entity.get("name", "Unknown")
+                                    entity_type = entity.get("type", "Unknown")
+                                    importance = entity.get("importance_score", 0)
+                                    chunk_count_entity = entity.get("chunk_count", 0)
+                                    
+                                    st.write(f"**{entity_name}** ({entity_type})")
+                                    st.caption(f"Importance: {importance:.2f} | Found in {chunk_count_entity} chunks")
+                                
+                                if len(doc_entities) > 10:
+                                    st.caption(f"... and {len(doc_entities) - 10} more entities")
+                    except Exception as e:
+                        st.error(f"Could not load entities: {e}")
+                        
+                elif chunk_count > 0:
+                    st.write("**Entities:** ⚠️ Not extracted")
+                else:
+                    st.write("**Entities:** N/A (no chunks)")
 
                 col1, col2 = st.columns(2)
 
@@ -321,9 +390,48 @@ def _display_content_with_truncation(content: str, key_prefix: str, index: int, 
         )
 
 
+def _group_sources_by_document(sources: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """
+    Group sources by document, collecting all relevant chunks for each document.
+    
+    Args:
+        sources: List of source chunks/entities with metadata
+        
+    Returns:
+        Dict mapping document names to document info with grouped chunks
+    """
+    document_groups = {}
+    
+    for source in sources:
+        # Handle entity sources differently - they don't belong to a specific document chunk
+        if source.get("entity_name") or source.get("entity_id"):
+            # For entities, use the document they were found in or create a special entity group
+            doc_name = source.get("document_name", source.get("filename", "Entities"))
+        else:
+            # Regular chunk sources
+            doc_name = source.get("document_name") or source.get("filename", "Unknown Document")
+        
+        if doc_name not in document_groups:
+            document_groups[doc_name] = {
+                "document_name": doc_name,
+                "document_id": source.get("document_id", ""),
+                "filename": source.get("filename", doc_name),
+                "chunks": [],
+                "entities": []
+            }
+        
+        # Add source to appropriate list
+        if source.get("entity_name") or source.get("entity_id"):
+            document_groups[doc_name]["entities"].append(source)
+        else:
+            document_groups[doc_name]["chunks"].append(source)
+    
+    return document_groups
+
+
 def display_sources_detailed(sources: List[Dict[str, Any]]):
     """
-    Display detailed source chunks and entities in a formatted sidebar.
+    Display detailed source chunks and entities grouped by document.
 
     Args:
         sources: List of source chunks/entities with metadata
@@ -332,129 +440,109 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         st.write("No sources used in this response.")
         return
 
-    # Filter and sort sources by relevance
-    relevant_sources = []
-    for source in sources:
-        score = source.get("similarity", source.get("relevance_score", 0))
-        # Include all sources - don't filter out zero scores (entities might have 0.0 scores)
-        relevant_sources.append(source)
+    # Group sources by document
+    document_groups = _group_sources_by_document(sources)
     
-    # Sort by relevance score, prioritizing entity sources
-    def get_sort_score(source):
-        # Get base score
-        score = source.get("similarity", source.get("relevance_score", 0))
-        # If it's an entity source with 0 score, give it a reasonable default
-        if (source.get("entity_name") or source.get("entity_id")) and score == 0:
-            return 0.5  # Default entity relevance
-        return score
-    
-    relevant_sources.sort(key=get_sort_score, reverse=True)
+    # Sort documents by the number of relevant chunks (descending)
+    sorted_documents = sorted(
+        document_groups.items(),
+        key=lambda x: len(x[1]["chunks"]) + len(x[1]["entities"]),
+        reverse=True
+    )
 
-    for i, source in enumerate(relevant_sources[:5], 1):  # Limit to top 5 sources
-        score = source.get("similarity", source.get("relevance_score", 0))
-                
-        # Determine source type and icon
-        if source.get("entity_name") or source.get("entity_id"):
-            # This is an entity source
-            icon = "🏷️"
-            source_type = "Entity"
-            title = source.get("entity_name", "Unknown Entity")
-        elif source.get("entity_enhanced") or source.get("contained_entities"):
-            # This is an entity-enhanced chunk source (hybrid mode)
-            icon = "🔗"
-            source_type = "Hybrid Chunk"
-            title = source.get("filename", source.get("document_name", "Unknown Document"))
+    # Display each document with its chunks
+    for i, (doc_name, doc_info) in enumerate(sorted_documents, 1):
+        chunks = doc_info["chunks"]
+        entities = doc_info["entities"]
+        total_sources = len(chunks) + len(entities)
+        
+        # Create expander title with chunk count
+        if total_sources == 1:
+            title = f"📚 {doc_name}"
         else:
-            # This is a regular chunk source
-            icon = "📄"
-            source_type = "Chunk"
-            title = source.get("filename", source.get("document_name", "Unknown Document"))
+            title = f"📚 {doc_name} ({total_sources} relevant sections)"
 
-        with st.expander(
-            f"{icon} {source_type} {i}: {title}",
-            expanded=False,
-        ):
-            st.write(f"**Relevance Score:** {score:.4f}")
-            if source_type == "Entity":
-                # Display entity information
-                st.write(f"**Entity Name:** {source.get('entity_name', 'Unknown')}")
-                st.write(f"**Type:** {source.get('entity_type', 'Unknown')}")
+        with st.expander(title, expanded=False):
+            # Display entities if present
+            if entities:
+                st.write("**🏷️ Relevant Entities:**")
+                for j, entity in enumerate(entities):
+                    with st.container():
+                        st.write(f"• **{entity.get('entity_name', 'Unknown Entity')}**")
+                        if entity.get("entity_type", "").lower() != "entity":
+                            st.caption(f"Type: {entity.get('entity_type', 'Unknown')}")
+                        
+                        if entity.get("entity_description"):
+                            st.caption(f"Description: {entity.get('entity_description')}")
+                        
+                        # Show related content for entities
+                        if entity.get("related_chunks"):
+                            for chunk_info in entity.get("related_chunks", [])[:1]:  # Show only first one
+                                content = chunk_info.get("content", "No content")[:200] + "..."
+                                st.text_area(
+                                    "Context:",
+                                    content,
+                                    height=60,
+                                    key=f"entity_context_{i}_{j}_{chunk_info.get('chunk_id', 'unknown')}",
+                                    disabled=True,
+                                )
+                        elif entity.get("content"):
+                            content = entity.get("content", "No content available")[:200] + "..."
+                            st.text_area(
+                                "Context:",
+                                content,
+                                height=60,
+                                key=f"entity_content_{i}_{j}",
+                                disabled=True,
+                            )
                 
-                if source.get("entity_description"):
-                    st.write(f"**Description:** {source.get('entity_description')}")
+                if chunks:  # Add separator if we have both entities and chunks
+                    st.markdown("---")
+            
+            # Display chunks if present
+            if chunks:
+                if len(chunks) == 1:
+                    st.write("**📄 Relevant Content:**")
+                else:
+                    st.write(f"**📄 Relevant Content ({len(chunks)} sections):**")
                 
-                # Show related chunks
-                if source.get("related_chunks"):
-                    st.write("**Found in chunks:**")
-                    for chunk_info in source.get("related_chunks", [])[:2]:  # Limit to 2
-                        chunk_content = chunk_info.get("content", "No content")[:150] + "..."
-                        st.text_area(
-                            "Related content:",
-                            chunk_content,
-                            height=80,
-                            key=f"entity_chunk_{i}_{chunk_info.get('chunk_id', 'unknown')}",
-                            disabled=True,
-                        )
-                elif source.get("content"):
-                    # Fallback to content if available
-                    content = source.get("content", "No content available")
-                    if len(content) > 200:
-                        st.text_area(
-                            "Context:",
-                            content[:200] + "...",
-                            height=80,
-                            key=f"entity_content_{i}",
-                            disabled=True,
-                        )
-                    else:
-                        st.text_area(
-                            "Context:",
-                            content,
-                            height=60,
-                            key=f"entity_content_full_{i}",
-                            disabled=True,
-                        )
-            elif source_type == "Hybrid Chunk":
-                # Display hybrid chunk information (chunk + entities)
-                content = source.get("content", "No content available")
-                _display_content_with_truncation(content, "hybrid", i)
-                
-                # Show contained entities
-                entities = source.get("contained_entities", [])
-                if entities:
-                    st.write(f"**Contains Entities:** {', '.join(entities[:5])}")
-                    if len(entities) > 5:
-                        st.caption(f"... and {len(entities) - 5} more entities")
-                
-                # Show additional metadata for hybrid chunks
-                if source.get("document_name") and source.get("document_name") != source.get("filename"):
-                    st.write(f"**Document:** {source.get('document_name')}")
-                
-                if source.get("chunk_index") is not None:
-                    st.write(f"**Chunk:** {source.get('chunk_index') + 1}")
-                    
-            else:
-
-                # Display chunk information
-                content = source.get("content", "No content available")
-                _display_content_with_truncation(content, "chunk", i)
-                
-                # Show additional metadata for chunks
-                if source.get("document_name") and source.get("document_name") != source.get("filename"):
-                    st.write(f"**Document:** {source.get('document_name')}")
-                
-                if source.get("chunk_index") is not None:
-                    st.write(f"**Chunk:** {source.get('chunk_index') + 1}")
-                    
-                # Show entities if this chunk contains any (even in non-hybrid mode)
-                entities = source.get("contained_entities", [])
-                if entities:
-                    st.caption(f"**Contains:** {', '.join(entities[:3])}")
-                    if len(entities) > 3:
-                        st.caption(f"... +{len(entities) - 3} more")
+                for j, chunk in enumerate(chunks):
+                    with st.container():
+                        # Show chunk identifier if multiple chunks
+                        if len(chunks) > 1:
+                            chunk_idx = chunk.get("chunk_index")
+                            if chunk_idx is not None:
+                                st.write(f"**Section {chunk_idx + 1}:**")
+                            else:
+                                st.write(f"**Section {j + 1}:**")
+                        
+                        # Display chunk content
+                        content = chunk.get("content", "No content available")
+                        _display_content_with_truncation(content, f"doc_{i}_chunk", j)
+                        
+                        # Show contained entities if any
+                        entities_in_chunk = chunk.get("contained_entities", [])
+                        if entities_in_chunk:
+                            st.caption(f"**Contains:** {', '.join(entities_in_chunk[:5])}")
+                            if len(entities_in_chunk) > 5:
+                                st.caption(f"... +{len(entities_in_chunk) - 5} more entities")
+                        
+                        # # Add separator between chunks if multiple
+                        # if j < len(chunks) - 1:
+                        #     st.markdown("---")
     
-    if len(relevant_sources) > 5:
-        st.caption(f"Showing top 5 of {len(relevant_sources)} sources")
+    # Show total count
+    total_documents = len(document_groups)
+    total_chunks = sum(len(doc["chunks"]) for doc in document_groups.values())
+    total_entities = sum(len(doc["entities"]) for doc in document_groups.values())
+    
+    if total_documents > 0:
+        count_text = f"**Sources:** {total_documents} document{'s' if total_documents != 1 else ''}"
+        if total_chunks > 0:
+            count_text += f", {total_chunks} chunk{'s' if total_chunks != 1 else ''}"
+        if total_entities > 0:
+            count_text += f", {total_entities} entit{'ies' if total_entities != 1 else 'y'}"
+        st.caption(count_text)
 
 
 def display_query_analysis_detailed(analysis: Dict[str, Any]):
@@ -486,7 +574,18 @@ def display_document_upload():
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
 
-    st.info("Chunks are created and usable immediately. Entity extraction runs in background.")
+    # Add entity extraction checkbox
+    extract_entities = st.checkbox(
+        "Extract entities during upload",
+        value=True,
+        help="If checked, entities will be extracted in background after chunk creation. If unchecked, only chunks will be created (faster upload).",
+        key="extract_entities_checkbox"
+    )
+    
+    if extract_entities:
+        st.info("Chunks are created and usable immediately. Entity extraction runs in background.")
+    else:
+        st.info("Only chunks will be created (faster upload). Entity extraction can be run manually later.")
     
     uploaded_files = st.file_uploader(
         "Choose files to upload",
@@ -507,8 +606,9 @@ def display_document_upload():
 
                 st.info("Processing uploaded files (chunk extraction).")
 
-                # Process files (chunks only). Entity extraction runs in background.
-                results = process_files_background(uploaded_files, progress_container)
+                # Process files (chunks only). Entity extraction runs in background if enabled.
+                extract_entities = st.session_state.get("extract_entities_checkbox", True)
+                results = process_files_background(uploaded_files, progress_container, extract_entities)
 
                 # Display results
                 if results["processed_files"]:
@@ -702,6 +802,32 @@ def main():
                         # Display sources in sidebar
                         if "sources" in latest_message:
                             display_sources_detailed(latest_message["sources"])
+
+                            # Entity extraction button (only show if not all entities are extracted)
+                            try:
+                                extraction_status = graph_db.get_entity_extraction_status()
+                                if not extraction_status["all_extracted"] and settings.enable_entity_extraction:
+                                    st.markdown("---")
+                                    if document_processor.is_entity_extraction_running():
+                                        st.info(f"🔄 Entity extraction running in background...")
+                                        st.caption(f"{extraction_status['documents_without_entities']} documents pending entity extraction")
+                                    else:
+                                        if st.button("🧠 Extract Entities for All Documents", 
+                                                   key="extract_entities_global", 
+                                                   type="primary",
+                                                   help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction"):
+                                            result = document_processor.extract_entities_for_all_documents()
+                                            if result:
+                                                if result["status"] == "started":
+                                                    st.success(f"✅ {result['message']}")
+                                                    st.rerun()
+                                                elif result["status"] == "no_action_needed":
+                                                    st.info(f"ℹ️ {result['message']}")
+                                                else:
+                                                    st.error(f"❌ {result['message']}")
+                                        st.caption(f"{extraction_status['documents_without_entities']} documents missing entity extraction")
+                            except Exception as e:
+                                st.error(f"Could not check entity extraction status: {e}")
 
                             # Small clear chat button placed next to the title
                             if st.button("🧹 Clear chat", key="clear_chat_top", help="Clear conversation, graph and sources"):

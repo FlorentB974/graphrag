@@ -728,6 +728,189 @@ class DocumentProcessor:
         logger.info(f"Estimated total of {total_chunks} chunks from {len(uploaded_files)} files")
         return max(1, total_chunks)  # Ensure at least 1 chunk
 
+    def extract_entities_for_all_documents(self) -> Optional[Dict[str, Any]]:
+        """
+        Extract entities for all documents that don't have entities yet.
+        This is a global operation that processes all documents missing entity extraction.
+        
+        Returns:
+            Dictionary with extraction statistics or None if extraction is disabled
+        """
+        if not settings.enable_entity_extraction:
+            logger.info("Entity extraction disabled, skipping global extraction")
+            return None
+
+        # Initialize entity extractor if not already done
+        if self.entity_extractor is None:
+            logger.info("Initializing entity extractor for global extraction...")
+            self.entity_extractor = EntityExtractor()
+
+        # Get entity extraction status from database
+        try:
+            status = graph_db.get_entity_extraction_status()
+            docs_without_entities = [
+                doc for doc in status["documents"] 
+                if not doc["entities_extracted"] and doc["total_chunks"] > 0
+            ]
+            
+            if not docs_without_entities:
+                logger.info("All documents already have entities extracted")
+                return {
+                    "status": "no_action_needed",
+                    "message": "All documents already have entities extracted",
+                    "processed_documents": 0
+                }
+            
+            logger.info(f"Starting global entity extraction for {len(docs_without_entities)} documents")
+            
+            # Prepare document list for batch processing
+            documents_to_process = [
+                {
+                    "document_id": doc["document_id"],
+                    "file_name": doc["filename"]
+                }
+                for doc in docs_without_entities
+            ]
+            
+            # Start batch entity extraction in background
+            def _global_entity_worker(documents_list):
+                """Background worker for global entity extraction."""
+                try:
+                    extractor = self.entity_extractor
+                    if not extractor:
+                        logger.error("Entity extractor not available in global extraction worker")
+                        return None
+                    
+                    total_entities = 0
+                    total_relationships = 0
+                    processed_docs = 0
+                    
+                    for doc_info in documents_list:
+                        doc_id = doc_info["document_id"]
+                        file_name = doc_info["file_name"]
+                        
+                        try:
+                            logger.info(f"Processing entities for document {doc_id} ({file_name})")
+                            
+                            # Get chunks for this document from the database
+                            chunks_for_extraction = graph_db.get_document_chunks(doc_id)
+                            
+                            if not chunks_for_extraction:
+                                logger.warning(f"No chunks found for document {doc_id}")
+                                continue
+                            
+                            # Run entity extraction
+                            entity_dict, relationship_dict = asyncio.run(
+                                extractor.extract_from_chunks(chunks_for_extraction)
+                            )
+                            
+                            # Persist entities and relationships
+                            created_entities = 0
+                            created_relationships = 0
+
+                            for entity in entity_dict.values():
+                                try:
+                                    entity_id = self._generate_entity_id(entity.name)
+                                    graph_db.create_entity_node(
+                                        entity_id,
+                                        entity.name,
+                                        entity.type,
+                                        entity.description,
+                                        entity.importance_score,
+                                        entity.source_chunks or [],
+                                    )
+                                    # Link chunks to entity
+                                    for chunk_id in entity.source_chunks or []:
+                                        try:
+                                            graph_db.create_chunk_entity_relationship(chunk_id, entity_id)
+                                        except Exception as e:
+                                            logger.debug(f"Failed to create chunk-entity rel {chunk_id}->{entity_id}: {e}")
+                                    created_entities += 1
+                                except Exception as e:
+                                    logger.error(f"Failed to persist entity {entity.name} for doc {doc_id}: {e}")
+
+                            # Store entity relationships
+                            for relationships in relationship_dict.values():
+                                for relationship in relationships:
+                                    try:
+                                        source_id = self._generate_entity_id(relationship.source_entity)
+                                        target_id = self._generate_entity_id(relationship.target_entity)
+                                        graph_db.create_entity_relationship(
+                                            entity_id1=source_id,
+                                            entity_id2=target_id,
+                                            relationship_type="RELATED_TO",
+                                            description=relationship.description,
+                                            strength=relationship.strength,
+                                            source_chunks=relationship.source_chunks or [],
+                                        )
+                                        created_relationships += 1
+                                    except Exception as e:
+                                        logger.debug(f"Failed to persist relationship for doc {doc_id}: {e}")
+
+                            # Optionally create entity similarities for this document
+                            try:
+                                graph_db.create_entity_similarities(doc_id)
+                            except Exception as e:
+                                logger.debug(f"Failed to create entity similarities for {doc_id}: {e}")
+
+                            # Validate entity embeddings after processing
+                            try:
+                                validation_results = graph_db.validate_entity_embeddings(doc_id)
+                                if not validation_results["validation_passed"]:
+                                    logger.warning(f"Document {doc_id} has {validation_results['invalid_embeddings']} invalid entity embeddings")
+                                    # Optionally fix invalid embeddings
+                                    invalid_entity_ids = [entity["entity_id"] for entity in validation_results["invalid_entity_details"]]
+                                    if invalid_entity_ids:
+                                        logger.info(f"Attempting to fix {len(invalid_entity_ids)} invalid entity embeddings...")
+                                        fix_results = graph_db.fix_invalid_embeddings(entity_ids=invalid_entity_ids)
+                                        logger.info(f"Fixed {fix_results['entities_fixed']} entity embeddings")
+                            except Exception as e:
+                                logger.warning(f"Failed to validate entity embeddings for document {doc_id}: {e}")
+
+                            logger.info(f"Global entity extraction finished for {doc_id}: {created_entities} entities, {created_relationships} relationships")
+                            
+                            # Track stats
+                            total_entities += created_entities
+                            total_relationships += created_relationships
+                            processed_docs += 1
+                            
+                        except Exception as e:
+                            logger.error(f"Failed to process entities for document {doc_id}: {e}")
+
+                    logger.info(f"Global entity extraction completed: {processed_docs} documents, {total_entities} entities, {total_relationships} relationships")
+                    
+                except Exception as e:
+                    logger.error(f"Unhandled error in global entity extraction worker: {e}")
+                finally:
+                    # Remove this thread from the tracking list when finished
+                    try:
+                        with self._bg_lock:
+                            current = threading.current_thread()
+                            if current in self._bg_entity_threads:
+                                self._bg_entity_threads.remove(current)
+                    except Exception:
+                        pass
+
+            # Start thread and track it so the UI can detect background work
+            t = threading.Thread(target=_global_entity_worker, args=(documents_to_process,), daemon=True)
+            with self._bg_lock:
+                self._bg_entity_threads.append(t)
+            t.start()
+
+            return {
+                "status": "started",
+                "message": f"Started entity extraction for {len(docs_without_entities)} documents",
+                "processed_documents": len(docs_without_entities)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to start global entity extraction: {e}")
+            return {
+                "status": "error",
+                "message": f"Failed to start entity extraction: {str(e)}",
+                "processed_documents": 0
+            }
+
 
 # Global document processor instance
 document_processor = DocumentProcessor()

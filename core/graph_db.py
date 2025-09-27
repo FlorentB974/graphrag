@@ -545,6 +545,60 @@ class GraphDB:
                     "chunk_entity_relations": 0,
                 }
 
+    def get_entity_extraction_status(self) -> Dict[str, Any]:
+        """Get entity extraction status for all documents."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                OPTIONAL MATCH (c)-[:CONTAINS_ENTITY]->(e:Entity)
+                WITH d, count(DISTINCT c) as total_chunks, count(DISTINCT e) as total_entities,
+                     count(DISTINCT CASE WHEN e IS NOT NULL THEN c END) as chunks_with_entities
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       total_chunks,
+                       total_entities,
+                       chunks_with_entities,
+                       CASE 
+                           WHEN total_chunks = 0 THEN true
+                           WHEN chunks_with_entities = total_chunks AND total_entities > 0 THEN true
+                           ELSE false
+                       END as entities_extracted
+                ORDER BY d.filename ASC
+                """
+            )
+            
+            documents = [record.data() for record in result]
+            
+            # Calculate overall stats
+            total_docs = len(documents)
+            docs_with_entities = len([d for d in documents if d["entities_extracted"]])
+            docs_without_entities = total_docs - docs_with_entities
+            
+            return {
+                "documents": documents,
+                "total_documents": total_docs,
+                "documents_with_entities": docs_with_entities,
+                "documents_without_entities": docs_without_entities,
+                "all_extracted": docs_without_entities == 0
+            }
+
+    def get_document_entities(self, doc_id: str) -> List[Dict[str, Any]]:
+        """Get all entities extracted from a specific document."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                RETURN DISTINCT e.id as entity_id, e.name as name, e.type as type,
+                       e.description as description, e.importance_score as importance_score,
+                       count(DISTINCT c) as chunk_count
+                ORDER BY e.importance_score DESC, e.name ASC
+                """,
+                doc_id=doc_id,
+            )
+            return [record.data() for record in result]
+
     def setup_indexes(self) -> None:
         """Create necessary indexes for performance."""
         with self.driver.session() as session:  # type: ignore

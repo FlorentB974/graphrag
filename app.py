@@ -55,7 +55,7 @@ def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None
 
 
 def process_files_background(
-    uploaded_files: List[Any], progress_container, processing_mode: str = "chunk_only"
+    uploaded_files: List[Any], progress_container
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
@@ -285,6 +285,42 @@ def display_document_list():
         st.error(f"Could not fetch document list: {e}")
 
 
+def _display_content_with_truncation(content: str, key_prefix: str, index: int, max_length: int = 300) -> None:
+    """
+    Helper function to display content with truncation and expansion option.
+    
+    Args:
+        content: Content to display
+        key_prefix: Prefix for Streamlit widget keys
+        index: Index for unique key generation
+        max_length: Maximum length before truncation
+    """
+    if len(content) > max_length:
+        st.text_area(
+            "Content Preview:",
+            content[:max_length] + "...",
+            height=100,
+            key=f"{key_prefix}_preview_{index}",
+            disabled=True,
+        )
+        with st.expander("Show Full Content"):
+            st.text_area(
+                "Full Content:",
+                content,
+                height=200,
+                key=f"{key_prefix}_full_{index}",
+                disabled=True,
+            )
+    else:
+        st.text_area(
+            "Content:",
+            content,
+            height=max(60, min(len(content.split("\n")) * 20, 150)),
+            key=f"{key_prefix}_content_{index}",
+            disabled=True,
+        )
+
+
 def display_sources_detailed(sources: List[Dict[str, Any]]):
     """
     Display detailed source chunks and entities in a formatted sidebar.
@@ -381,30 +417,7 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
             elif source_type == "Hybrid Chunk":
                 # Display hybrid chunk information (chunk + entities)
                 content = source.get("content", "No content available")
-                if len(content) > 300:
-                    st.text_area(
-                        "Content Preview:",
-                        content[:300] + "...",
-                        height=100,
-                        key=f"hybrid_preview_{i}",
-                        disabled=True,
-                    )
-                    with st.expander("Show Full Content"):
-                        st.text_area(
-                            "Full Content:",
-                            content,
-                            height=200,
-                            key=f"hybrid_full_{i}",
-                            disabled=True,
-                        )
-                else:
-                    st.text_area(
-                        "Content:",
-                        content,
-                        height=max(60, min(len(content.split("\n")) * 20, 150)),
-                        key=f"hybrid_content_{i}",
-                        disabled=True,
-                    )
+                _display_content_with_truncation(content, "hybrid", i)
                 
                 # Show contained entities
                 entities = source.get("contained_entities", [])
@@ -424,31 +437,7 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
 
                 # Display chunk information
                 content = source.get("content", "No content available")
-                if len(content) > 300:
-                    st.text_area(
-                        "Content Preview:",
-                        content[:300] + "...",
-                        height=100,
-                        key=f"chunk_preview_{i}",
-                        disabled=True,
-                    )
-
-                    with st.expander("Show Full Content"):
-                        st.text_area(
-                            "Full Content:",
-                            content,
-                            height=200,
-                            key=f"chunk_full_{i}",
-                            disabled=True,
-                        )
-                else:
-                    st.text_area(
-                        "Content:",
-                        content,
-                        height=max(60, min(len(content.split("\n")) * 20, 150)),
-                        key=f"chunk_content_{i}",
-                        disabled=True,
-                    )
+                _display_content_with_truncation(content, "chunk", i)
                 
                 # Show additional metadata for chunks
                 if source.get("document_name") and source.get("document_name") != source.get("filename"):

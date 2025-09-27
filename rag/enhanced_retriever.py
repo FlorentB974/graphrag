@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Dict, List
 import hashlib
 
+from config.settings import settings
 from core.embeddings import embedding_manager
 from core.graph_db import graph_db
 
@@ -76,8 +77,6 @@ class EnhancedDocumentRetriever:
             List of similar chunks with metadata
         """
         try:
-            from config.settings import settings
-            
             # Generate query embedding
             query_embedding = embedding_manager.get_embedding(query)
 
@@ -86,7 +85,7 @@ class EnhancedDocumentRetriever:
             
             # Filter chunks by minimum similarity threshold
             filtered_chunks = [
-                chunk for chunk in similar_chunks 
+                chunk for chunk in similar_chunks
                 if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
             ]
             
@@ -163,7 +162,6 @@ class EnhancedDocumentRetriever:
                     chunk["similarity"] = 0.0
             
             # Filter chunks by minimum similarity threshold
-            from config.settings import settings
             filtered_chunks = [
                 chunk for chunk in relevant_chunks
                 if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
@@ -242,7 +240,6 @@ class EnhancedDocumentRetriever:
                     chunk["similarity"] = 0.0  # No entities
             
             # Filter by minimum similarity threshold
-            from config.settings import settings
             filtered_chunks = [
                 chunk for chunk in expanded_chunks
                 if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
@@ -455,7 +452,6 @@ class EnhancedDocumentRetriever:
                                 seen_chunk_ids.add(rel_chunk_id)
 
             # Filter out chunks with similarity below threshold
-            from config.settings import settings
             filtered_chunks = [
                 chunk for chunk in expanded_chunks
                 if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity

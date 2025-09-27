@@ -367,7 +367,7 @@ class EnhancedDocumentRetriever:
         query: str,
         mode: RetrievalMode = RetrievalMode.HYBRID,
         top_k: int = 3,
-        expand_depth: int = 1
+        expand_depth: int = 2
     ) -> List[Dict[str, Any]]:
         """
         Retrieve chunks and expand using graph relationships.

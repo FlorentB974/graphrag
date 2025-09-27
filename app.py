@@ -466,7 +466,10 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
             # Display entities if present
             if entities:
                 st.write("**🏷️ Relevant Entities:**")
-                for j, entity in enumerate(entities):
+                # Only show up to 10 entities per document to keep UI concise
+                visible_entities = entities[:10]
+                hidden_entities_count = max(0, len(entities) - len(visible_entities))
+                for j, entity in enumerate(visible_entities):
                     with st.container():
                         st.write(f"• **{entity.get('entity_name', 'Unknown Entity')}**")
                         if entity.get("entity_type", "").lower() != "entity":
@@ -501,12 +504,16 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
             
             # Display chunks if present
             if chunks:
+                # Only show up to 10 chunks per document for readability
+                visible_chunks = chunks[:10]
+                hidden_chunks_count = max(0, len(chunks) - len(visible_chunks))
+
                 if len(chunks) == 1:
                     st.write("**📄 Relevant Content:**")
                 else:
                     st.write(f"**📄 Relevant Content ({len(chunks)} sections):**")
                 
-                for j, chunk in enumerate(chunks):
+                for j, chunk in enumerate(visible_chunks):
                     with st.container():
                         # Show chunk identifier if multiple chunks
                         if len(chunks) > 1:
@@ -525,11 +532,14 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                         if entities_in_chunk:
                             st.caption(f"**Contains:** {', '.join(entities_in_chunk[:5])}")
                             if len(entities_in_chunk) > 5:
-                                st.caption(f"... +{len(entities_in_chunk) - 5} more entities")
-                        
-                        # # Add separator between chunks if multiple
-                        # if j < len(chunks) - 1:
-                        #     st.markdown("---")
+                                st.caption(f"... and {len(entities_in_chunk) - 5} more entities")
+                # If there were more chunks than displayed, indicate how many were hidden
+                if hidden_chunks_count:
+                    st.caption(f"... and {hidden_chunks_count} more sections hidden (showing top 10)")
+                # If there were more entities than displayed, indicate how many were hidden
+                if entities and hidden_entities_count:
+                    st.caption(f"... and {hidden_entities_count} more entities hidden (showing top 10)")
+
     
     # Show total count
     total_documents = len(document_groups)

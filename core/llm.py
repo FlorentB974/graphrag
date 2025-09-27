@@ -140,15 +140,51 @@ class LLMManager:
     ) -> Dict[str, Any]:
         """
         Generate a RAG response using retrieved context chunks.
+        Now includes token management to handle context length limits.
 
         Args:
             query: User query
             context_chunks: List of relevant document chunks
             include_sources: Whether to include source information
+            temperature: LLM temperature for response generation
 
         Returns:
             Dictionary containing response and metadata
         """
+        try:
+            # Import here to avoid circular imports
+            from core.token_manager import token_manager
+            
+            system_message = """You are a helpful assistant that answers questions based on the provided context.
+Use only the information from the given context to answer the question.
+If the context doesn't contain enough information to answer the question, say so clearly.
+Be concise and accurate in your responses.
+
+Formatting rules: return Markdown only (no HTML). If the model would normally use HTML tags such as <br> or <p>, convert them to plain-text equivalents. When presenting markdown-style tables (rows with `|`), do not insert HTML tags — keep each table cell's content together on the same row. Replace `<br>` inside markdown table rows with a single space so the cell stays on one line; outside tables, replace `<br>` with a newline.
+
+Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and `\\[...\\]` but preserve the mathematical content.
+"""
+
+            # Check if we need to split the request due to token limits
+            if token_manager.needs_splitting(query, context_chunks, system_message):
+                logger.info("Request exceeds token limit, splitting into multiple requests")
+                return self._generate_rag_response_split(query, context_chunks, system_message, include_sources, temperature)
+            else:
+                return self._generate_rag_response_single(query, context_chunks, system_message, include_sources, temperature)
+
+        except Exception as e:
+            logger.error(f"Failed to generate RAG response: {e}")
+            raise
+
+    def _generate_rag_response_single(
+        self,
+        query: str,
+        context_chunks: list,
+        system_message: str,
+        include_sources: bool,
+        temperature: float,
+    ) -> Dict[str, Any]:
+        """Generate RAG response for a single request that fits within token limits."""
         try:
             # Build context from chunks
             context = "\n\n".join(
@@ -157,16 +193,6 @@ class LLMManager:
                     for i, chunk in enumerate(context_chunks)
                 ]
             )
-
-            system_message = """You are a helpful assistant that answers questions based on the provided context.
-Use only the information from the given context to answer the question.
-If the context doesn't contain enough information to answer the question, say so clearly.
-Be concise and accurate in your responses.
-
-Formatting rules: return plain text only (no HTML). If the model would normally use HTML tags such as <br> or <p>, convert them to plain-text equivalents. When presenting markdown-style tables (rows with `|`), do not insert HTML tags — keep each table cell's content together on the same row. Replace `<br>` inside markdown table rows with a single space so the cell stays on one line; outside tables, replace `<br>` with a newline.
-
-Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and `\\[...\\]` but preserve the mathematical content.
-"""
 
             prompt = f"""Context:
 {context}
@@ -178,65 +204,139 @@ Please provide a comprehensive answer based on the context provided above."""
             response = self.generate_response(
                 prompt=prompt,
                 system_message=system_message,
-                temperature=temperature,  # Use the passed temperature
+                temperature=temperature,
             )
 
             # Post-processing: remove HTML tags like <br> and strip LaTeX wrappers
-            def _clean_text(text: str) -> str:
-                import re
-
-                if not isinstance(text, str):
-                    return text
-
-                # Process line-by-line: table rows (with '|') will be treated specially
-
-                def _process_line(line: str) -> str:
-                    # If line looks like a table row, replace <br> with a space
-                    if '|' in line:
-                        line = re.sub(r'(?i)<br\s*/?>', ' ', line)
-                        line = re.sub(r'(?i)<p\s*/?>', '', line)
-                        line = re.sub(r'(?i)</p>', '', line)
-                    else:
-                        line = re.sub(r'(?i)<br\s*/?>', '\n', line)
-                        line = re.sub(r'(?i)<p\s*/?>', '\n', line)
-                        line = re.sub(r'(?i)</p>', '\n', line)
-                    return line
-
-                # Apply line-wise processing to preserve table-row behavior
-                lines = text.splitlines()
-                processed_lines = [_process_line(ln) for ln in lines]
-                text = '\n'.join(processed_lines)
-
-                # Collapse excessive newlines
-                text = re.sub(r'\n{3,}', '\n\n', text)
-
-                # Strip LaTeX delimiters but keep content
-                text = re.sub(r"\$\$(.*?)\$\$", lambda m: m.group(1), text, flags=re.S)
-                text = re.sub(r"\$(.*?)\$", lambda m: m.group(1), text, flags=re.S)
-                text = re.sub(r"\\\\\((.*?)\\\\\)", lambda m: m.group(1), text, flags=re.S)
-                text = re.sub(r"\\\\\[(.*?)\\\\\]", lambda m: m.group(1), text, flags=re.S)
-                text = re.sub(r"\\begin\{([a-zA-Z*]+)\}(.*?)\\end\{\1\}", lambda m: m.group(2), text, flags=re.S)
-
-                return text.strip()
-
-            cleaned = response
-            try:
-                cleaned = _clean_text(response)
-            except Exception:
-                cleaned = response
+            cleaned = self._clean_response_text(response)
 
             result = {
                 "answer": cleaned,
                 "query": query,
                 "context_chunks": context_chunks if include_sources else [],
                 "num_chunks_used": len(context_chunks),
+                "split_responses": False,
             }
 
             return result
 
         except Exception as e:
-            logger.error(f"Failed to generate RAG response: {e}")
+            logger.error(f"Failed to generate single RAG response: {e}")
             raise
+
+    def _generate_rag_response_split(
+        self,
+        query: str,
+        context_chunks: list,
+        system_message: str,
+        include_sources: bool,
+        temperature: float,
+    ) -> Dict[str, Any]:
+        """Generate RAG response by splitting the request into multiple parts."""
+        try:
+            from core.token_manager import token_manager
+            
+            # Split context chunks into batches that fit within token limits
+            batches = token_manager.split_context_chunks(query, context_chunks, system_message)
+            logger.info(f"Split request into {len(batches)} batches")
+            
+            responses = []
+            total_chunks_used = 0
+            
+            for i, (batch_query, batch_chunks, estimated_tokens) in enumerate(batches):
+                logger.info(f"Processing batch {i + 1}/{len(batches)} with {len(batch_chunks)} chunks ({estimated_tokens} tokens)")
+                
+                if not batch_chunks:
+                    # Skip empty batches
+                    continue
+                
+                # Build context for this batch
+                context = "\n\n".join(
+                    [
+                        f"[Chunk {j + 1}]: {chunk.get('content', '')}"
+                        for j, chunk in enumerate(batch_chunks)
+                    ]
+                )
+
+                batch_prompt = f"""Context:
+{context}
+
+Question: {batch_query}
+
+Please provide a comprehensive answer based on the context provided above."""
+
+                if len(batches) > 1:
+                    # Add context about this being part of a multi-part response
+                    batch_prompt += f"\n\nNote: This is part {i + 1} of {len(batches)} of your response."
+
+                batch_response = self.generate_response(
+                    prompt=batch_prompt,
+                    system_message=system_message,
+                    temperature=temperature,
+                )
+                
+                responses.append(batch_response)
+                total_chunks_used += len(batch_chunks)
+            
+            # Merge responses
+            if not responses:
+                merged_response = "I couldn't find any relevant information to answer your question."
+            else:
+                merged_response = token_manager.merge_responses(responses)
+            
+            # Clean the merged response
+            cleaned = self._clean_response_text(merged_response)
+
+            result = {
+                "answer": cleaned,
+                "query": query,
+                "context_chunks": context_chunks if include_sources else [],
+                "num_chunks_used": total_chunks_used,
+                "split_responses": True,
+                "num_batches": len(batches),
+            }
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to generate split RAG response: {e}")
+            raise
+
+    def _clean_response_text(self, text: str) -> str:
+        """Clean response text by removing HTML tags and LaTeX delimiters."""
+        import re
+
+        if not isinstance(text, str):
+            return text
+
+        def _process_line(line: str) -> str:
+            # If line looks like a table row, replace <br> with a space
+            if '|' in line:
+                line = re.sub(r'(?i)<br\s*/?>', ' ', line)
+                line = re.sub(r'(?i)<p\s*/?>', '', line)
+                line = re.sub(r'(?i)</p>', '', line)
+            else:
+                line = re.sub(r'(?i)<br\s*/?>', '\n', line)
+                line = re.sub(r'(?i)<p\s*/?>', '\n', line)
+                line = re.sub(r'(?i)</p>', '\n', line)
+            return line
+
+        # Apply line-wise processing to preserve table-row behavior
+        lines = text.splitlines()
+        processed_lines = [_process_line(ln) for ln in lines]
+        text = '\n'.join(processed_lines)
+
+        # Collapse excessive newlines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        # Strip LaTeX delimiters but keep content
+        text = re.sub(r"\$\$(.*?)\$\$", lambda m: m.group(1), text, flags=re.S)
+        text = re.sub(r"\$(.*?)\$", lambda m: m.group(1), text, flags=re.S)
+        text = re.sub(r"\\\\\((.*?)\\\\\)", lambda m: m.group(1), text, flags=re.S)
+        text = re.sub(r"\\\\\[(.*?)\\\\\]", lambda m: m.group(1), text, flags=re.S)
+        text = re.sub(r"\\begin\{([a-zA-Z*]+)\}(.*?)\\end\{\1\}", lambda m: m.group(2), text, flags=re.S)
+
+        return text.strip()
 
     def analyze_query(self, query: str) -> Dict[str, Any]:
         """

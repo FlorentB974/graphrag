@@ -437,164 +437,127 @@ def get_query_graph_data(
         doc_id = result.get("document_id")
         if doc_id:
             document_ids.add(doc_id)
+    nodes = []
+    edges = []
 
-    # Add query node with actual query text
-    query_display = query_text[:40] + "..." if len(query_text) > 40 else query_text
-    nodes.append(
-        {
-            "id": "query",
-            "entity_id": "query",
-            "label": "Query",
-            "title": query_display,
-            "full_text": query_text,
-            "size": 30,
-            "node_type": "query",
-        }
-    )
+    # Filter out chunks with low or missing similarity scores
+    filtered_results = []
+    for result in query_results:
+        similarity = result.get("similarity")
+        if similarity is not None and similarity >= settings.min_retrieval_similarity:
+            filtered_results.append(result)
+        elif similarity is not None:
+            logger.debug(f"Filtered chunk with similarity {similarity} (below threshold {settings.min_retrieval_similarity})")
 
-    # Initialize variables for simplified graph
-    chunk_data = {}
-    entity_relationships = []
+    query_results = filtered_results
 
-    # Query Neo4j for only the essential relationships
-    try:
-        if graph_db.driver and chunk_ids:
-            with graph_db.driver.session() as session:
-                # Get only the most relevant entities (limit to top 3 per chunk)
-                chunk_entity_query = """
-                MATCH (c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
-                WHERE c.id IN $chunk_ids
-                WITH c, e
-                ORDER BY coalesce(e.importance_score, 0.5) DESC
-                WITH c.id as chunk_id, collect(e)[0..3] as top_entities
-                RETURN
-                    chunk_id,
-                    [entity IN top_entities | {
-                        id: entity.id,
-                        name: entity.name,
-                        type: entity.type,
-                        confidence: coalesce(entity.importance_score, 0.5)
-                    }] as entities
-                """
-                
-                chunk_entity_results = session.run(chunk_entity_query, chunk_ids=chunk_ids)
-                
-                for record in chunk_entity_results:
-                    data = record.data()
-                    chunk_data[data["chunk_id"]] = {"entities": data["entities"]}
-                
-                # Get only strong entity relationships (confidence > 0.4)
-                if len(chunk_ids) > 1:  # Only if we have multiple chunks
-                    strong_entity_query = """
-                    MATCH (c1:Chunk)-[:CONTAINS_ENTITY]->(e1:Entity)-[r:RELATED_TO]-(e2:Entity)<-[:CONTAINS_ENTITY]-(c2:Chunk)
-                    WHERE c1.id IN $chunk_ids AND c2.id IN $chunk_ids
-                    AND c1.id <> c2.id
-                    AND coalesce(r.strength, 0) > 0.4
-                    RETURN DISTINCT
-                        c1.id as source_chunk_id,
-                        c2.id as target_chunk_id,
-                        e1.name as entity1_name,
-                        e2.name as entity2_name,
-                        coalesce(r.strength, 0.5) as confidence
-                    LIMIT 2
-                    """
-                    
-                    entity_rel_results = session.run(strong_entity_query, chunk_ids=chunk_ids)
-                    entity_relationships = list(entity_rel_results)
+    if not query_results:
+        # Return empty graph if no results meet the threshold
+        return {"nodes": nodes, "edges": edges, "total_nodes": 0, "total_edges": 0}
 
-    except Exception as e:
-        logger.error(f"Error querying simplified graph relationships: {e}")    # Create simplified node structure - only chunks and top entities
-    added_entities = set()
-    
-    for i, result in enumerate(query_results):
-        chunk_id = result.get("chunk_id", f"unknown_{i}")
-        chunk_node_id = f"chunk_{i}"
-        chunk_content = result.get("content", "No content")
-        similarity = result.get("similarity", 0.0)  # Should be filtered already, but keep for safety
-        document_name = result.get("document_name", result.get("filename", "Unknown Document"))
+    # Build document-level aggregation from the retrieved chunks
+    # Key by document_id when available, otherwise use document_name
+    doc_map: Dict[str, Dict[str, Any]] = {}
 
-        # Truncate content for display
-        display_content = (
-            chunk_content[:60] + "..." if len(chunk_content) > 60 else chunk_content
-        )
+    for res in query_results:
+        doc_id = res.get("document_id") or res.get("filename") or res.get("document_name") or "unknown_doc"
+        doc_name = res.get("document_name") or res.get("filename") or str(doc_id)
+        chunk_id = res.get("chunk_id")
+        similarity = res.get("similarity", 0.0)
 
-        # Add chunk node
+        if doc_id not in doc_map:
+            doc_map[doc_id] = {
+                "document_id": doc_id,
+                "document_name": doc_name,
+                "chunks": set(),
+                "chunk_similarities": [],
+                "entities": set(),
+            }
+
+        if chunk_id:
+            doc_map[doc_id]["chunks"].add(chunk_id)
+            doc_map[doc_id]["chunk_similarities"].append(similarity)
+
+        # Try to collect entities for this chunk from different possible places
+        # Prefer any chunk_data populated earlier (if present in local scope), else look in result
+        entities_list = []
+        if isinstance(res.get("entities"), list):
+            entities_list = [e.get("entity_name") if isinstance(e, dict) else e for e in res.get("entities", [])]
+        elif isinstance(res.get("contained_entities"), list):
+            entities_list = res.get("contained_entities", [])
+        # Normalize
+        for ent in entities_list:
+            if ent:
+                doc_map[doc_id]["entities"].add(ent)
+
+    # Add query node
+    query_display = query_text[:60] + "..." if len(query_text) > 60 else query_text
+    nodes.append({
+        "id": "query",
+        "entity_id": "query",
+        "label": "Query",
+        "title": query_display,
+        "full_text": query_text,
+        "size": 30,
+        "node_type": "query",
+    })
+
+    # Create document nodes
+    doc_id_to_node_id = {}
+    for idx, (doc_id, info) in enumerate(doc_map.items()):
+        node_id = f"doc_{idx}"
+        doc_id_to_node_id[doc_id] = node_id
+        chunk_count = len(info["chunks"])
+        entity_count = len(info["entities"])
+        avg_similarity = (sum(info["chunk_similarities"]) / len(info["chunk_similarities"])) if info["chunk_similarities"] else 0.0
+        display_title = info.get("document_name") or str(doc_id)
+
         nodes.append({
-            "id": chunk_node_id,
-            "entity_id": chunk_id,
-            "label": "Source",  # Simplified label
-            "title": display_content.replace("\n", " "),
-            "full_content": chunk_content,
-            "document_name": document_name,
-            "size": 20 + min(similarity * 15, 15),
-            "similarity": similarity,
-            "node_type": "chunk",
-            "chunk_index": i,
+            "id": node_id,
+            "entity_id": doc_id,
+            "label": "Document",
+            "title": display_title,
+            "document_name": display_title,
+            "chunk_count": chunk_count,
+            "entity_count": entity_count,
+            "avg_similarity": avg_similarity,
+            "size": max(20, min(60, 20 + (chunk_count * 5) + (entity_count * 3))),
         })
 
-        # Connect query to chunk with readable label
+        # Add edge from query to document summarizing counts
+        rel_label = f"{chunk_count} chunk{'s' if chunk_count != 1 else ''}, {entity_count} entit{'ies' if entity_count != 1 else 'y'}"
         edges.append({
             "source": "query",
-            "target": chunk_node_id,
+            "target": node_id,
             "type": "RELEVANT_TO",
-            "relationship_label": f"is relevant to ({similarity:.2f})",
-            "weight": similarity,
+            "relationship_label": rel_label,
+            "weight": avg_similarity or 0.1,
             "edge_type": "retrieval",
         })
 
-        # Add only top 2 entities per chunk to avoid overcrowding
-        if chunk_id in chunk_data:
-            entities = chunk_data[chunk_id].get("entities", [])[:2]  # Limit to top 2
-            for entity in entities:
-                if entity.get("id") and entity["id"] not in added_entities and entity.get("confidence", 0) > 0.3:
-                    entity_node_id = f"entity_{entity['id']}"
-                    entity_name = entity.get("name", "Unknown Entity")
-                    
-                    nodes.append({
-                        "id": entity_node_id,
-                        "entity_id": entity["id"],
-                        "label": "Entity",
-                        "title": entity_name,
-                        "entity_type": entity.get("type", "Unknown"),
-                        "confidence": entity.get("confidence", 0.5),
-                        "size": 25,  # Fixed size for consistency
-                        "node_type": "entity",
-                    })
-                    added_entities.add(entity["id"])
+    # Create document-document edges indicating shared entities (what they share in common)
+    doc_items = list(doc_map.items())
+    for i in range(len(doc_items)):
+        id_i, info_i = doc_items[i]
+        for j in range(i + 1, len(doc_items)):
+            id_j, info_j = doc_items[j]
+            shared_entities = set(info_i["entities"]) & set(info_j["entities"])
+            if shared_entities:
+                source_node = doc_id_to_node_id[id_i]
+                target_node = doc_id_to_node_id[id_j]
+                # Human readable label: list top 3 shared entities
+                shared_list = list(shared_entities)
+                preview = ", ".join(shared_list[:3])
+                rel_label = f"shares: {preview}"
+                edges.append({
+                    "source": source_node,
+                    "target": target_node,
+                    "type": "SHARES_ENTITY",
+                    "relationship_label": rel_label,
+                    "weight": len(shared_entities),
+                    "edge_type": "shared",
+                })
 
-                    # Connect chunk to entity with readable label
-                    edges.append({
-                        "source": chunk_node_id,
-                        "target": entity_node_id,
-                        "type": "MENTIONS",
-                        "relationship_label": f"mentions {entity_name}",
-                        "weight": entity.get("confidence", 0.5),
-                        "edge_type": "entity_relation",
-                    })
-
-    # Add only strong entity relationships
-    for rel in entity_relationships:
-        source_chunk_id = rel["source_chunk_id"]
-        target_chunk_id = rel["target_chunk_id"]
-        
-        source_node_id = None
-        target_node_id = None
-        
-        for i, result in enumerate(query_results):
-            if result.get("chunk_id") == source_chunk_id:
-                source_node_id = f"chunk_{i}"
-            elif result.get("chunk_id") == target_chunk_id:
-                target_node_id = f"chunk_{i}"
-        
-        if source_node_id and target_node_id:
-            edges.append({
-                "source": source_node_id,
-                "target": target_node_id,
-                "type": "CONNECTED_VIA",
-                "relationship_label": f"connected via {rel['entity1_name']} ↔ {rel['entity2_name']}",
-                "weight": rel["confidence"],
-                "edge_type": "entity_connection",
-            })
 
     return {
         "nodes": nodes,
@@ -685,7 +648,14 @@ def create_query_result_graph(
                         size_str = f" ({file_size / (1024 * 1024):.1f} MB)"
                     elif file_size > 1024:
                         size_str = f" ({file_size / 1024:.1f} KB)"
-                hover_text = f"<b>Document:</b> {node['title']}{size_str}"
+                chunk_count = node.get("chunk_count", 0)
+                entity_count = node.get("entity_count", 0)
+                avg_sim = node.get("avg_similarity", 0.0)
+                hover_text = (
+                    f"<b>Document:</b> {node['title']}{size_str}<br>"
+                    f"<b>Chunks:</b> {chunk_count} &nbsp; <b>Entities:</b> {entity_count}<br>"
+                    f"<b>Avg Relevance:</b> {avg_sim:.3f}"
+                )
             elif node_type == "Entity":
                 display_text = node["title"][:3]
                 entity_type = node.get("entity_type", "Unknown")

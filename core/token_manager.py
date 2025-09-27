@@ -30,6 +30,7 @@ class TokenManager:
         'gpt-4-turbo-preview': 128000,
         'gpt-4-0125-preview': 128000,
         'gpt-4-1106-preview': 128000,
+        'gpt-oss-120b': 128000,
         'gpt-4o': 128000,
         'gpt-4o-mini': 128000,
         'gpt-3.5-turbo': 16385,
@@ -46,7 +47,7 @@ class TokenManager:
         'mistral': 8192,
         'mixtral': 32768,
         'gemma': 8192,
-        'qwen': 32768,
+        'qwen': 262000,
         'dolphin-mixtral': 32768,
         'llama3': 8192,
         'llama3:8b': 8192,
@@ -65,6 +66,9 @@ class TokenManager:
         
         # Reserve tokens for system message, response, and safety margin
         self.reserved_tokens = 1000
+        # Safety margin specifically reserved for output (to avoid truncation)
+        self.output_safety_tokens = 128
+        # Maximum tokens we should use for chunked context (input only)
         self.max_chunk_tokens = self.context_size - self.reserved_tokens
         
         logger.info(f"TokenManager initialized: model={self.model}, context_size={self.context_size}, max_chunk_tokens={self.max_chunk_tokens}")
@@ -146,6 +150,22 @@ class TokenManager:
         total_tokens += 3
         
         return total_tokens
+
+    def available_output_tokens_for_messages(self, messages: List[Dict[str, str]]) -> int:
+        """Compute available tokens for the model's output given the message list."""
+        # tokens used by input messages
+        used = self.count_message_tokens(messages)
+        available = self.context_size - used - self.output_safety_tokens
+        # Minimum of 32 tokens to avoid tiny responses
+        return max(32, available)
+
+    def available_output_tokens_for_prompt(self, prompt: str, system_message: Optional[str] = None) -> int:
+        """Convenience wrapper: build message list and compute available output tokens."""
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        return self.available_output_tokens_for_messages(messages)
     
     async def get_model_context_size(self, llm_manager) -> int:
         """
@@ -287,34 +307,114 @@ class TokenManager:
         
         return best_text + "..." if best_text != text else best_text
     
-    def merge_responses(self, responses: List[str]) -> str:
+    def merge_responses(self, responses: List[str], query: str = "", use_llm_merge: bool = True) -> str:
         """
         Merge multiple LLM responses into a single coherent response.
-        Handles markdown formatting properly.
+        Handles deduplication and removes part indicators for seamless user experience.
+        
+        Args:
+            responses: List of response strings from different batches
+            query: Original user query for context in LLM merging
+            use_llm_merge: Whether to use LLM for intelligent merging (recommended)
         """
         if not responses:
             return ""
         
         if len(responses) == 1:
-            return responses[0]
+            return responses[0].strip()
         
-        # Clean and normalize responses
-        cleaned_responses = []
-        for i, response in enumerate(responses):
-            cleaned = response.strip()
-            if cleaned:
-                # Add context marker for multi-part responses
-                if len(responses) > 1:
-                    cleaned = f"**Part {i + 1}/{len(responses)}:**\n\n{cleaned}"
-                cleaned_responses.append(cleaned)
+        # Clean responses first
+        cleaned_responses = [response.strip() for response in responses if response.strip()]
         
         if not cleaned_responses:
             return ""
         
-        # Join with proper markdown spacing
-        merged = "\n\n---\n\n".join(cleaned_responses)
+        if len(cleaned_responses) == 1:
+            return cleaned_responses[0]
         
-        # Post-process to clean up markdown formatting
+        # Try LLM-based intelligent merging first
+        if use_llm_merge:
+            try:
+                merged = self._llm_merge_responses(cleaned_responses, query)
+                if merged and len(merged.strip()) > 50:  # Sanity check
+                    return merged
+            except Exception as e:
+                logger.warning(f"LLM merge failed, falling back to simple merge: {e}")
+        
+        # Fallback to simple concatenation without part indicators
+        return self._simple_merge_responses(cleaned_responses)
+    
+    def _llm_merge_responses(self, responses: List[str], query: str = "") -> str:
+        """Use LLM to intelligently merge and deduplicate responses."""
+        # Import here to avoid circular imports
+        from core.llm import llm_manager
+        
+        # Prepare the responses for merging
+        numbered_responses = []
+        for i, response in enumerate(responses, 1):
+            numbered_responses.append(f"Response {i}:\n{response}")
+        
+        combined_responses = "\n\n" + "=" * 50 + "\n\n".join(numbered_responses)
+        
+        system_message = """You are an expert at merging and consolidating multiple related responses into a single, coherent answer.
+
+Your task:
+1. Merge the provided responses into ONE comprehensive answer
+2. Remove ANY duplicate information or repetitive content
+3. Organize the information logically and coherently
+4. Preserve all unique facts, insights, and details
+5. Use proper markdown formatting
+6. Do NOT include any part numbers, separators, or references to "Response 1/2/3" etc.
+7. Write as if this was a single, original response
+
+Guidelines:
+- If responses contradict each other, include both perspectives clearly
+- Combine related points into unified sections
+- Remove redundant phrases and duplicate facts
+- Maintain the original tone and style
+- Ensure the final answer directly addresses the user's query"""
+
+        query_context = f"\n\nOriginal user query: {query}" if query else ""
+        
+        merge_prompt = f"""Please merge these multiple responses into a single, comprehensive answer that removes all duplication and flows naturally:
+
+{combined_responses}{query_context}
+
+Provide your merged response below (no explanations, just the final answer):"""
+
+        try:
+            merged_response = llm_manager.generate_response(
+                prompt=merge_prompt,
+                system_message=system_message,
+                temperature=0.2,  # Low temperature for consistency
+                max_tokens=2000   # Generous limit for merged response
+            )
+            
+            return merged_response.strip()
+            
+        except Exception as e:
+            logger.error(f"Failed to merge responses with LLM: {e}")
+            raise
+    
+    def _simple_merge_responses(self, responses: List[str]) -> str:
+        """Simple merge without LLM - just concatenate and clean up."""
+        # Join responses with double line breaks
+        merged = "\n\n".join(responses)
+        
+        # Basic deduplication - remove exact duplicate paragraphs
+        paragraphs = merged.split('\n\n')
+        unique_paragraphs = []
+        seen_paragraphs = set()
+        
+        for para in paragraphs:
+            para_clean = para.strip().lower()
+            if para_clean and para_clean not in seen_paragraphs:
+                unique_paragraphs.append(para.strip())
+                seen_paragraphs.add(para_clean)
+        
+        merged = '\n\n'.join(unique_paragraphs)
+        
+        # Clean up markdown formatting
         merged = self._clean_merged_markdown(merged)
         
         return merged

@@ -247,13 +247,20 @@ class GraphDB:
                 )
 
             entities_data = [
-                (record["entity_id"], record["embedding"], record["name"], record["type"])
+                (
+                    record["entity_id"],
+                    record["embedding"],
+                    record["name"],
+                    record["type"],
+                )
                 for record in result
             ]
 
             if len(entities_data) < 2:
                 scope = f"document {doc_id}" if doc_id else "database"
-                logger.info(f"Skipping entity similarity creation for {scope}: less than 2 entities with embeddings")
+                logger.info(
+                    f"Skipping entity similarity creation for {scope}: less than 2 entities with embeddings"
+                )
                 return 0
 
             relationships_created = 0
@@ -267,12 +274,14 @@ class GraphDB:
                 for j in range(len(entities_data)):
                     if i != j:
                         entity_id2, embedding2, name2, type2 = entities_data[j]
-                        
+
                         # Skip if same entity type and name (likely duplicate)
                         if type1 == type2 and name1 == name2:
                             continue
-                            
-                        similarity = self._calculate_cosine_similarity(embedding1, embedding2)
+
+                        similarity = self._calculate_cosine_similarity(
+                            embedding1, embedding2
+                        )
 
                         if similarity >= threshold:
                             similarities.append((entity_id2, similarity))
@@ -283,11 +292,15 @@ class GraphDB:
 
                 # Create relationships
                 for entity_id2, similarity in top_similarities:
-                    self._create_entity_similarity_relationship(entity_id1, entity_id2, similarity)
+                    self._create_entity_similarity_relationship(
+                        entity_id1, entity_id2, similarity
+                    )
                     relationships_created += 1
 
             scope = f"document {doc_id}" if doc_id else "all entities"
-            logger.info(f"Created {relationships_created} entity similarity relationships for {scope}")
+            logger.info(
+                f"Created {relationships_created} entity similarity relationships for {scope}"
+            )
             return relationships_created
 
     def create_all_entity_similarities(self, threshold: float = None, batch_size: int = 10) -> Dict[str, int]:  # type: ignore
@@ -315,7 +328,9 @@ class GraphDB:
 
         for doc_id in doc_ids:
             try:
-                relationships_created = self.create_entity_similarities(doc_id, threshold)
+                relationships_created = self.create_entity_similarities(
+                    doc_id, threshold
+                )
                 results[doc_id] = relationships_created
                 total_relationships += relationships_created
                 processed_docs += 1
@@ -341,7 +356,9 @@ class GraphDB:
         )
         return results
 
-    def _create_entity_similarity_relationship(self, entity_id1: str, entity_id2: str, similarity: float) -> None:
+    def _create_entity_similarity_relationship(
+        self, entity_id1: str, entity_id2: str, similarity: float
+    ) -> None:
         """Create a similarity relationship between two entities."""
         with self.driver.session() as session:  # type: ignore
             session.run(
@@ -444,7 +461,11 @@ class GraphDB:
             )
 
             record = result.single()
-            chunk_ids = record["chunk_ids"] if record and record["chunk_ids"] is not None else []
+            chunk_ids = (
+                record["chunk_ids"]
+                if record and record["chunk_ids"] is not None
+                else []
+            )
 
             if chunk_ids:
                 # 2. Remove references to these chunks from Entity.source_chunks lists
@@ -488,7 +509,9 @@ class GraphDB:
                 doc_id=doc_id,
             )
 
-            logger.info(f"Deleted document {doc_id} and cleaned up {len(chunk_ids)} chunks and related entities")
+            logger.info(
+                f"Deleted document {doc_id} and cleaned up {len(chunk_ids)} chunks and related entities"
+            )
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
         """Get all documents with their metadata and chunk counts."""
@@ -568,20 +591,20 @@ class GraphDB:
                 ORDER BY d.filename ASC
                 """
             )
-            
+
             documents = [record.data() for record in result]
-            
+
             # Calculate overall stats
             total_docs = len(documents)
             docs_with_entities = len([d for d in documents if d["entities_extracted"]])
             docs_without_entities = total_docs - docs_with_entities
-            
+
             return {
                 "documents": documents,
                 "total_documents": total_docs,
                 "documents_with_entities": docs_with_entities,
                 "documents_without_entities": docs_without_entities,
-                "all_extracted": docs_without_entities == 0
+                "all_extracted": docs_without_entities == 0,
             }
 
     def get_document_entities(self, doc_id: str) -> List[Dict[str, Any]]:
@@ -612,8 +635,13 @@ class GraphDB:
     # Entity-related methods
 
     def create_entity_node(
-        self, entity_id: str, name: str, entity_type: str, description: str,
-        importance_score: float = 0.5, source_chunks: Optional[List[str]] = None
+        self,
+        entity_id: str,
+        name: str,
+        entity_type: str,
+        description: str,
+        importance_score: float = 0.5,
+        source_chunks: Optional[List[str]] = None,
     ) -> None:
         """Create an entity node in the graph with embedding."""
         if source_chunks is None:
@@ -647,7 +675,7 @@ class GraphDB:
     def update_entities_with_embeddings(self) -> int:
         """Update existing entities that don't have embeddings."""
         updated_count = 0
-        
+
         with self.driver.session() as session:  # type: ignore
             # Get entities without embeddings
             result = session.run(
@@ -657,20 +685,20 @@ class GraphDB:
                 RETURN e.id as entity_id, e.name as name, e.description as description
                 """
             )
-            
+
             entities_to_update = [
                 (record["entity_id"], record["name"], record["description"])
                 for record in result
             ]
-            
+
             logger.info(f"Found {len(entities_to_update)} entities without embeddings")
-            
+
             # Update entities with embeddings
             for entity_id, name, description in entities_to_update:
                 try:
                     entity_text = f"{name}: {description}" if description else name
                     embedding = embedding_manager.get_embedding(entity_text)
-                    
+
                     session.run(
                         """
                         MATCH (e:Entity {id: $entity_id})
@@ -680,19 +708,30 @@ class GraphDB:
                         embedding=embedding,
                     )
                     updated_count += 1
-                    
+
                     if updated_count % 100 == 0:
-                        logger.info(f"Updated {updated_count}/{len(entities_to_update)} entities with embeddings")
-                        
+                        logger.info(
+                            f"Updated {updated_count}/{len(entities_to_update)} entities with embeddings"
+                        )
+
                 except Exception as e:
-                    logger.error(f"Failed to update entity {entity_id} with embedding: {e}")
-            
-            logger.info(f"Successfully updated {updated_count} entities with embeddings")
+                    logger.error(
+                        f"Failed to update entity {entity_id} with embedding: {e}"
+                    )
+
+            logger.info(
+                f"Successfully updated {updated_count} entities with embeddings"
+            )
             return updated_count
 
     def create_entity_relationship(
-        self, entity_id1: str, entity_id2: str, relationship_type: str,
-        description: str, strength: float = 0.5, source_chunks: Optional[List[str]] = None
+        self,
+        entity_id1: str,
+        entity_id2: str,
+        relationship_type: str,
+        description: str,
+        strength: float = 0.5,
+        source_chunks: Optional[List[str]] = None,
     ) -> None:
         """Create a relationship between two entities."""
         if source_chunks is None:
@@ -731,7 +770,9 @@ class GraphDB:
                 entity_id=entity_id,
             )
 
-    def get_entities_by_type(self, entity_type: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_entities_by_type(
+        self, entity_type: str, limit: int = 100
+    ) -> List[Dict[str, Any]]:
         """Get entities of a specific type."""
         with self.driver.session() as session:  # type: ignore
             result = session.run(
@@ -762,7 +803,9 @@ class GraphDB:
             )
             return [record.data() for record in result]
 
-    def entity_similarity_search(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def entity_similarity_search(
+        self, query_text: str, top_k: int = 5
+    ) -> List[Dict[str, Any]]:
         """Search entities by text similarity using full-text search."""
         with self.driver.session() as session:  # type: ignore
             # Create full-text index if it doesn't exist
@@ -852,7 +895,7 @@ class GraphDB:
                                strength: r.strength
                            }) as relationships
                     """
-            
+
             result = session.run(query, entity_id=entity_id)
             record = result.single()
             if record:
@@ -872,10 +915,10 @@ class GraphDB:
     def validate_chunk_embeddings(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Validate embeddings for chunks, checking for empty/invalid embeddings.
-        
+
         Args:
             doc_id: Optional document ID to validate only specific document chunks
-            
+
         Returns:
             Dictionary with validation results
         """
@@ -897,7 +940,7 @@ class GraphDB:
             invalid_chunks = []
             empty_embeddings = 0
             wrong_size_embeddings = 0
-            
+
             # Detect embedding size from existing embeddings instead of hardcoding
             expected_embedding_size = None
 
@@ -910,11 +953,15 @@ class GraphDB:
                 # Check for empty or None embeddings
                 if not embedding:
                     empty_embeddings += 1
-                    invalid_chunks.append({
-                        "chunk_id": chunk_id,
-                        "issue": "empty_embedding",
-                        "content_preview": content[:100] + "..." if len(content) > 100 else content
-                    })
+                    invalid_chunks.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "issue": "empty_embedding",
+                            "content_preview": (
+                                content[:100] + "..." if len(content) > 100 else content
+                            ),
+                        }
+                    )
                     continue
 
                 # Detect expected embedding size from first valid embedding
@@ -923,13 +970,21 @@ class GraphDB:
                     logger.info(f"Detected embedding size: {expected_embedding_size}")
 
                 # Check embedding size consistency (only flag if significantly different)
-                if expected_embedding_size and embedding and len(embedding) != expected_embedding_size:
+                if (
+                    expected_embedding_size
+                    and embedding
+                    and len(embedding) != expected_embedding_size
+                ):
                     wrong_size_embeddings += 1
-                    invalid_chunks.append({
-                        "chunk_id": chunk_id,
-                        "issue": f"wrong_size_{len(embedding)}_expected_{expected_embedding_size}",
-                        "content_preview": content[:100] + "..." if len(content) > 100 else content
-                    })
+                    invalid_chunks.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "issue": f"wrong_size_{len(embedding)}_expected_{expected_embedding_size}",
+                            "content_preview": (
+                                content[:100] + "..." if len(content) > 100 else content
+                            ),
+                        }
+                    )
 
             validation_results = {
                 "total_chunks": total_chunks,
@@ -938,22 +993,26 @@ class GraphDB:
                 "empty_embeddings": empty_embeddings,
                 "wrong_size_embeddings": wrong_size_embeddings,
                 "invalid_chunk_details": invalid_chunks,
-                "validation_passed": len(invalid_chunks) == 0
+                "validation_passed": len(invalid_chunks) == 0,
             }
 
-            logger.info(f"Chunk embedding validation: {validation_results['valid_chunks']}/{total_chunks} valid")
+            logger.info(
+                f"Chunk embedding validation: {validation_results['valid_chunks']}/{total_chunks} valid"
+            )
             if invalid_chunks:
                 logger.warning(f"Found {len(invalid_chunks)} invalid chunk embeddings")
 
             return validation_results
 
-    def validate_entity_embeddings(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
+    def validate_entity_embeddings(
+        self, doc_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Validate embeddings for entities, checking for empty/invalid embeddings.
-        
+
         Args:
             doc_id: Optional document ID to validate only entities from specific document
-            
+
         Returns:
             Dictionary with validation results
         """
@@ -976,7 +1035,7 @@ class GraphDB:
             empty_embeddings = 0
             wrong_size_embeddings = 0
             no_embeddings = 0  # Entities may not have embeddings by design
-            
+
             # Detect embedding size from existing embeddings instead of hardcoding
             expected_embedding_size = None
 
@@ -994,53 +1053,72 @@ class GraphDB:
                 # Check for empty embeddings
                 if not embedding:
                     empty_embeddings += 1
-                    invalid_entities.append({
-                        "entity_id": entity_id,
-                        "issue": "empty_embedding",
-                        "entity_name": entity_name
-                    })
+                    invalid_entities.append(
+                        {
+                            "entity_id": entity_id,
+                            "issue": "empty_embedding",
+                            "entity_name": entity_name,
+                        }
+                    )
                     continue
 
                 # Detect expected embedding size from first valid embedding
                 if expected_embedding_size is None and embedding:
                     expected_embedding_size = len(embedding)
-                    logger.info(f"Detected entity embedding size: {expected_embedding_size}")
+                    logger.info(
+                        f"Detected entity embedding size: {expected_embedding_size}"
+                    )
 
                 # Check embedding size consistency (only flag if significantly different)
-                if expected_embedding_size and embedding and len(embedding) != expected_embedding_size:
+                if (
+                    expected_embedding_size
+                    and embedding
+                    and len(embedding) != expected_embedding_size
+                ):
                     wrong_size_embeddings += 1
-                    invalid_entities.append({
-                        "entity_id": entity_id,
-                        "issue": f"wrong_size_{len(embedding)}_expected_{expected_embedding_size}",
-                        "entity_name": entity_name
-                    })
+                    invalid_entities.append(
+                        {
+                            "entity_id": entity_id,
+                            "issue": f"wrong_size_{len(embedding)}_expected_{expected_embedding_size}",
+                            "entity_name": entity_name,
+                        }
+                    )
 
             validation_results = {
                 "total_entities": total_entities,
                 "entities_with_embeddings": total_entities - no_embeddings,
-                "valid_embeddings": (total_entities - no_embeddings) - len(invalid_entities),
+                "valid_embeddings": (total_entities - no_embeddings)
+                - len(invalid_entities),
                 "invalid_embeddings": len(invalid_entities),
                 "empty_embeddings": empty_embeddings,
                 "wrong_size_embeddings": wrong_size_embeddings,
                 "no_embeddings": no_embeddings,
                 "invalid_entity_details": invalid_entities,
-                "validation_passed": len(invalid_entities) == 0
+                "validation_passed": len(invalid_entities) == 0,
             }
 
-            logger.info(f"Entity embedding validation: {validation_results['valid_embeddings']}/{validation_results['entities_with_embeddings']} valid")
+            logger.info(
+                f"Entity embedding validation: {validation_results['valid_embeddings']}/{validation_results['entities_with_embeddings']} valid"
+            )
             if invalid_entities:
-                logger.warning(f"Found {len(invalid_entities)} invalid entity embeddings")
+                logger.warning(
+                    f"Found {len(invalid_entities)} invalid entity embeddings"
+                )
 
             return validation_results
 
-    def fix_invalid_embeddings(self, chunk_ids: Optional[List[str]] = None, entity_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    def fix_invalid_embeddings(
+        self,
+        chunk_ids: Optional[List[str]] = None,
+        entity_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
         Fix invalid embeddings by regenerating them.
-        
+
         Args:
             chunk_ids: List of chunk IDs to fix (if None, fixes all invalid chunk embeddings)
             entity_ids: List of entity IDs to fix (if None, fixes all invalid entity embeddings)
-            
+
         Returns:
             Dictionary with fix results
         """
@@ -1054,7 +1132,7 @@ class GraphDB:
                         # Get chunk content
                         result = session.run(
                             "MATCH (c:Chunk {id: $chunk_id}) RETURN c.content as content",
-                            chunk_id=chunk_id
+                            chunk_id=chunk_id,
                         )
                         record = result.single()
                         if record:
@@ -1065,7 +1143,7 @@ class GraphDB:
                             session.run(
                                 "MATCH (c:Chunk {id: $chunk_id}) SET c.embedding = $embedding",
                                 chunk_id=chunk_id,
-                                embedding=embedding
+                                embedding=embedding,
                             )
                             results["chunks_fixed"] += 1
                             logger.info(f"Fixed embedding for chunk {chunk_id}")
@@ -1082,7 +1160,7 @@ class GraphDB:
                         # Get entity name/description for embedding
                         result = session.run(
                             "MATCH (e:Entity {id: $entity_id}) RETURN e.name as name, e.description as description",
-                            entity_id=entity_id
+                            entity_id=entity_id,
                         )
                         record = result.single()
                         if record:
@@ -1094,12 +1172,14 @@ class GraphDB:
                             session.run(
                                 "MATCH (e:Entity {id: $entity_id}) SET e.embedding = $embedding",
                                 entity_id=entity_id,
-                                embedding=embedding
+                                embedding=embedding,
                             )
                             results["entities_fixed"] += 1
                             logger.info(f"Fixed embedding for entity {entity_id}")
                     except Exception as e:
-                        error_msg = f"Failed to fix embedding for entity {entity_id}: {e}"
+                        error_msg = (
+                            f"Failed to fix embedding for entity {entity_id}: {e}"
+                        )
                         results["errors"].append(error_msg)
                         logger.error(error_msg)
 

@@ -59,7 +59,7 @@ def process_files_background(
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
-    
+
     First processes ALL files for chunks, then does entity extraction for ALL files together.
     This prevents rate limiting issues when uploading multiple files.
 
@@ -71,18 +71,26 @@ def process_files_background(
     Returns:
         Dictionary with processing results
     """
-    results = {"processed_files": [], "total_chunks": 0, "total_entities": 0, "total_entity_relationships": 0, "errors": []}
+    results = {
+        "processed_files": [],
+        "total_chunks": 0,
+        "total_entities": 0,
+        "total_entity_relationships": 0,
+        "errors": [],
+    }
 
     # First, estimate total chunks for progress tracking
     status_text = progress_container.empty()
     status_text.text("Estimating total processing work...")
-    total_estimated_chunks = document_processor.estimate_chunks_from_files(uploaded_files)
-    
+    total_estimated_chunks = document_processor.estimate_chunks_from_files(
+        uploaded_files
+    )
+
     # Initialize progress tracking
     progress_bar = progress_container.progress(0)
     total_processed_chunks = 0
     current_file_name = ""
-    
+
     def chunk_progress_callback(new_chunk_processed):
         """Callback to update progress as chunks are processed."""
         nonlocal total_processed_chunks
@@ -90,15 +98,19 @@ def process_files_background(
         progress = min(total_processed_chunks / total_estimated_chunks, 1.0)
         progress_bar.progress(progress)
         # Update status text in real-time with current file and chunk progress
-        status_text.text(f"Processing {current_file_name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
+        status_text.text(
+            f"Processing {current_file_name}... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)"
+        )
 
     # Phase 1: Process ALL files for chunks only (no entity extraction)
     processed_documents = []  # Store document IDs for batch entity extraction
-    
+
     for i, uploaded_file in enumerate(uploaded_files):
         try:
             current_file_name = uploaded_file.name
-            status_text.text(f"Processing {uploaded_file.name} chunks... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)")
+            status_text.text(
+                f"Processing {uploaded_file.name} chunks... ({total_processed_chunks}/{total_estimated_chunks} chunks completed)"
+            )
 
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(
@@ -109,7 +121,9 @@ def process_files_background(
 
             try:
                 # Process the file with chunks only (disable entity extraction for this phase)
-                result = document_processor.process_file_chunks_only(tmp_path, uploaded_file.name, chunk_progress_callback)
+                result = document_processor.process_file_chunks_only(
+                    tmp_path, uploaded_file.name, chunk_progress_callback
+                )
 
                 if result and result.get("status") == "success":
                     file_info = {
@@ -117,15 +131,17 @@ def process_files_background(
                         "chunks": result.get("chunks_created", 0),
                         "document_id": result.get("document_id"),
                     }
-                    
+
                     results["processed_files"].append(file_info)
                     results["total_chunks"] += result.get("chunks_created", 0)
-                    
+
                     # Store document info for batch entity extraction
-                    processed_documents.append({
-                        "document_id": result.get("document_id"),
-                        "file_name": uploaded_file.name
-                    })
+                    processed_documents.append(
+                        {
+                            "document_id": result.get("document_id"),
+                            "file_name": uploaded_file.name,
+                        }
+                    )
                 else:
                     results["errors"].append(
                         {
@@ -149,33 +165,41 @@ def process_files_background(
 
     # Final progress update for chunk phase
     progress_bar.progress(1.0)
-    status_text.text(f"Chunk processing complete! Processed {results['total_chunks']} chunks from {len(uploaded_files)} files.")
-    
+    status_text.text(
+        f"Chunk processing complete! Processed {results['total_chunks']} chunks from {len(uploaded_files)} files."
+    )
+
     # Phase 2: Start batch entity extraction for ALL processed documents (if enabled)
     if processed_documents and extract_entities and settings.enable_entity_extraction:
         status_text.text("Starting entity extraction for all files in background...")
         try:
             # Start batch entity extraction in background thread
-            entity_stats = document_processor.process_batch_entities(processed_documents)
-            
+            entity_stats = document_processor.process_batch_entities(
+                processed_documents
+            )
+
             # Update results with entity statistics when available
             if entity_stats:
                 results["total_entities"] = entity_stats.get("total_entities", 0)
-                results["total_entity_relationships"] = entity_stats.get("total_relationships", 0)
-                
+                results["total_entity_relationships"] = entity_stats.get(
+                    "total_relationships", 0
+                )
+
                 # Update individual file info with entity stats
                 for file_info in results["processed_files"]:
                     doc_id = file_info.get("document_id")
                     if doc_id in entity_stats.get("by_document", {}):
                         doc_stats = entity_stats["by_document"][doc_id]
                         file_info["entities"] = doc_stats.get("entities", 0)
-                        file_info["entity_relationships"] = doc_stats.get("relationships", 0)
-        
+                        file_info["entity_relationships"] = doc_stats.get(
+                            "relationships", 0
+                        )
+
         except Exception as e:
             logger.error(f"Error in batch entity extraction: {e}")
     elif not extract_entities:
         status_text.text("Entity extraction skipped per user preference.")
-    
+
     return results
 
 
@@ -185,7 +209,7 @@ def display_stats():
         stats = graph_db.get_graph_stats()
 
         st.markdown("### 📊 Database Stats")
-        
+
         # Main metrics
         col1, col2 = st.columns(2)
         with col1:
@@ -204,20 +228,37 @@ def display_stats():
             if is_extraction_running:
                 # Show running indicator regardless of current entity count
                 if stats.get("entities", 0) > 0:
-                    entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
-                    st.caption(f"🔄 Entity extraction running in background — updating database ({entity_coverage:.1f}% chunk coverage)")
+                    entity_coverage = (
+                        stats.get("chunk_entity_relations", 0)
+                        / max(stats.get("chunks", 1), 1)
+                    ) * 100
+                    st.caption(
+                        f"🔄 Entity extraction running in background — updating database ({entity_coverage:.1f}% chunk coverage)"
+                    )
                 else:
-                    st.caption("🔄 Entity extraction running in background — processing documents...")
+                    st.caption(
+                        "🔄 Entity extraction running in background — processing documents..."
+                    )
             elif stats.get("entities", 0) > 0:
-                entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
-                st.caption(f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)")
+                entity_coverage = (
+                    stats.get("chunk_entity_relations", 0)
+                    / max(stats.get("chunks", 1), 1)
+                ) * 100
+                st.caption(
+                    f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)"
+                )
             else:
                 st.caption("⚠️ No entities extracted yet")
         except Exception:
             # Fallback to default caption if detection fails
             if stats.get("entities", 0) > 0:
-                entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
-                st.caption(f"✅ Entity extraction active ({entity_coverage:.1f}% chunk coverage)")
+                entity_coverage = (
+                    stats.get("chunk_entity_relations", 0)
+                    / max(stats.get("chunks", 1), 1)
+                ) * 100
+                st.caption(
+                    f"✅ Entity extraction active ({entity_coverage:.1f}% chunk coverage)"
+                )
             else:
                 st.caption("⚠️ No entities extracted yet")
 
@@ -229,32 +270,40 @@ def display_document_list():
     """Display list of documents in the database with delete options and entity extraction status."""
     try:
         documents = graph_db.get_all_documents()
-        
+
         # Get entity extraction status for all documents
         extraction_status = graph_db.get_entity_extraction_status()
-        extraction_by_doc = {doc["document_id"]: doc for doc in extraction_status["documents"]}
+        extraction_by_doc = {
+            doc["document_id"]: doc for doc in extraction_status["documents"]
+        }
 
         if not documents:
             st.info("No documents in the database yet.")
             return
 
         st.markdown("### 📂 Documents in Database")
-        
+
         # Show overall entity extraction status
         try:
             is_extraction_running = document_processor.is_entity_extraction_running()
             if is_extraction_running:
                 # Show global running indicator
-                st.caption("🔄 Entity extraction running in background for multiple documents...")
+                st.caption(
+                    "🔄 Entity extraction running in background for multiple documents..."
+                )
             elif extraction_status["documents_without_entities"] > 0:
-                st.caption(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
-                
+                st.caption(
+                    f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction"
+                )
+
                 # Global entity extraction button
                 if settings.enable_entity_extraction:
-                    if st.button("🧠 Extract Entities for All Documents",
-                                 key="extract_entities_global_db",
-                                 type="primary",
-                                 help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction"):
+                    if st.button(
+                        "🧠 Extract Entities for All Documents",
+                        key="extract_entities_global_db",
+                        type="primary",
+                        help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction",
+                    ):
                         result = document_processor.extract_entities_for_all_documents()
                         if result:
                             if result["status"] == "started":
@@ -269,7 +318,9 @@ def display_document_list():
         except Exception:
             # Fallback if entity extraction status check fails
             if extraction_status["documents_without_entities"] > 0:
-                st.caption(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
+                st.caption(
+                    f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction"
+                )
             else:
                 st.success("✅ All documents have entities extracted")
 
@@ -282,7 +333,7 @@ def display_document_list():
             filename = doc.get("filename", "Unknown")
             chunk_count = doc.get("chunk_count", 0)
             file_size = doc.get("file_size", 0)
-            
+
             # Get entity status for this document
             entity_status = extraction_by_doc.get(doc_id, {})
             entities_extracted = entity_status.get("entities_extracted", False)
@@ -301,34 +352,40 @@ def display_document_list():
 
             # Add entity status indicator to filename
             entity_indicator = "✅" if entities_extracted else "⚠️"
-            
+
             with st.expander(f"{entity_indicator} {filename}", expanded=False):
                 st.write(f"**Chunks:** {chunk_count}")
                 st.write(f"**Size:** {size_str}")
-                
+
                 # Entity extraction status
                 if entities_extracted and total_entities > 0:
                     st.write(f"**Entities:** {total_entities} ✅")
-                    
+
                     # Show extracted entities for this document
                     try:
                         doc_entities = graph_db.get_document_entities(doc_id)
                         if doc_entities:
                             with st.expander("View Extracted Entities", expanded=False):
-                                for entity in doc_entities[:10]:  # Limit to first 10 entities
+                                for entity in doc_entities[
+                                    :10
+                                ]:  # Limit to first 10 entities
                                     entity_name = entity.get("name", "Unknown")
                                     entity_type = entity.get("type", "Unknown")
                                     importance = entity.get("importance_score", 0)
                                     chunk_count_entity = entity.get("chunk_count", 0)
-                                    
+
                                     st.write(f"**{entity_name}** ({entity_type})")
-                                    st.caption(f"Importance: {importance:.2f} | Found in {chunk_count_entity} chunks")
-                                
+                                    st.caption(
+                                        f"Importance: {importance:.2f} | Found in {chunk_count_entity} chunks"
+                                    )
+
                                 if len(doc_entities) > 10:
-                                    st.caption(f"... and {len(doc_entities) - 10} more entities")
+                                    st.caption(
+                                        f"... and {len(doc_entities) - 10} more entities"
+                                    )
                     except Exception as e:
                         st.error(f"Could not load entities: {e}")
-                        
+
                 elif chunk_count > 0:
                     st.write("**Entities:** ⚠️ Not extracted")
                 else:
@@ -369,10 +426,12 @@ def display_document_list():
         st.error(f"Could not fetch document list: {e}")
 
 
-def _display_content_with_truncation(content: str, key_prefix: str, index: int, max_length: int = 300) -> None:
+def _display_content_with_truncation(
+    content: str, key_prefix: str, index: int, max_length: int = 300
+) -> None:
     """
     Helper function to display content with truncation and expansion option.
-    
+
     Args:
         content: Content to display
         key_prefix: Prefix for Streamlit widget keys
@@ -405,18 +464,20 @@ def _display_content_with_truncation(content: str, key_prefix: str, index: int, 
         )
 
 
-def _group_sources_by_document(sources: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def _group_sources_by_document(
+    sources: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
     """
     Group sources by document, collecting all relevant chunks for each document.
-    
+
     Args:
         sources: List of source chunks/entities with metadata
-        
+
     Returns:
         Dict mapping document names to document info with grouped chunks
     """
     document_groups = {}
-    
+
     for source in sources:
         # Handle entity sources differently - they don't belong to a specific document chunk
         if source.get("entity_name") or source.get("entity_id"):
@@ -424,23 +485,25 @@ def _group_sources_by_document(sources: List[Dict[str, Any]]) -> Dict[str, Dict[
             doc_name = source.get("document_name", source.get("filename", "Entities"))
         else:
             # Regular chunk sources
-            doc_name = source.get("document_name") or source.get("filename", "Unknown Document")
-        
+            doc_name = source.get("document_name") or source.get(
+                "filename", "Unknown Document"
+            )
+
         if doc_name not in document_groups:
             document_groups[doc_name] = {
                 "document_name": doc_name,
                 "document_id": source.get("document_id", ""),
                 "filename": source.get("filename", doc_name),
                 "chunks": [],
-                "entities": []
+                "entities": [],
             }
-        
+
         # Add source to appropriate list
         if source.get("entity_name") or source.get("entity_id"):
             document_groups[doc_name]["entities"].append(source)
         else:
             document_groups[doc_name]["chunks"].append(source)
-    
+
     return document_groups
 
 
@@ -457,12 +520,12 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
 
     # Group sources by document
     document_groups = _group_sources_by_document(sources)
-    
+
     # Sort documents by the number of relevant chunks (descending)
     sorted_documents = sorted(
         document_groups.items(),
         key=lambda x: len(x[1]["chunks"]) + len(x[1]["entities"]),
-        reverse=True
+        reverse=True,
     )
 
     # Display each document with its chunks
@@ -470,7 +533,7 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
         chunks = doc_info["chunks"]
         entities = doc_info["entities"]
         total_sources = len(chunks) + len(entities)
-        
+
         # Create expander title with chunk count
         if total_sources == 1:
             title = f"📚 {doc_name}"
@@ -489,14 +552,21 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                         st.write(f"• **{entity.get('entity_name', 'Unknown Entity')}**")
                         if entity.get("entity_type", "").lower() != "entity":
                             st.caption(f"Type: {entity.get('entity_type', 'Unknown')}")
-                        
+
                         if entity.get("entity_description"):
-                            st.caption(f"Description: {entity.get('entity_description')}")
-                        
+                            st.caption(
+                                f"Description: {entity.get('entity_description')}"
+                            )
+
                         # Show related content for entities
                         if entity.get("related_chunks"):
-                            for chunk_info in entity.get("related_chunks", [])[:1]:  # Show only first one
-                                content = chunk_info.get("content", "No content")[:200] + "..."
+                            for chunk_info in entity.get("related_chunks", [])[
+                                :1
+                            ]:  # Show only first one
+                                content = (
+                                    chunk_info.get("content", "No content")[:200]
+                                    + "..."
+                                )
                                 st.text_area(
                                     "Context:",
                                     content,
@@ -505,7 +575,10 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                                     disabled=True,
                                 )
                         elif entity.get("content"):
-                            content = entity.get("content", "No content available")[:200] + "..."
+                            content = (
+                                entity.get("content", "No content available")[:200]
+                                + "..."
+                            )
                             st.text_area(
                                 "Context:",
                                 content,
@@ -513,10 +586,10 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                                 key=f"entity_content_{i}_{j}",
                                 disabled=True,
                             )
-                
+
                 if chunks:  # Add separator if we have both entities and chunks
                     st.markdown("---")
-            
+
             # Display chunks if present
             if chunks:
                 # Only show up to 10 chunks per document for readability
@@ -527,7 +600,7 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                     st.write("**📄 Relevant Content:**")
                 else:
                     st.write(f"**📄 Relevant Content ({len(chunks)} sections):**")
-                
+
                 for j, chunk in enumerate(visible_chunks):
                     with st.container():
                         # Show chunk identifier if multiple chunks
@@ -537,36 +610,46 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                                 st.write(f"**Section {chunk_idx + 1}:**")
                             else:
                                 st.write(f"**Section {j + 1}:**")
-                        
+
                         # Display chunk content
                         content = chunk.get("content", "No content available")
                         _display_content_with_truncation(content, f"doc_{i}_chunk", j)
-                        
+
                         # Show contained entities if any
                         entities_in_chunk = chunk.get("contained_entities", [])
                         if entities_in_chunk:
-                            st.caption(f"**Contains:** {', '.join(entities_in_chunk[:5])}")
+                            st.caption(
+                                f"**Contains:** {', '.join(entities_in_chunk[:5])}"
+                            )
                             if len(entities_in_chunk) > 5:
-                                st.caption(f"... and {len(entities_in_chunk) - 5} more entities")
+                                st.caption(
+                                    f"... and {len(entities_in_chunk) - 5} more entities"
+                                )
                 # If there were more chunks than displayed, indicate how many were hidden
                 if hidden_chunks_count:
-                    st.caption(f"... and {hidden_chunks_count} more sections hidden (showing top 10)")
+                    st.caption(
+                        f"... and {hidden_chunks_count} more sections hidden (showing top 10)"
+                    )
                 # If there were more entities than displayed, indicate how many were hidden
                 if entities and len(entities) > 10:
                     hidden_entities_count = len(entities) - 10
-                    st.caption(f"... and {hidden_entities_count} more entities hidden (showing top 10)")
+                    st.caption(
+                        f"... and {hidden_entities_count} more entities hidden (showing top 10)"
+                    )
 
     # Show total count
     total_documents = len(document_groups)
     total_chunks = sum(len(doc["chunks"]) for doc in document_groups.values())
     total_entities = sum(len(doc["entities"]) for doc in document_groups.values())
-    
+
     if total_documents > 0:
         count_text = f"**Sources:** {total_documents} document{'s' if total_documents != 1 else ''}"
         if total_chunks > 0:
             count_text += f", {total_chunks} chunk{'s' if total_chunks != 1 else ''}"
         if total_entities > 0:
-            count_text += f", {total_entities} entit{'ies' if total_entities != 1 else 'y'}"
+            count_text += (
+                f", {total_entities} entit{'ies' if total_entities != 1 else 'y'}"
+            )
         st.caption(count_text)
 
 
@@ -604,14 +687,18 @@ def display_document_upload():
         "Extract entities during upload",
         value=True,
         help="If checked, entities will be extracted in background after chunk creation. If unchecked, only chunks will be created (faster upload).",
-        key="extract_entities_checkbox"
+        key="extract_entities_checkbox",
     )
-    
+
     if extract_entities:
-        st.info("Chunks are created and usable immediately. Entity extraction runs in background.")
+        st.info(
+            "Chunks are created and usable immediately. Entity extraction runs in background."
+        )
     else:
-        st.info("Only chunks will be created (faster upload). Entity extraction can be run manually later.")
-    
+        st.info(
+            "Only chunks will be created (faster upload). Entity extraction can be run manually later."
+        )
+
     uploaded_files = st.file_uploader(
         "Choose files to upload",
         type=["pdf", "docx", "txt", "md", "csv", "pptx", "xlsx", "xls"],
@@ -632,8 +719,12 @@ def display_document_upload():
                 st.info("Processing uploaded files (chunk extraction).")
 
                 # Process files (chunks only). Entity extraction runs in background if enabled.
-                extract_entities = st.session_state.get("extract_entities_checkbox", True)
-                results = process_files_background(uploaded_files, progress_container, extract_entities)
+                extract_entities = st.session_state.get(
+                    "extract_entities_checkbox", True
+                )
+                results = process_files_background(
+                    uploaded_files, progress_container, extract_entities
+                )
 
                 # Display results
                 if results["processed_files"]:
@@ -642,11 +733,14 @@ def display_document_upload():
                     if results.get("total_entities", 0) > 0:
                         success_msg += f", {results['total_entities']} entities, {results['total_entity_relationships']} relationships"
                     success_msg += ")"
-                    
+
                     st.toast(icon="✅", body=success_msg)
 
                 if results["errors"]:
-                    st.toast(icon="❌", body=f"Failed to process {len(results['errors'])} files")
+                    st.toast(
+                        icon="❌",
+                        body=f"Failed to process {len(results['errors'])} files",
+                    )
                     for error_info in results["errors"]:
                         st.write(f"- 📄 {error_info['name']}: {error_info['error']}")
 
@@ -664,55 +758,61 @@ def display_document_upload():
 def get_search_mode_config(search_mode: str):
     """
     Get configuration parameters for different search modes.
-    
+
     Args:
         search_mode: One of 'quick', 'normal', or 'deep'
-        
+
     Returns:
         Dictionary with all search parameters
     """
     configs = {
-        'quick': {
-            'min_retrieval_similarity': 0.3,
-            'hybrid_chunk_weight': 0.8,
-            'enable_graph_expansion': False,
-            'max_expanded_chunks': 50,
-            'max_entity_connections': 5,
-            'max_chunk_connections': 3,
-            'expansion_similarity_threshold': 0.4,
-            'max_expansion_depth': 1,
-            'top_k': 3,
-            'temperature': 0.1,
-            'retrieval_mode': 'hybrid' if settings.enable_entity_extraction else 'chunk_only'
+        "quick": {
+            "min_retrieval_similarity": 0.3,
+            "hybrid_chunk_weight": 0.8,
+            "enable_graph_expansion": False,
+            "max_expanded_chunks": 50,
+            "max_entity_connections": 5,
+            "max_chunk_connections": 3,
+            "expansion_similarity_threshold": 0.4,
+            "max_expansion_depth": 1,
+            "top_k": 3,
+            "temperature": 0.1,
+            "retrieval_mode": (
+                "hybrid" if settings.enable_entity_extraction else "chunk_only"
+            ),
         },
-        'normal': {
-            'min_retrieval_similarity': 0.1,
-            'hybrid_chunk_weight': 0.6,
-            'enable_graph_expansion': True,
-            'max_expanded_chunks': 500,
-            'max_entity_connections': 20,
-            'max_chunk_connections': 10,
-            'expansion_similarity_threshold': 0.1,
-            'max_expansion_depth': 2,
-            'top_k': 5,
-            'temperature': 0.1,
-            'retrieval_mode': 'hybrid' if settings.enable_entity_extraction else 'chunk_only'
+        "normal": {
+            "min_retrieval_similarity": 0.1,
+            "hybrid_chunk_weight": 0.6,
+            "enable_graph_expansion": True,
+            "max_expanded_chunks": 500,
+            "max_entity_connections": 20,
+            "max_chunk_connections": 10,
+            "expansion_similarity_threshold": 0.1,
+            "max_expansion_depth": 2,
+            "top_k": 5,
+            "temperature": 0.1,
+            "retrieval_mode": (
+                "hybrid" if settings.enable_entity_extraction else "chunk_only"
+            ),
         },
-        'deep': {
-            'min_retrieval_similarity': 0.05,
-            'hybrid_chunk_weight': 0.4,
-            'enable_graph_expansion': True,
-            'max_expanded_chunks': 1000,
-            'max_entity_connections': 50,
-            'max_chunk_connections': 20,
-            'expansion_similarity_threshold': 0.05,
-            'max_expansion_depth': 3,
-            'top_k': 10,
-            'temperature': 0.1,
-            'retrieval_mode': 'hybrid' if settings.enable_entity_extraction else 'chunk_only'
-        }
+        "deep": {
+            "min_retrieval_similarity": 0.05,
+            "hybrid_chunk_weight": 0.4,
+            "enable_graph_expansion": True,
+            "max_expanded_chunks": 1000,
+            "max_entity_connections": 50,
+            "max_chunk_connections": 20,
+            "expansion_similarity_threshold": 0.05,
+            "max_expansion_depth": 3,
+            "top_k": 10,
+            "temperature": 0.1,
+            "retrieval_mode": (
+                "hybrid" if settings.enable_entity_extraction else "chunk_only"
+            ),
+        },
     }
-    return configs.get(search_mode, configs['normal'])
+    return configs.get(search_mode, configs["normal"])
 
 
 def get_rag_settings(key_suffix: str = ""):
@@ -729,13 +829,9 @@ def get_rag_settings(key_suffix: str = ""):
     st.markdown("### 🧠 Search Settings")
 
     # Search Mode Selection
-    search_modes = ['quick', 'normal', 'deep']
-    search_mode_labels = [
-        '🚀 Quick Search',
-        '⚖️ Normal Search',
-        '🔍 Deep Search'
-    ]
-    
+    search_modes = ["quick", "normal", "deep"]
+    search_mode_labels = ["🚀 Quick Search", "⚖️ Normal Search", "🔍 Deep Search"]
+
     search_mode = st.selectbox(
         "Search Mode",
         search_modes,
@@ -747,164 +843,170 @@ def get_rag_settings(key_suffix: str = ""):
         • **Quick**: Fast results, fewer chunks, minimal graph traversal
         • **Normal**: Balanced performance and comprehensiveness (recommended)
         • **Deep**: Comprehensive search, more context, extensive graph exploration
-        """
+        """,
     )
-    
+
     # Get base configuration for selected mode
     config = get_search_mode_config(search_mode)
-    
+
     # Brief explanation of current mode
     mode_explanations = {
-        'quick': "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion.",
-        'normal': "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Best for most queries.",
-        'deep': "🔍 **Deep mode**: Maximum comprehensiveness. Explores more connections and relationships for complex queries."
+        "quick": "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion.",
+        "normal": "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Best for most queries.",
+        "deep": "🔍 **Deep mode**: Maximum comprehensiveness. Explores more connections and relationships for complex queries.",
     }
-    
+
     st.info(mode_explanations[search_mode])
-    
+
     # Show entity extraction status if not using quick mode
-    if search_mode != 'quick':
+    if search_mode != "quick":
         if settings.enable_entity_extraction:
             st.success("✅ Entity extraction enabled - Enhanced search available")
         else:
             st.warning("⚠️ Entity extraction disabled - Using chunk-only search")
-            config['retrieval_mode'] = 'chunk_only'
-    
+            config["retrieval_mode"] = "chunk_only"
+
     # Advanced Settings Expander
     with st.expander("🔧 Advanced Settings", expanded=False):
         st.markdown("**Current Configuration:**")
-        
+
         # Display current configuration in a more readable format
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            st.write(f"**Retrieval Mode:** {config['retrieval_mode'].replace('_', ' ').title()}")
+            st.write(
+                f"**Retrieval Mode:** {config['retrieval_mode'].replace('_', ' ').title()}"
+            )
             st.write(f"**Chunks Retrieved:** {config['top_k']}")
             st.write(f"**Temperature:** {config['temperature']}")
             st.write(f"**Min Similarity:** {config['min_retrieval_similarity']}")
-            
+
         with col2:
-            st.write(f"**Graph Expansion:** {'✅' if config['enable_graph_expansion'] else '❌'}")
+            st.write(
+                f"**Graph Expansion:** {'✅' if config['enable_graph_expansion'] else '❌'}"
+            )
             st.write(f"**Max Expanded Chunks:** {config['max_expanded_chunks']}")
             st.write(f"**Chunk Weight:** {config['hybrid_chunk_weight']}")
             st.write(f"**Expansion Depth:** {config['max_expansion_depth']}")
-        
+
         st.markdown("---")
         st.markdown("**Override Settings** (optional):")
-        
+
         # Allow users to override specific settings
         use_custom = st.checkbox(
             "Customize parameters",
             key=f"use_custom{key_suffix}",
-            help="Enable to modify individual parameters"
+            help="Enable to modify individual parameters",
         )
-        
+
         if use_custom:
             # Basic settings
             st.markdown("**Basic Settings:**")
-            
+
             # Update retrieval modes to match hybrid approach
             mode_options = ["chunk_only", "entity_only", "hybrid"]
             mode_labels = [
                 "Chunk Only (Traditional)",
                 "Entity Only (GraphRAG)",
-                "Hybrid (Best of Both)"
+                "Hybrid (Best of Both)",
             ]
-            
+
             if not settings.enable_entity_extraction:
                 mode_options = ["chunk_only"]
                 mode_labels = ["Chunk Only (Traditional)"]
-            
+
             current_mode_index = 0
-            if config['retrieval_mode'] in mode_options:
-                current_mode_index = mode_options.index(config['retrieval_mode'])
-            
-            config['retrieval_mode'] = st.selectbox(
+            if config["retrieval_mode"] in mode_options:
+                current_mode_index = mode_options.index(config["retrieval_mode"])
+
+            config["retrieval_mode"] = st.selectbox(
                 "Retrieval Strategy",
                 mode_options,
-                format_func=lambda x: mode_labels[mode_options.index(x)] if x in mode_options else x,
+                format_func=lambda x: (
+                    mode_labels[mode_options.index(x)] if x in mode_options else x
+                ),
                 index=current_mode_index,
                 key=f"retrieval_mode_custom{key_suffix}",
             )
 
-            config['top_k'] = st.slider(
+            config["top_k"] = st.slider(
                 "Number of chunks to retrieve",
                 min_value=1,
                 max_value=20,
-                value=config['top_k'],
+                value=config["top_k"],
                 key=f"top_k_custom{key_suffix}",
             )
 
-            config['temperature'] = st.slider(
+            config["temperature"] = st.slider(
                 "Response creativity (temperature)",
                 min_value=0.0,
                 max_value=1.0,
-                value=config['temperature'],
+                value=config["temperature"],
                 step=0.1,
                 key=f"temperature_custom{key_suffix}",
             )
-            
+
             # Advanced retrieval settings
             st.markdown("**Advanced Retrieval:**")
-            
-            config['min_retrieval_similarity'] = st.slider(
+
+            config["min_retrieval_similarity"] = st.slider(
                 "Minimum similarity threshold",
                 min_value=0.0,
                 max_value=0.5,
-                value=config['min_retrieval_similarity'],
+                value=config["min_retrieval_similarity"],
                 step=0.05,
                 key=f"min_similarity_custom{key_suffix}",
-                help="Lower values retrieve more chunks, higher values are more selective"
+                help="Lower values retrieve more chunks, higher values are more selective",
             )
-            
-            if config['retrieval_mode'] == 'hybrid':
-                config['hybrid_chunk_weight'] = st.slider(
+
+            if config["retrieval_mode"] == "hybrid":
+                config["hybrid_chunk_weight"] = st.slider(
                     "Chunk weight (vs Entity weight)",
                     min_value=0.0,
                     max_value=1.0,
-                    value=config['hybrid_chunk_weight'],
+                    value=config["hybrid_chunk_weight"],
                     step=0.1,
                     key=f"chunk_weight_custom{key_suffix}",
-                    help="Higher values favor chunk-based results, lower values favor entity-based results"
+                    help="Higher values favor chunk-based results, lower values favor entity-based results",
                 )
-            
+
             # Graph expansion settings
             st.markdown("**Graph Expansion:**")
-            
-            config['enable_graph_expansion'] = st.checkbox(
+
+            config["enable_graph_expansion"] = st.checkbox(
                 "Enable graph expansion",
-                value=config['enable_graph_expansion'],
+                value=config["enable_graph_expansion"],
                 key=f"graph_expansion_custom{key_suffix}",
-                help="Use entity relationships to expand context"
+                help="Use entity relationships to expand context",
             )
-            
-            if config['enable_graph_expansion']:
-                config['max_expanded_chunks'] = st.number_input(
+
+            if config["enable_graph_expansion"]:
+                config["max_expanded_chunks"] = st.number_input(
                     "Max expanded chunks",
                     min_value=50,
                     max_value=2000,
-                    value=config['max_expanded_chunks'],
+                    value=config["max_expanded_chunks"],
                     step=50,
                     key=f"max_chunks_custom{key_suffix}",
                 )
-                
-                config['max_expansion_depth'] = st.slider(
+
+                config["max_expansion_depth"] = st.slider(
                     "Max expansion depth",
                     min_value=1,
                     max_value=5,
-                    value=config['max_expansion_depth'],
+                    value=config["max_expansion_depth"],
                     key=f"max_depth_custom{key_suffix}",
-                    help="How many hops to follow in the graph"
+                    help="How many hops to follow in the graph",
                 )
-                
-                config['expansion_similarity_threshold'] = st.slider(
+
+                config["expansion_similarity_threshold"] = st.slider(
                     "Expansion similarity threshold",
                     min_value=0.0,
                     max_value=0.5,
-                    value=config['expansion_similarity_threshold'],
+                    value=config["expansion_similarity_threshold"],
                     step=0.05,
                     key=f"expansion_threshold_custom{key_suffix}",
-                    help="Minimum similarity for expanding through relationships"
+                    help="Minimum similarity for expanding through relationships",
                 )
 
     return config
@@ -913,7 +1015,7 @@ def get_rag_settings(key_suffix: str = ""):
 def main():
     """Main Streamlit application."""
     # Title and description
-    html_style = '''
+    html_style = """
     <style>
     /* Make the right-side floating container fixed and scrollable when content overflows */
     div:has( >.element-container div.floating) {
@@ -944,12 +1046,12 @@ def main():
         min-height: 4rem;
     }
     </style>
-    '''
+    """
     st.markdown(html_style, unsafe_allow_html=True)
 
     # Create main layout with columns
     main_col, sidebar_col = st.columns([2, 1])  # 2:1 ratio for main content vs sidebar
-    
+
     with main_col:
         # Display chat title and clear chat button side-by-side
         st.title("💬 Chat with your documents")
@@ -962,18 +1064,14 @@ def main():
     # Sidebar for additional information (sources and graphs)
     with sidebar_col:
         container = st.container(width=10)
-        
+
         with container:
             st.markdown('<div class="floating">', unsafe_allow_html=True)
             # st.markdown("### 📊 Context Information")
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📚 Sources",
-                "🕸️ Context Graph",
-                "📊 Database",
-                "📁 Upload File",
-                "⚙️"
-            ])
-            
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(
+                ["📚 Sources", "🕸️ Context Graph", "📊 Database", "📁 Upload File", "⚙️"]
+            )
+
             # Display information for the latest assistant message if available
             if st.session_state.messages:
                 latest_message = None
@@ -989,9 +1087,17 @@ def main():
                             display_sources_detailed(latest_message["sources"])
 
                             # Small clear chat button placed next to the title
-                            if st.button("🧹 Clear chat", key="clear_chat_top", help="Clear conversation, graph and sources"):
+                            if st.button(
+                                "🧹 Clear chat",
+                                key="clear_chat_top",
+                                help="Clear conversation, graph and sources",
+                            ):
                                 st.session_state.messages = []
-                                for k in ["latest_message", "latest_graph", "latest_sources"]:
+                                for k in [
+                                    "latest_message",
+                                    "latest_graph",
+                                    "latest_sources",
+                                ]:
                                     if k in st.session_state:
                                         del st.session_state[k]
                                 # Also clear any latest widget-bound settings
@@ -1000,46 +1106,46 @@ def main():
                                     if k in st.session_state:
                                         del st.session_state[k]
                                 st.rerun()
-                            
+
                     with tab2:
                         # Display graph in sidebar
                         if "graph_fig" in latest_message:
                             st.plotly_chart(
                                 latest_message["graph_fig"], use_container_width=True
                             )
-                            
+
                     with tab3:
                         display_stats()
                         display_document_list()
-                            
+
                     with tab4:
                         display_document_upload()
-                        
+
                     with tab5:
                         search_config = get_rag_settings(key_suffix="_latest")
                         st.session_state["search_config_latest"] = search_config
 
             else:
                 # tab1, tab2, tab3 = st.tabs(["📊 Database", "📂 Upload File", "⚙️"])
-                
+
                 with tab1:
                     st.info("💡 Start a conversation to see context information here!")
-                
+
                 with tab2:
                     st.info("💡 Start a conversation to see context information here!")
-                                    
+
                 with tab3:
                     display_stats()
                     display_document_list()
-                
+
                 with tab4:
                     display_document_upload()
-                    
+
                 with tab5:
                     search_config = get_rag_settings(key_suffix="_default")
                     st.session_state["search_config_default"] = search_config
-                                
-            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
     # Chat input
     if user_query := st.chat_input("Ask a question about your documents..."):
@@ -1085,19 +1191,30 @@ def main():
                             # Get search configuration (from new unified settings)
                             search_config = st.session_state.get(
                                 "search_config_latest",
-                                st.session_state.get("search_config_default", get_search_mode_config("normal"))
+                                st.session_state.get(
+                                    "search_config_default",
+                                    get_search_mode_config("normal"),
+                                ),
                             )
 
                             result = graph_rag.query(
                                 user_query,
-                                retrieval_mode=search_config.get('retrieval_mode', 'hybrid'),
-                                top_k=search_config.get('top_k', 5),
-                                temperature=search_config.get('temperature', 0.1),
-                                chunk_weight=search_config.get('hybrid_chunk_weight', 0.6),
-                                graph_expansion=search_config.get('enable_graph_expansion', True),
+                                retrieval_mode=search_config.get(
+                                    "retrieval_mode", "hybrid"
+                                ),
+                                top_k=search_config.get("top_k", 5),
+                                temperature=search_config.get("temperature", 0.1),
+                                chunk_weight=search_config.get(
+                                    "hybrid_chunk_weight", 0.6
+                                ),
+                                graph_expansion=search_config.get(
+                                    "enable_graph_expansion", True
+                                ),
                             )
                         full_response = result["response"]
-                        st.write_stream(stream_response(full_response, 0.02))  # Stream the response
+                        st.write_stream(
+                            stream_response(full_response, 0.02)
+                        )  # Stream the response
 
                         # Add assistant message to session state
                         message_data = {
@@ -1210,13 +1327,13 @@ def main():
     #                     if current_retrieval_mode != "chunk_only":
     #                         stats_text += f" (Mode: {current_retrieval_mode.replace('_', ' ').title()})"
     #                     st.info(stats_text)
-                        
+
     #                     # Show node type breakdown if available
     #                     node_types = {}
     #                     for node in graph_data['nodes']:
     #                         node_type = node.get('label', 'Unknown')
     #                         node_types[node_type] = node_types.get(node_type, 0) + 1
-                        
+
     #                     if len(node_types) > 1:
     #                         breakdown = " | ".join([f"{node_type}: {count}" for node_type, count in node_types.items()])
     #                         st.caption(f"Node breakdown: {breakdown}")

@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+
 # Add the project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -139,9 +140,15 @@ def find_and_fix_bad_embeddings(session, apply: bool = False):
                 print(f"DRY-RUN: chunk {cid} -> new embedding length {len(new_emb)}")
             else:
                 try:
-                    session.run("MATCH (c:Chunk {id: $cid}) SET c.embedding = $emb", cid=cid, emb=new_emb)
+                    session.run(
+                        "MATCH (c:Chunk {id: $cid}) SET c.embedding = $emb",
+                        cid=cid,
+                        emb=new_emb,
+                    )
                     updates += 1
-                    logger.info(f"Updated embedding for chunk {cid} (len={len(new_emb)})")
+                    logger.info(
+                        f"Updated embedding for chunk {cid} (len={len(new_emb)})"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to update chunk {cid}: {e}")
 
@@ -242,6 +249,7 @@ Examples:
         # Handle embeddings fix option (uses hardcoded parameters)
         if args.fix_embeddings:
             from core.graph_db import graph_db
+
             with graph_db.driver.session() as session:  # type: ignore
                 find_and_fix_bad_embeddings(session, apply=args.apply)
 
@@ -278,6 +286,7 @@ Examples:
         # Ensure database connection is closed
         try:
             from core.graph_db import graph_db
+
             graph_db.close()
         except Exception:
             pass

@@ -41,10 +41,11 @@ def generate_response(
 
         # Filter out chunks with 0.000 similarity before processing sources
         relevant_chunks = [
-            chunk for chunk in context_chunks
+            chunk
+            for chunk in context_chunks
             if chunk.get("similarity", chunk.get("hybrid_score", 0.0)) > 0.0
         ]
-        
+
         # Generate response using LLM with only relevant chunks
         response_data = llm_manager.generate_rag_response(
             query=query,
@@ -68,18 +69,18 @@ def generate_response(
                 "metadata": chunk.get("metadata", {}),
                 "chunk_index": chunk.get("chunk_index"),
             }
-            
+
             # Add entity information if available
             retrieval_mode = chunk.get("retrieval_mode", "")
             retrieval_source = chunk.get("retrieval_source", "")
-            
+
             # Check if chunk has entity information regardless of retrieval mode
             contained_entities = chunk.get("contained_entities", [])
             relevant_entities = chunk.get("relevant_entities", [])
-            
+
             # Use the most relevant entities or contained entities
             entities = relevant_entities or contained_entities
-            
+
             # For entity-based retrieval, create entity sources
             if retrieval_mode == "entity_based" or retrieval_source == "entity_based":
                 if entities:
@@ -91,10 +92,12 @@ def generate_response(
                             "entity_id": f"entity_{hash(entity_name) % 10000}",
                             "relevance_score": source_info["similarity"],
                             "content": chunk.get("content", ""),
-                            "related_chunks": [{
-                                "chunk_id": chunk.get("chunk_id"),
-                                "content": chunk.get("content", "")[:200] + "..."
-                            }],
+                            "related_chunks": [
+                                {
+                                    "chunk_id": chunk.get("chunk_id"),
+                                    "content": chunk.get("content", "")[:200] + "...",
+                                }
+                            ],
                             "document_name": source_info["document_name"],
                             "filename": source_info["filename"],
                         }
@@ -107,7 +110,7 @@ def generate_response(
                 if entities:
                     source_info["contained_entities"] = entities
                     source_info["entity_enhanced"] = True
-                
+
                 sources.append(source_info)
 
         # Enhance response with analysis insights
@@ -124,7 +127,9 @@ def generate_response(
         }
 
         if len(relevant_chunks) < len(context_chunks):
-            logger.info(f"Filtered out {len(context_chunks) - len(relevant_chunks)} chunks with 0.000 similarity")
+            logger.info(
+                f"Filtered out {len(context_chunks) - len(relevant_chunks)} chunks with 0.000 similarity"
+            )
         logger.info(f"Generated response using {len(relevant_chunks)} relevant chunks")
 
         return {

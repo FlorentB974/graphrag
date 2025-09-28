@@ -3,12 +3,12 @@ OpenAI LLM integration for the RAG pipeline.
 """
 
 import logging
-from typing import Any, Dict, Optional
-import httpx
-import requests
 import time
+from typing import Any, Dict, Optional
 
+import httpx
 import openai
+import requests
 
 from config.settings import settings
 
@@ -27,13 +27,13 @@ class LLMManager:
 
     def __init__(self):
         """Initialize the LLM manager."""
-        self.provider = getattr(settings, 'llm_provider').lower()
-        
-        if self.provider == 'openai':
+        self.provider = getattr(settings, "llm_provider").lower()
+
+        if self.provider == "openai":
             self.model = settings.openai_model
         else:  # ollama
-            self.model = getattr(settings, 'ollama_model')
-            self.ollama_base_url = getattr(settings, 'ollama_base_url')
+            self.model = getattr(settings, "ollama_model")
+            self.ollama_base_url = getattr(settings, "ollama_base_url")
 
     def generate_response(
         self,
@@ -55,25 +55,35 @@ class LLMManager:
             Generated response text
         """
         try:
-            if self.provider == 'ollama':
-                return self._generate_ollama_response(prompt, system_message, temperature, max_tokens)
+            if self.provider == "ollama":
+                return self._generate_ollama_response(
+                    prompt, system_message, temperature, max_tokens
+                )
             else:
-                return self._generate_openai_response(prompt, system_message, temperature, max_tokens)
+                return self._generate_openai_response(
+                    prompt, system_message, temperature, max_tokens
+                )
 
         except Exception as e:
             logger.error(f"Failed to generate LLM response: {e}")
             raise
 
-    def _generate_openai_response(self, prompt: str, system_message: Optional[str], temperature: float, max_tokens: int) -> str:
+    def _generate_openai_response(
+        self,
+        prompt: str,
+        system_message: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
         """Generate response using OpenAI with retry logic."""
         messages = []
         if system_message:
             messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": prompt})
-        
+
         max_retries = 5
         base_delay = 1.0
-        
+
         for attempt in range(max_retries):
             try:
                 response = openai.chat.completions.create(
@@ -85,17 +95,23 @@ class LLMManager:
                 return response.choices[0].message.content or ""
             except openai.RateLimitError:
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"LLM rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(delay)
                     continue
                 else:
-                    logger.error(f"LLM rate limit exceeded after {max_retries} attempts")
+                    logger.error(
+                        f"LLM rate limit exceeded after {max_retries} attempts"
+                    )
                     raise
             except (openai.APIError, openai.InternalServerError) as e:
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"LLM API error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM API error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
                     time.sleep(delay)
                     continue
                 else:
@@ -103,8 +119,10 @@ class LLMManager:
                     raise
             except Exception as e:
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning(f"LLM call failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}")
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM call failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
                     time.sleep(delay)
                     continue
                 else:
@@ -112,26 +130,32 @@ class LLMManager:
                     raise
         # Should not reach here, but return empty string as a safe fallback
         return ""
-    
-    def _generate_ollama_response(self, prompt: str, system_message: Optional[str], temperature: float, max_tokens: int) -> str:
+
+    def _generate_ollama_response(
+        self,
+        prompt: str,
+        system_message: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
         """Generate response using Ollama."""
         full_prompt = ""
         if system_message:
             full_prompt += f"System: {system_message}\n\n"
         full_prompt += f"Human: {prompt}\n\nAssistant:"
-        
+
         response = requests.post(
             f"{self.ollama_base_url}/api/generate",
             json={
                 "model": self.model,
                 "prompt": full_prompt,
                 "options": {"temperature": temperature, "num_predict": max_tokens},
-                "stream": False
+                "stream": False,
             },
-            timeout=120
+            timeout=120,
         )
         response.raise_for_status()
-        return response.json().get('response', '')
+        return response.json().get("response", "")
 
     def generate_rag_response(
         self,
@@ -156,7 +180,7 @@ class LLMManager:
         try:
             # Import here to avoid circular imports
             from core.token_manager import token_manager as tm
-            
+
             system_message = """You are a helpful assistant that answers questions based on the provided context.
 Use only the information from the given context to answer the question.
 If the context doesn't contain enough information to answer the question, say so clearly.
@@ -169,10 +193,16 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
 
             # Check if we need to split the request due to token limits
             if tm.needs_splitting(query, context_chunks, system_message):
-                logger.info("Request exceeds token limit, splitting into multiple requests")
-                return self._generate_rag_response_split(query, context_chunks, system_message, include_sources, temperature)
+                logger.info(
+                    "Request exceeds token limit, splitting into multiple requests"
+                )
+                return self._generate_rag_response_split(
+                    query, context_chunks, system_message, include_sources, temperature
+                )
             else:
-                return self._generate_rag_response_single(query, context_chunks, system_message, include_sources, temperature)
+                return self._generate_rag_response_single(
+                    query, context_chunks, system_message, include_sources, temperature
+                )
 
         except Exception as e:
             logger.error(f"Failed to generate RAG response: {e}")
@@ -208,7 +238,7 @@ Please provide a comprehensive answer based on the context provided above."""
 
             available = tm.available_output_tokens_for_prompt(prompt, system_message)
             # Cap per-response output to a reasonable maximum (configurable)
-            cap = getattr(settings, 'max_response_tokens', 2000)
+            cap = getattr(settings, "max_response_tokens", 2000)
             max_out = min(available, cap)
 
             response = self.generate_response(
@@ -249,21 +279,25 @@ Please provide a comprehensive answer based on the context provided above."""
         """Generate RAG response by splitting the request into multiple parts."""
         try:
             from core.token_manager import token_manager
-            
+
             # Split context chunks into batches that fit within token limits
-            batches = token_manager.split_context_chunks(query, context_chunks, system_message)
+            batches = token_manager.split_context_chunks(
+                query, context_chunks, system_message
+            )
             logger.info(f"Split request into {len(batches)} batches")
-            
+
             responses = []
             total_chunks_used = 0
-            
+
             for i, (batch_query, batch_chunks, estimated_tokens) in enumerate(batches):
-                logger.info(f"Processing batch {i + 1}/{len(batches)} with {len(batch_chunks)} chunks ({estimated_tokens} tokens)")
-                
+                logger.info(
+                    f"Processing batch {i + 1}/{len(batches)} with {len(batch_chunks)} chunks ({estimated_tokens} tokens)"
+                )
+
                 if not batch_chunks:
                     # Skip empty batches
                     continue
-                
+
                 # Build context for this batch
                 context = "\n\n".join(
                     [
@@ -283,8 +317,10 @@ Please provide a comprehensive answer based on the context provided above."""
                 # Compute safe output tokens for this batch
                 from core.token_manager import token_manager as tm
 
-                available = tm.available_output_tokens_for_prompt(batch_prompt, system_message)
-                cap = getattr(settings, 'max_response_tokens', 2000)
+                available = tm.available_output_tokens_for_prompt(
+                    batch_prompt, system_message
+                )
+                cap = getattr(settings, "max_response_tokens", 2000)
                 max_out = min(available, cap)
 
                 batch_response = self.generate_response(
@@ -295,19 +331,26 @@ Please provide a comprehensive answer based on the context provided above."""
                 )
 
                 # Attempt to continue if truncated
-                batch_response = self._maybe_continue_response(batch_response, system_message, max_out)
-                
+                batch_response = self._maybe_continue_response(
+                    batch_response, system_message, max_out
+                )
+
                 responses.append(batch_response)
                 total_chunks_used += len(batch_chunks)
-            
+
             # Merge responses intelligently using LLM to remove duplicates and parts
             if not responses:
-                merged_response = "I couldn't find any relevant information to answer your question."
+                merged_response = (
+                    "I couldn't find any relevant information to answer your question."
+                )
             else:
                 # Use token_manager from local import to avoid circular import issues
                 from core.token_manager import token_manager as tm
-                merged_response = tm.merge_responses(responses, query=query, use_llm_merge=True)
-            
+
+                merged_response = tm.merge_responses(
+                    responses, query=query, use_llm_merge=True
+                )
+
             # Clean the merged response
             cleaned = self._clean_response_text(merged_response)
 
@@ -335,34 +378,41 @@ Please provide a comprehensive answer based on the context provided above."""
 
         def _process_line(line: str) -> str:
             # If line looks like a table row, replace <br> with a space
-            if '|' in line:
-                line = re.sub(r'(?i)<br\s*/?>', ' ', line)
-                line = re.sub(r'(?i)<p\s*/?>', '', line)
-                line = re.sub(r'(?i)</p>', '', line)
+            if "|" in line:
+                line = re.sub(r"(?i)<br\s*/?>", " ", line)
+                line = re.sub(r"(?i)<p\s*/?>", "", line)
+                line = re.sub(r"(?i)</p>", "", line)
             else:
-                line = re.sub(r'(?i)<br\s*/?>', '\n', line)
-                line = re.sub(r'(?i)<p\s*/?>', '\n', line)
-                line = re.sub(r'(?i)</p>', '\n', line)
+                line = re.sub(r"(?i)<br\s*/?>", "\n", line)
+                line = re.sub(r"(?i)<p\s*/?>", "\n", line)
+                line = re.sub(r"(?i)</p>", "\n", line)
             return line
 
         # Apply line-wise processing to preserve table-row behavior
         lines = text.splitlines()
         processed_lines = [_process_line(ln) for ln in lines]
-        text = '\n'.join(processed_lines)
+        text = "\n".join(processed_lines)
 
         # Collapse excessive newlines
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
         # Strip LaTeX delimiters but keep content
         text = re.sub(r"\$\$(.*?)\$\$", lambda m: m.group(1), text, flags=re.S)
         text = re.sub(r"\$(.*?)\$", lambda m: m.group(1), text, flags=re.S)
         text = re.sub(r"\\\\\((.*?)\\\\\)", lambda m: m.group(1), text, flags=re.S)
         text = re.sub(r"\\\\\[(.*?)\\\\\]", lambda m: m.group(1), text, flags=re.S)
-        text = re.sub(r"\\begin\{([a-zA-Z*]+)\}(.*?)\\end\{\1\}", lambda m: m.group(2), text, flags=re.S)
+        text = re.sub(
+            r"\\begin\{([a-zA-Z*]+)\}(.*?)\\end\{\1\}",
+            lambda m: m.group(2),
+            text,
+            flags=re.S,
+        )
 
         return text.strip()
 
-    def _maybe_continue_response(self, response: str, system_message: Optional[str], last_max_tokens: int) -> str:
+    def _maybe_continue_response(
+        self, response: str, system_message: Optional[str], last_max_tokens: int
+    ) -> str:
         """
         Heuristic check for truncated responses. If the response appears to be cut off
         (near the max token budget or ending mid-sentence), request a short continuation
@@ -377,11 +427,13 @@ Please provide a comprehensive answer based on the context provided above."""
             resp_tokens = token_manager.count_tokens(response)
 
             # Heuristics: if response used almost all tokens or ends without terminal punctuation
-            last_char = response.strip()[-1] if response.strip() else ''
-            ends_with_punct = last_char in '.!?'
+            last_char = response.strip()[-1] if response.strip() else ""
+            ends_with_punct = last_char in ".!?"
 
             near_limit = resp_tokens >= max(1, last_max_tokens - 8)
-            looks_cut = response.strip().endswith('...') or (last_char.isalpha() and not ends_with_punct)
+            looks_cut = response.strip().endswith("...") or (
+                last_char.isalpha() and not ends_with_punct
+            )
 
             if not (near_limit or looks_cut):
                 return response
@@ -416,7 +468,7 @@ Please provide a comprehensive answer based on the context provided above."""
                     break
             else:
                 # No overlap found
-                combined = combined + '\n\n' + cont
+                combined = combined + "\n\n" + cont
 
             return combined
 

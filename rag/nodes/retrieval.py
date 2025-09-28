@@ -6,8 +6,8 @@ import asyncio
 import logging
 from typing import Any, Dict, List
 
-from rag.enhanced_retriever import EnhancedDocumentRetriever, RetrievalMode
 from config.settings import settings
+from rag.enhanced_retriever import EnhancedDocumentRetriever, RetrievalMode
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +70,16 @@ async def retrieve_documents_async(
             "entity_only": RetrievalMode.ENTITY_ONLY,
             "hybrid": RetrievalMode.HYBRID,
             "graph_enhanced": RetrievalMode.HYBRID,  # Legacy compatibility
-            "auto": RetrievalMode.HYBRID if settings.enable_entity_extraction else RetrievalMode.CHUNK_ONLY
+            "auto": (
+                RetrievalMode.HYBRID
+                if settings.enable_entity_extraction
+                else RetrievalMode.CHUNK_ONLY
+            ),
         }
-        
+
         # Get the appropriate retrieval mode
         enhanced_mode = mode_mapping.get(retrieval_mode, RetrievalMode.HYBRID)
-        
+
         # Use enhanced retriever. Prefer graph expansion when configured
         if (complexity == "complex" or query_type == "comparative") and graph_expansion:
             chunks = await enhanced_retriever.retrieve_with_graph_expansion(
@@ -112,20 +116,25 @@ def retrieve_documents(
 ) -> List[Dict[str, Any]]:
     """
     Synchronous wrapper for document retrieval.
-    
+
     Args:
         query: User query string
         query_analysis: Query analysis results
         retrieval_mode: Retrieval strategy
         top_k: Number of chunks to retrieve
-        
+
     Returns:
         List of relevant document chunks
     """
     try:
         return asyncio.run(
             retrieve_documents_async(
-                query, query_analysis, retrieval_mode, top_k, chunk_weight, graph_expansion
+                query,
+                query_analysis,
+                retrieval_mode,
+                top_k,
+                chunk_weight,
+                graph_expansion,
             )
         )
     except RuntimeError:
@@ -134,13 +143,23 @@ def retrieve_documents(
         if loop.is_running():
             return loop.run_until_complete(
                 retrieve_documents_async(
-                    query, query_analysis, retrieval_mode, top_k, chunk_weight, graph_expansion
+                    query,
+                    query_analysis,
+                    retrieval_mode,
+                    top_k,
+                    chunk_weight,
+                    graph_expansion,
                 )
             )
         else:
             return loop.run_until_complete(
                 retrieve_documents_async(
-                    query, query_analysis, retrieval_mode, top_k, chunk_weight, graph_expansion
+                    query,
+                    query_analysis,
+                    retrieval_mode,
+                    top_k,
+                    chunk_weight,
+                    graph_expansion,
                 )
             )
     except Exception as e:

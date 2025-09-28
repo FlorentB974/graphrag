@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.settings import settings
 from core.graph_db import graph_db
 
-
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -26,26 +25,40 @@ def create_similarities(threshold: float = None, doc_id: str = None, mode: str =
     try:
         if doc_id:
             # Process specific document
-            logger.info(f"Creating {mode} similarity relationships for document: {doc_id}")
-            
+            logger.info(
+                f"Creating {mode} similarity relationships for document: {doc_id}"
+            )
+
             if mode == "chunk":
-                relationships_created = graph_db.create_chunk_similarities(doc_id, threshold)
-                print(f"✅ Created {relationships_created} chunk similarity relationships for document {doc_id}")
+                relationships_created = graph_db.create_chunk_similarities(
+                    doc_id, threshold
+                )
+                print(
+                    f"✅ Created {relationships_created} chunk similarity relationships for document {doc_id}"
+                )
             elif mode == "entity":
-                relationships_created = graph_db.create_entity_similarities(doc_id, threshold)
-                print(f"✅ Created {relationships_created} entity similarity relationships for document {doc_id}")
+                relationships_created = graph_db.create_entity_similarities(
+                    doc_id, threshold
+                )
+                print(
+                    f"✅ Created {relationships_created} entity similarity relationships for document {doc_id}"
+                )
             elif mode == "hybrid":
                 chunk_rels = graph_db.create_chunk_similarities(doc_id, threshold)
                 entity_rels = graph_db.create_entity_similarities(doc_id, threshold)
                 relationships_created = chunk_rels + entity_rels
-                print(f"✅ Created {chunk_rels} chunk + {entity_rels} entity similarity relationships for document {doc_id}")
+                print(
+                    f"✅ Created {chunk_rels} chunk + {entity_rels} entity similarity relationships for document {doc_id}"
+                )
             else:
-                raise ValueError(f"Invalid mode: {mode}. Must be 'chunk', 'entity', or 'hybrid'")
-                
+                raise ValueError(
+                    f"Invalid mode: {mode}. Must be 'chunk', 'entity', or 'hybrid'"
+                )
+
         else:
             # Process all documents
             logger.info(f"Creating {mode} similarity relationships for all documents")
-            
+
             if mode == "chunk":
                 results = graph_db.create_all_chunk_similarities(threshold)
                 _print_chunk_results(results)
@@ -57,7 +70,9 @@ def create_similarities(threshold: float = None, doc_id: str = None, mode: str =
                 entity_results = graph_db.create_all_entity_similarities(threshold)
                 _print_hybrid_results(chunk_results, entity_results)
             else:
-                raise ValueError(f"Invalid mode: {mode}. Must be 'chunk', 'entity', or 'hybrid'")
+                raise ValueError(
+                    f"Invalid mode: {mode}. Must be 'chunk', 'entity', or 'hybrid'"
+                )
 
         return True
 
@@ -106,7 +121,7 @@ def _print_hybrid_results(chunk_results, entity_results):
     """Print results for hybrid similarity creation."""
     total_chunk_rels = sum(chunk_results.values())
     total_entity_rels = sum(entity_results.values())
-    
+
     # Combine results for overall statistics
     all_docs = set(chunk_results.keys()) | set(entity_results.keys())
     successful_chunk_docs = len([v for v in chunk_results.values() if v > 0])
@@ -126,13 +141,15 @@ def _print_hybrid_results(chunk_results, entity_results):
     for doc_id in sorted(all_docs):
         chunk_count = chunk_results.get(doc_id, 0)
         entity_count = entity_results.get(doc_id, 0)
-        
+
         if chunk_count > 0 or entity_count > 0:
             status = "✅"
         else:
             status = "⚠️"
-            
-        print(f"{status} {doc_id}: {chunk_count} chunk + {entity_count} entity relationships")
+
+        print(
+            f"{status} {doc_id}: {chunk_count} chunk + {entity_count} entity relationships"
+        )
 
 
 def show_stats():
@@ -178,12 +195,12 @@ def main():
         type=str,
         choices=["chunk", "entity", "hybrid"],
         default="chunk",
-        help="Similarity computation mode: chunk (traditional), entity (entity-based), or hybrid (both)"
+        help="Similarity computation mode: chunk (traditional), entity (entity-based), or hybrid (both)",
     )
     parser.add_argument(
         "--update-embeddings",
         action="store_true",
-        help="Update existing entities with missing embeddings before creating similarities"
+        help="Update existing entities with missing embeddings before creating similarities",
     )
     parser.add_argument(
         "--stats", action="store_true", help="Show current database statistics"
@@ -218,9 +235,11 @@ def main():
         mode_desc = {
             "chunk": "chunk-to-chunk similarity relationships",
             "entity": "entity-to-entity similarity relationships",
-            "hybrid": "both chunk and entity similarity relationships"
+            "hybrid": "both chunk and entity similarity relationships",
         }
-        print(f"\n⚠️  This would create {mode_desc[args.mode]} based on the above configuration.")
+        print(
+            f"\n⚠️  This would create {mode_desc[args.mode]} based on the above configuration."
+        )
         return
 
     print()
@@ -246,7 +265,9 @@ def main():
     show_stats()
 
     if success:
-        print(f"\n🎉 {args.mode.title()} similarity relationship creation completed successfully!")
+        print(
+            f"\n🎉 {args.mode.title()} similarity relationship creation completed successfully!"
+        )
     else:
         print(f"\n❌ {args.mode.title()} similarity relationship creation failed!")
         sys.exit(1)

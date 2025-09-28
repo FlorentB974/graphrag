@@ -13,7 +13,9 @@ from core.graph_db import graph_db
 logger = logging.getLogger(__name__)
 
 
-def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict[str, Any]:
+def get_graph_data(
+    limit: int = 100, retrieval_mode: str = "chunk_only"
+) -> Dict[str, Any]:
     """
     Retrieve graph data from Neo4j for visualization based on retrieval mode.
 
@@ -33,7 +35,7 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
                 node_filters = "n:Document OR n:Entity"
             else:  # hybrid mode
                 node_filters = "n:Document OR n:Chunk OR n:Entity"
-            
+
             # Get nodes (documents, chunks, and/or entities)
             nodes_query = f"""
             MATCH (n)
@@ -73,7 +75,7 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
                 node_data = record.data()
                 if node_data["content_size"] is None:
                     node_data["content_size"] = 0
-                
+
                 node_info = {
                     "id": str(node_data["node_id"]),
                     "entity_id": node_data["entity_id"],
@@ -85,12 +87,12 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
                         max(int(node_data["content_size"]) / 100, 10), 50
                     ),  # Scale size
                 }
-                
+
                 # Add entity-specific properties
                 if node_data.get("entity_type"):
                     node_info["entity_type"] = node_data["entity_type"]
                     node_info["confidence"] = node_data["confidence"]
-                
+
                 nodes.append(node_info)
                 node_ids.add(str(node_data["node_id"]))
 
@@ -133,7 +135,13 @@ def get_graph_data(limit: int = 100, retrieval_mode: str = "chunk_only") -> Dict
 
     except Exception as e:
         logger.error(f"Failed to retrieve graph data: {e}")
-        return {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0, "retrieval_mode": retrieval_mode}
+        return {
+            "nodes": [],
+            "edges": [],
+            "total_nodes": 0,
+            "total_edges": 0,
+            "retrieval_mode": retrieval_mode,
+        }
 
 
 def create_networkx_graph(graph_data: Dict[str, Any]) -> nx.Graph:
@@ -206,25 +214,25 @@ def create_plotly_graph(
     # Enhanced color map for different node types
     color_map = {
         "Document": "#FF6B6B",  # Red for documents
-        "Chunk": "#4ECDC4",     # Teal for chunks
-        "Entity": "#9B59B6",    # Purple for entities
-        "Unknown": "#95A5A6"    # Gray for unknown
+        "Chunk": "#4ECDC4",  # Teal for chunks
+        "Entity": "#9B59B6",  # Purple for entities
+        "Unknown": "#95A5A6",  # Gray for unknown
     }
-    
+
     # Shape map for different node types (using symbols)
     symbol_map = {
         "Document": "square",
         "Chunk": "circle",
         "Entity": "diamond",
-        "Unknown": "circle"
+        "Unknown": "circle",
     }
-    
+
     # Size scaling for better entity visibility
     size_map = {
         "Document": lambda size: max(size * 1.2, 25),  # Larger documents
-        "Chunk": lambda size: max(size, 15),          # Normal chunks
-        "Entity": lambda size: max(size * 1.5, 20),   # Larger entities for visibility
-        "Unknown": lambda size: max(size, 15)
+        "Chunk": lambda size: max(size, 15),  # Normal chunks
+        "Entity": lambda size: max(size * 1.5, 20),  # Larger entities for visibility
+        "Unknown": lambda size: max(size, 15),
     }
 
     # Prepare node traces by type for better legend support
@@ -233,8 +241,13 @@ def create_plotly_graph(
         node_type = node["label"]
         if node_type not in node_types:
             node_types[node_type] = {
-                "x": [], "y": [], "text": [], "sizes": [], "colors": [],
-                "hover_texts": [], "symbols": []
+                "x": [],
+                "y": [],
+                "text": [],
+                "sizes": [],
+                "colors": [],
+                "hover_texts": [],
+                "symbols": [],
             }
 
     # Organize nodes by type
@@ -243,27 +256,29 @@ def create_plotly_graph(
         if node_id in pos:
             x, y = pos[node_id]
             node_type = node["label"]
-            
+
             node_types[node_type]["x"].append(x)
             node_types[node_type]["y"].append(y)
-            node_types[node_type]["text"].append(node["title"][:15])  # Truncate for display
-            
+            node_types[node_type]["text"].append(
+                node["title"][:15]
+            )  # Truncate for display
+
             # Apply size scaling based on node type
             raw_size = max(node["size"], 15)
             scaled_size = size_map.get(node_type, lambda s: s)(raw_size)
             node_types[node_type]["sizes"].append(scaled_size)
-            
+
             node_types[node_type]["colors"].append(color_map.get(node_type, "#95A5A6"))
             node_types[node_type]["symbols"].append(symbol_map.get(node_type, "circle"))
-            
+
             # Create detailed hover text
             hover_text = f"<b>{node_type}:</b> {node['title']}<br>"
             hover_text += f"<b>ID:</b> {node.get('entity_id', 'N/A')}<br>"
-            
+
             if node.get("entity_type"):
                 hover_text += f"<b>Type:</b> {node['entity_type']}<br>"
                 hover_text += f"<b>Confidence:</b> {node.get('confidence', 0):.2f}<br>"
-            
+
             node_types[node_type]["hover_texts"].append(hover_text)
 
     # Create separate traces for each node type
@@ -283,23 +298,42 @@ def create_plotly_graph(
                     size=data["sizes"],
                     color=color_map.get(node_type, "#95A5A6"),
                     symbol=data["symbols"][0] if data["symbols"] else "circle",
-                    line=dict(width=2, color="white")
+                    line=dict(width=2, color="white"),
                 ),
-                showlegend=True
+                showlegend=True,
             )
             node_traces.append(node_trace)
 
     # Prepare edge traces with enhanced styling
     edge_traces = []
     edge_color_map = {
-        "HAS_CHUNK": {"color": "rgba(125,125,125,0.5)", "width": 2, "name": "Document-Chunk"},
-        "SIMILAR_TO": {"color": "rgba(255,107,107,0.7)", "width": 1, "dash": "dash", "name": "Similar Content"},
-        "CONTAINS_ENTITY": {"color": "rgba(155,89,182,0.6)", "width": 2, "dash": "dot", "name": "Contains Entity"},
-        "RELATED_TO": {"color": "rgba(52,152,219,0.6)", "width": 1.5, "dash": "dashdot", "name": "Entity Relation"}
+        "HAS_CHUNK": {
+            "color": "rgba(125,125,125,0.5)",
+            "width": 2,
+            "name": "Document-Chunk",
+        },
+        "SIMILAR_TO": {
+            "color": "rgba(255,107,107,0.7)",
+            "width": 1,
+            "dash": "dash",
+            "name": "Similar Content",
+        },
+        "CONTAINS_ENTITY": {
+            "color": "rgba(155,89,182,0.6)",
+            "width": 2,
+            "dash": "dot",
+            "name": "Contains Entity",
+        },
+        "RELATED_TO": {
+            "color": "rgba(52,152,219,0.6)",
+            "width": 1.5,
+            "dash": "dashdot",
+            "name": "Entity Relation",
+        },
     }
 
     edge_legend_added = set()  # Track which edge types have been added to legend
-    
+
     for edge in graph_data["edges"]:
         source_id, target_id = edge["source"], edge["target"]
         if source_id in pos and target_id in pos:
@@ -309,13 +343,10 @@ def create_plotly_graph(
             # Get edge styling
             edge_style = edge_color_map.get(
                 edge["type"],
-                {"color": "rgba(125,125,125,0.3)", "width": 1, "name": "Other"}
+                {"color": "rgba(125,125,125,0.3)", "width": 1, "name": "Other"},
             )
-            
-            line_dict = {
-                "color": edge_style["color"],
-                "width": edge_style["width"]
-            }
+
+            line_dict = {"color": edge_style["color"], "width": edge_style["width"]}
             if "dash" in edge_style:
                 line_dict["dash"] = edge_style["dash"]
 
@@ -330,10 +361,14 @@ def create_plotly_graph(
                 mode="lines",
                 line=line_dict,
                 hoverinfo="text" if show_legend else "none",
-                hovertext=f"{edge_style['name']}: {edge.get('weight', 1.0):.2f}" if show_legend else None,
+                hovertext=(
+                    f"{edge_style['name']}: {edge.get('weight', 1.0):.2f}"
+                    if show_legend
+                    else None
+                ),
                 name=edge_style["name"],
                 showlegend=show_legend,
-                legendgroup="edges" if show_legend else None
+                legendgroup="edges" if show_legend else None,
             )
             edge_traces.append(edge_trace)
 
@@ -345,10 +380,12 @@ def create_plotly_graph(
     mode_descriptions = {
         "chunk_only": "Chunk-based Knowledge Graph",
         "entity_only": "Entity-based Knowledge Graph",
-        "hybrid": "Hybrid Knowledge Graph (Chunks + Entities)"
+        "hybrid": "Hybrid Knowledge Graph (Chunks + Entities)",
     }
     title_text = mode_descriptions.get(retrieval_mode, "Knowledge Graph")
-    title_text += f" ({graph_data['total_nodes']} nodes, {graph_data['total_edges']} edges)"
+    title_text += (
+        f" ({graph_data['total_nodes']} nodes, {graph_data['total_edges']} edges)"
+    )
 
     # Update layout with enhanced styling
     fig.update_layout(
@@ -365,7 +402,7 @@ def create_plotly_graph(
             x=0.01,
             bgcolor="rgba(255,255,255,0.8)",
             bordercolor="rgba(0,0,0,0.2)",
-            borderwidth=1
+            borderwidth=1,
         ),
         hovermode="closest",
         margin=dict(b=20, l=5, r=5, t=60),
@@ -405,7 +442,7 @@ def get_query_graph_data(
         Dictionary containing nodes and edges for a clean, readable query result graph
     """
     from config.settings import settings
-    
+
     nodes = []
     edges = []
 
@@ -431,7 +468,12 @@ def get_query_graph_data(
     doc_map: Dict[str, Dict[str, Any]] = {}
 
     for res in query_results:
-        doc_id = res.get("document_id") or res.get("filename") or res.get("document_name") or "unknown_doc"
+        doc_id = (
+            res.get("document_id")
+            or res.get("filename")
+            or res.get("document_name")
+            or "unknown_doc"
+        )
         doc_name = res.get("document_name") or res.get("filename") or str(doc_id)
         chunk_id = res.get("chunk_id")
         similarity = res.get("similarity", 0.0)
@@ -453,7 +495,10 @@ def get_query_graph_data(
         # Prefer any chunk_data populated earlier (if present in local scope), else look in result
         entities_list = []
         if isinstance(res.get("entities"), list):
-            entities_list = [e.get("entity_name") if isinstance(e, dict) else e for e in res.get("entities", [])]
+            entities_list = [
+                e.get("entity_name") if isinstance(e, dict) else e
+                for e in res.get("entities", [])
+            ]
         elif isinstance(res.get("contained_entities"), list):
             entities_list = res.get("contained_entities", [])
         # Normalize
@@ -463,15 +508,17 @@ def get_query_graph_data(
 
     # Add query node
     query_display = query_text[:60] + "..." if len(query_text) > 60 else query_text
-    nodes.append({
-        "id": "query",
-        "entity_id": "query",
-        "label": "Query",
-        "title": query_display,
-        "full_text": query_text,
-        "size": 30,
-        "node_type": "query",
-    })
+    nodes.append(
+        {
+            "id": "query",
+            "entity_id": "query",
+            "label": "Query",
+            "title": query_display,
+            "full_text": query_text,
+            "size": 30,
+            "node_type": "query",
+        }
+    )
 
     # Create document nodes
     doc_id_to_node_id = {}
@@ -480,31 +527,39 @@ def get_query_graph_data(
         doc_id_to_node_id[doc_id] = node_id
         chunk_count = len(info["chunks"])
         entity_count = len(info["entities"])
-        avg_similarity = (sum(info["chunk_similarities"]) / len(info["chunk_similarities"])) if info["chunk_similarities"] else 0.0
+        avg_similarity = (
+            (sum(info["chunk_similarities"]) / len(info["chunk_similarities"]))
+            if info["chunk_similarities"]
+            else 0.0
+        )
         display_title = info.get("document_name") or str(doc_id)
 
-        nodes.append({
-            "id": node_id,
-            "entity_id": doc_id,
-            "label": "Document",
-            "title": display_title,
-            "document_name": display_title,
-            "chunk_count": chunk_count,
-            "entity_count": entity_count,
-            "avg_similarity": avg_similarity,
-            "size": max(20, min(60, 20 + (chunk_count * 5) + (entity_count * 3))),
-        })
+        nodes.append(
+            {
+                "id": node_id,
+                "entity_id": doc_id,
+                "label": "Document",
+                "title": display_title,
+                "document_name": display_title,
+                "chunk_count": chunk_count,
+                "entity_count": entity_count,
+                "avg_similarity": avg_similarity,
+                "size": max(20, min(60, 20 + (chunk_count * 5) + (entity_count * 3))),
+            }
+        )
 
         # Add edge from query to document summarizing counts
         rel_label = f"{chunk_count} chunk{'s' if chunk_count != 1 else ''}, {entity_count} entit{'ies' if entity_count != 1 else 'y'}"
-        edges.append({
-            "source": "query",
-            "target": node_id,
-            "type": "RELEVANT_TO",
-            "relationship_label": rel_label,
-            "weight": avg_similarity or 0.1,
-            "edge_type": "retrieval",
-        })
+        edges.append(
+            {
+                "source": "query",
+                "target": node_id,
+                "type": "RELEVANT_TO",
+                "relationship_label": rel_label,
+                "weight": avg_similarity or 0.1,
+                "edge_type": "retrieval",
+            }
+        )
 
     # Create document-document edges indicating shared entities (what they share in common)
     doc_items = list(doc_map.items())
@@ -518,14 +573,16 @@ def get_query_graph_data(
                 target_node = doc_id_to_node_id[id_j]
                 # Human readable label: list top 3 shared entities
                 rel_label = "shares: " + ", ".join(list(shared_entities)[:3])
-                edges.append({
-                    "source": source_node,
-                    "target": target_node,
-                    "type": "SHARES_ENTITY",
-                    "relationship_label": rel_label,
-                    "weight": len(shared_entities),
-                    "edge_type": "shared",
-                })
+                edges.append(
+                    {
+                        "source": source_node,
+                        "target": target_node,
+                        "type": "SHARES_ENTITY",
+                        "relationship_label": rel_label,
+                        "weight": len(shared_entities),
+                        "edge_type": "shared",
+                    }
+                )
 
     # --- NEW: include top-N chunks per document and chunk-chunk relationships ---
     # Select top N chunks per document by similarity across the filtered query results
@@ -539,7 +596,9 @@ def get_query_graph_data(
 
     # For each document pick the top N chunks
     for did, chunks in chunks_by_doc.items():
-        sorted_chunks = sorted(chunks, key=lambda r: r.get("similarity", 0.0), reverse=True)
+        sorted_chunks = sorted(
+            chunks, key=lambda r: r.get("similarity", 0.0), reverse=True
+        )
         top_chunks.extend(sorted_chunks[:top_n_per_doc])
 
     # Track which chunk ids we've added to avoid duplicates
@@ -553,37 +612,54 @@ def get_query_graph_data(
         similarity = ch.get("similarity", 0.0)
         doc_id = ch.get("document_id") or ch.get("document_name") or "unknown_doc"
         doc_node = doc_id_to_node_id.get(doc_id)
-        display_preview = (ch.get("full_content") or ch.get("content") or ch.get("text") or ch.get("title") or "")[0:140]
+        display_preview = (
+            ch.get("full_content")
+            or ch.get("content")
+            or ch.get("text")
+            or ch.get("title")
+            or ""
+        )[0:140]
 
         # Try to extract contained entities for richer chunk-chunk labels
         chunk_entities = []
         if isinstance(ch.get("entities"), list):
-            chunk_entities = [e.get("entity_name") if isinstance(e, dict) else e for e in ch.get("entities", [])]
+            chunk_entities = [
+                e.get("entity_name") if isinstance(e, dict) else e
+                for e in ch.get("entities", [])
+            ]
         elif isinstance(ch.get("contained_entities"), list):
             chunk_entities = ch.get("contained_entities", [])
 
-        nodes.append({
-            "id": str(chunk_id),
-            "entity_id": chunk_id,
-            "label": "Chunk",
-            "title": display_preview or f"Chunk {idx + 1}",
-            "full_content": display_preview,
-            "similarity": similarity,
-            "document_name": doc_map.get(doc_id, {}).get("document_name") if doc_id in doc_map else ch.get("document_name") or ch.get("filename"),
-            "entities": chunk_entities,
-            "size": max(12, min(40, 12 + int(similarity * 40))),
-            "chunk_index": idx,
-        })
+        nodes.append(
+            {
+                "id": str(chunk_id),
+                "entity_id": chunk_id,
+                "label": "Chunk",
+                "title": display_preview or f"Chunk {idx + 1}",
+                "full_content": display_preview,
+                "similarity": similarity,
+                "document_name": (
+                    doc_map.get(doc_id, {}).get("document_name")
+                    if doc_id in doc_map
+                    else ch.get("document_name") or ch.get("filename")
+                ),
+                "entities": chunk_entities,
+                "size": max(12, min(40, 12 + int(similarity * 40))),
+                "chunk_index": idx,
+            }
+        )
 
         # Add edge from document node to chunk node
         if doc_node:
-            edges.append({
-                "source": doc_node,
-                "target": str(chunk_id),
-                "type": "HAS_CHUNK",
-                "weight": similarity or 0.1,
-                "edge_type": "doc-chunk",
-            })
+            edges.append(
+                {
+                    "source": doc_node,
+                    "target": str(chunk_id),
+                    "type": "HAS_CHUNK",
+                    "weight": similarity or 0.1,
+                    "edge_type": "doc-chunk",
+                }
+            )
 
         added_chunk_ids.add(chunk_id)
 
@@ -614,8 +690,28 @@ def get_query_graph_data(
                     rel_type = rd.get("rel_type") or "SIMILAR_TO"
                     rel_label = None
                     try:
-                        ents_a = next((n.get("entities") for n in nodes if str(n.get("id")) == s), []) or []
-                        ents_b = next((n.get("entities") for n in nodes if str(n.get("id")) == t), []) or []
+                        ents_a = (
+                            next(
+                                (
+                                    n.get("entities")
+                                    for n in nodes
+                                    if str(n.get("id")) == s
+                                ),
+                                [],
+                            )
+                            or []
+                        )
+                        ents_b = (
+                            next(
+                                (
+                                    n.get("entities")
+                                    for n in nodes
+                                    if str(n.get("id")) == t
+                                ),
+                                [],
+                            )
+                            or []
+                        )
                         shared = list(set(ents_a) & set(ents_b))
                         if shared:
                             rel_label = "shares: " + ", ".join(shared[:3])
@@ -623,19 +719,25 @@ def get_query_graph_data(
                             rel_label = (
                                 "high similarity"
                                 if weight >= 0.85
-                                else ("moderate similarity" if weight >= 0.6 else "related")
+                                else (
+                                    "moderate similarity"
+                                    if weight >= 0.6
+                                    else "related"
+                                )
                             )
                     except Exception:
                         rel_label = None
 
-                    edges.append({
-                        "source": s,
-                        "target": t,
-                        "type": rel_type,
-                        "relationship_label": rel_label,
-                        "weight": weight,
-                        "edge_type": "chunk-related",
-                    })
+                    edges.append(
+                        {
+                            "source": s,
+                            "target": t,
+                            "type": rel_type,
+                            "relationship_label": rel_label,
+                            "weight": weight,
+                            "edge_type": "chunk-related",
+                        }
+                    )
     except Exception as e:
         logger.debug(f"Could not fetch chunk-chunk relationships from DB: {e}")
 
@@ -663,21 +765,26 @@ def get_query_graph_data(
                 continue
             seen_chunk_rel.add(pair)
             # We don't display the label on the edge; keep it for structure only
-            edges.append({
-                "source": str(a),
-                "target": str(b),
-                "type": "SAME_DOCUMENT_CHUNK",
-                "relationship_label": None,
-                "weight": 0.5,
-                "edge_type": "chunk-related",
-            })
+            edges.append(
+                {
+                    "source": str(a),
+                    "target": str(b),
+                    "type": "SAME_DOCUMENT_CHUNK",
+                    "relationship_label": None,
+                    "weight": 0.5,
+                    "edge_type": "chunk-related",
+                }
+            )
     # Build a per-chunk shared-entities map so we can show shares in chunk hover text
     # Map chunk_id -> {shared_entities: set(), shared_with: list of chunk ids}
     chunk_shared_info: Dict[str, Dict[str, Any]] = {}
     # Initialize map for added chunks
     for n in nodes:
         if n.get("label") == "Chunk":
-            chunk_shared_info[str(n["id"])] = {"shared_entities": set(n.get("entities", [])), "shared_with": {}}
+            chunk_shared_info[str(n["id"])] = {
+                "shared_entities": set(n.get("entities", [])),
+                "shared_with": {},
+            }
 
     # Build a helper map to convert chunk id -> display number (C#)
     chunk_display_map: Dict[str, int] = {}
@@ -716,7 +823,9 @@ def get_query_graph_data(
                 entity_to_chunks: Dict[str, List[str]] = {}
                 for other_cid, ents in shared_with.items():
                     display_num = chunk_display_map.get(str(other_cid))
-                    other_display = f"C{display_num}" if display_num is not None else str(other_cid)
+                    other_display = (
+                        f"C{display_num}" if display_num is not None else str(other_cid)
+                    )
                     for ent in ents[:5]:
                         entity_to_chunks.setdefault(ent, []).append(other_display)
 
@@ -727,20 +836,33 @@ def get_query_graph_data(
                     for c in chunk_list:
                         if c not in seen:
                             seen.append(c)
-                    grouped_lines.append(f"<b>shares: </b> {ent} with {', '.join(seen)}")
+                    grouped_lines.append(
+                        f"<b>shares: </b> {ent} with {', '.join(seen)}"
+                    )
 
                 # Keep only top 5 grouped lines for compactness
-                n["shares_summary"] = "<br>".join(grouped_lines[:5]) if grouped_lines else None
+                n["shares_summary"] = (
+                    "<br>".join(grouped_lines[:5]) if grouped_lines else None
+                )
             else:
                 n["shares_summary"] = None
     return {
         "nodes": nodes,
         # Remove any chunk->chunk edges for readability (keep document->chunk and doc-doc edges)
         "edges": [
-            e for e in edges
+            e
+            for e in edges
             if not (
-                any(n.get("label") == "Chunk" and str(n.get("id")) == str(e.get("source")) for n in nodes)
-                and any(n.get("label") == "Chunk" and str(n.get("id")) == str(e.get("target")) for n in nodes)
+                any(
+                    n.get("label") == "Chunk"
+                    and str(n.get("id")) == str(e.get("source"))
+                    for n in nodes
+                )
+                and any(
+                    n.get("label") == "Chunk"
+                    and str(n.get("id")) == str(e.get("target"))
+                    for n in nodes
+                )
             )
         ],
         "total_nodes": len(nodes),
@@ -807,7 +929,10 @@ def create_query_result_graph(
         if parent_doc_name:
             # find matching document node id
             for dn in docs:
-                if dn.get("document_name") == parent_doc_name or dn.get("title") == parent_doc_name:
+                if (
+                    dn.get("document_name") == parent_doc_name
+                    or dn.get("title") == parent_doc_name
+                ):
                     parent = dn.get("id")
                     break
         chunks_by_doc.setdefault(parent, []).append(c)
@@ -820,7 +945,11 @@ def create_query_result_graph(
                 parent_x, parent_y = pos[parent]
                 # wider horizontal spread and more vertical gap than before
                 span = 0.8 + 0.15 * max(0, count - 1)
-                x = parent_x - span / 2 + (span * (j / max(1, count - 1))) if count > 1 else parent_x
+                x = (
+                    parent_x - span / 2 + (span * (j / max(1, count - 1)))
+                    if count > 1
+                    else parent_x
+                )
                 y = parent_y - 0.6 - 0.08 * (j % 3)
             else:
                 # fall back to spread across bottom row with more spacing
@@ -839,20 +968,20 @@ def create_query_result_graph(
 
     # Enhanced color map for different node types (matching full graph)
     color_map = {
-        "Query": "#E74C3C",      # Bright red for query
-        "Document": "#FF6B6B",   # Red for documents
-        "Chunk": "#4ECDC4",      # Teal for chunks
-        "Entity": "#9B59B6",     # Purple for entities
-        "Unknown": "#95A5A6"     # Gray for unknown
+        "Query": "#E74C3C",  # Bright red for query
+        "Document": "#FF6B6B",  # Red for documents
+        "Chunk": "#4ECDC4",  # Teal for chunks
+        "Entity": "#9B59B6",  # Purple for entities
+        "Unknown": "#95A5A6",  # Gray for unknown
     }
-    
+
     # Shape map for different node types (using symbols)
     symbol_map = {
         "Query": "star",
         "Document": "square",
         "Chunk": "circle",
         "Entity": "diamond",
-        "Unknown": "circle"
+        "Unknown": "circle",
     }
 
     # Prepare node traces by type for better legend support
@@ -861,8 +990,13 @@ def create_query_result_graph(
         node_type = node["label"]
         if node_type not in node_types:
             node_types[node_type] = {
-                "x": [], "y": [], "text": [], "sizes": [], "colors": [],
-                "hover_texts": [], "symbols": []
+                "x": [],
+                "y": [],
+                "text": [],
+                "sizes": [],
+                "colors": [],
+                "hover_texts": [],
+                "symbols": [],
             }
 
     # Organize nodes by type
@@ -871,14 +1005,16 @@ def create_query_result_graph(
         if node_id in pos:
             x, y = pos[node_id]
             node_type = node["label"]
-            
+
             node_types[node_type]["x"].append(x)
             node_types[node_type]["y"].append(y)
-            
+
             # Create appropriate display text based on node type
             if node_type == "Query":
                 display_text = "Q"
-                hover_text = f"<b>Your Query:</b><br>{node.get('full_text', 'Your Question')}"
+                hover_text = (
+                    f"<b>Your Query:</b><br>{node.get('full_text', 'Your Question')}"
+                )
             elif node_type == "Document":
                 display_text = "📄"
                 file_size = node.get("file_size", 0)
@@ -917,7 +1053,7 @@ def create_query_result_graph(
                 if shares_summary:
                     # shares_summary already contains 'shares: ...' lines joined with <br>
                     hover_text += f"<br>{shares_summary}"
-            
+
             node_types[node_type]["text"].append(display_text)
             node_types[node_type]["sizes"].append(node["size"])
             node_types[node_type]["colors"].append(color_map.get(node_type, "#95A5A6"))
@@ -941,24 +1077,32 @@ def create_query_result_graph(
                     size=data["sizes"],
                     color=color_map.get(node_type, "#95A5A6"),
                     symbol=data["symbols"][0] if data["symbols"] else "circle",
-                    line=dict(width=2, color="white")
+                    line=dict(width=2, color="white"),
                 ),
-                showlegend=True
+                showlegend=True,
             )
             node_traces.append(node_trace)
 
     # Prepare simplified edge traces with readable labels
     edge_traces = []
     # No edge labels: links should have no visible labels
-    
+
     edge_color_map = {
-        "RELEVANT_TO": {"color": "rgba(231,76,60,0.8)", "width": 3, "name": "Relevant To"},
+        "RELEVANT_TO": {
+            "color": "rgba(231,76,60,0.8)",
+            "width": 3,
+            "name": "Relevant To",
+        },
         "MENTIONS": {"color": "rgba(155,89,182,0.7)", "width": 2, "name": "Mentions"},
-        "CONNECTED_VIA": {"color": "rgba(52,152,219,0.6)", "width": 2, "name": "Connected Via"}
+        "CONNECTED_VIA": {
+            "color": "rgba(52,152,219,0.6)",
+            "width": 2,
+            "name": "Connected Via",
+        },
     }
 
     edge_legend_added = set()  # Track which edge types have been added to legend
-    
+
     for edge in graph_data["edges"]:
         source_id, target_id = edge["source"], edge["target"]
         if source_id in pos and target_id in pos:
@@ -968,13 +1112,10 @@ def create_query_result_graph(
             # Get edge styling
             edge_style = edge_color_map.get(
                 edge["type"],
-                {"color": "rgba(125,125,125,0.5)", "width": 1, "name": "Related"}
+                {"color": "rgba(125,125,125,0.5)", "width": 1, "name": "Related"},
             )
-            
-            line_dict = {
-                "color": edge_style["color"],
-                "width": edge_style["width"]
-            }
+
+            line_dict = {"color": edge_style["color"], "width": edge_style["width"]}
 
             # Determine if this edge type should show in legend
             show_legend = edge["type"] not in edge_legend_added
@@ -991,7 +1132,7 @@ def create_query_result_graph(
                 hovertext=None,
                 name=edge_style["name"],
                 showlegend=show_legend,
-                legendgroup="edges"
+                legendgroup="edges",
             )
             edge_traces.append(edge_trace)
 
@@ -1010,17 +1151,19 @@ def create_query_result_graph(
             if s in pos and t in pos:
                 mid_x = (pos[s][0] + pos[t][0]) / 2
                 mid_y = (pos[s][1] + pos[t][1]) / 2
-                doc_edge_annotations.append({
-                    "x": mid_x,
-                    "y": mid_y,
-                    "xref": "x",
-                    "yref": "y",
-                    "text": e.get("relationship_label"),
-                    "showarrow": False,
-                    "font": {"size": 9, "color": "rgba(80,80,80,0.9)"},
-                    "align": "center",
-                    "bgcolor": "rgba(255,255,255,0.6)",
-                })
+                doc_edge_annotations.append(
+                    {
+                        "x": mid_x,
+                        "y": mid_y,
+                        "xref": "x",
+                        "yref": "y",
+                        "text": e.get("relationship_label"),
+                        "showarrow": False,
+                        "font": {"size": 9, "color": "rgba(80,80,80,0.9)"},
+                        "align": "center",
+                        "bgcolor": "rgba(255,255,255,0.6)",
+                    }
+                )
 
     # Create title
     title_text = f"Query Context Graph ({graph_data['total_nodes']} nodes, {graph_data['total_edges']} edges)"
@@ -1040,7 +1183,7 @@ def create_query_result_graph(
     )
     annotations_list = [footer_annotation]
     # append document edge annotations if any
-    if 'doc_edge_annotations' in locals() and doc_edge_annotations:
+    if "doc_edge_annotations" in locals() and doc_edge_annotations:
         annotations_list.extend(doc_edge_annotations)
 
     fig.update_layout(
@@ -1057,7 +1200,7 @@ def create_query_result_graph(
             x=0.01,
             bgcolor="rgba(255,255,255,0.8)",
             bordercolor="rgba(0,0,0,0.2)",
-            borderwidth=1
+            borderwidth=1,
         ),
         hovermode="closest",
         margin=dict(b=20, l=5, r=5, t=60),

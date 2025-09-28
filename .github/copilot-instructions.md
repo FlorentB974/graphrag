@@ -1,9 +1,9 @@
 ## Project Overview
-This is a comprehensive RAG (Retrieval-Augmented Generation) pipeline using LangGraph and Chainlit with Neo4j graph database integration.
+This is a comprehensive RAG (Retrieval-Augmented Generation) pipeline using LangGraph and Streamlit with Neo4j graph database integration.
 
 ## Architecture Components
 - **LangGraph**: Orchestrates the RAG workflow with graph-based reasoning
-- **Chainlit**: Provides the web interface for user interaction and document ingestion
+- **Streamlit**: Provides the web interface for user interaction and document ingestion
 - **Neo4j**: Graph database for storing document chunks and relationships
 - **OpenAI API**: Configurable LLM integration with custom endpoints
 - **Multi-format Document Ingestion**: Supports various file types (PDF, DOCX, TXT, etc.)

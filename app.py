@@ -198,20 +198,28 @@ def display_stats():
             st.metric("Entity Relations", stats.get("entity_relations", 0))
             st.metric("Chunk-Entity Links", stats.get("chunk_entity_relations", 0))
 
-        # Show entity extraction status
-        if stats.get("entities", 0) > 0:
-            entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
-            # If background entity extraction is running, show an updating caption
-            try:
-                if document_processor.is_entity_extraction_running():
+        # Show entity extraction status - check if running first (global indicator)
+        try:
+            is_extraction_running = document_processor.is_entity_extraction_running()
+            if is_extraction_running:
+                # Show running indicator regardless of current entity count
+                if stats.get("entities", 0) > 0:
+                    entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
                     st.caption(f"🔄 Entity extraction running in background — updating database ({entity_coverage:.1f}% chunk coverage)")
                 else:
-                    st.caption(f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)")
-            except Exception:
-                # Fallback to default caption if detection fails
+                    st.caption("🔄 Entity extraction running in background — processing documents...")
+            elif stats.get("entities", 0) > 0:
+                entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
+                st.caption(f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)")
+            else:
+                st.caption("⚠️ No entities extracted yet")
+        except Exception:
+            # Fallback to default caption if detection fails
+            if stats.get("entities", 0) > 0:
+                entity_coverage = (stats.get("chunk_entity_relations", 0) / max(stats.get("chunks", 1), 1)) * 100
                 st.caption(f"✅ Entity extraction active ({entity_coverage:.1f}% chunk coverage)")
-        else:
-            st.caption("⚠️ No entities extracted yet")
+            else:
+                st.caption("⚠️ No entities extracted yet")
 
     except Exception as e:
         st.error(f"Could not fetch database stats: {e}")
@@ -233,16 +241,20 @@ def display_document_list():
         st.markdown("### 📂 Documents in Database")
         
         # Show overall entity extraction status
-        if extraction_status["documents_without_entities"] > 0:
-            st.caption(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
-            
-            # Global entity extraction button
-            if settings.enable_entity_extraction:
-                if not document_processor.is_entity_extraction_running():                
-                    if st.button("🧠 Extract Entities for All Documents", 
-                               key="extract_entities_global_db", 
-                               type="primary",
-                               help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction"):
+        try:
+            is_extraction_running = document_processor.is_entity_extraction_running()
+            if is_extraction_running:
+                # Show global running indicator
+                st.caption("🔄 Entity extraction running in background for multiple documents...")
+            elif extraction_status["documents_without_entities"] > 0:
+                st.caption(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
+                
+                # Global entity extraction button
+                if settings.enable_entity_extraction:
+                    if st.button("🧠 Extract Entities for All Documents",
+                                 key="extract_entities_global_db",
+                                 type="primary",
+                                 help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction"):
                         result = document_processor.extract_entities_for_all_documents()
                         if result:
                             if result["status"] == "started":
@@ -252,8 +264,14 @@ def display_document_list():
                                 st.info(f"ℹ️ {result['message']}")
                             else:
                                 st.error(f"❌ {result['message']}")
-        else:
-            st.success("✅ All documents have entities extracted")
+            else:
+                st.success("✅ All documents have entities extracted")
+        except Exception:
+            # Fallback if entity extraction status check fails
+            if extraction_status["documents_without_entities"] > 0:
+                st.caption(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
+            else:
+                st.success("✅ All documents have entities extracted")
 
         # Add a session state for delete confirmations
         if "confirm_delete" not in st.session_state:

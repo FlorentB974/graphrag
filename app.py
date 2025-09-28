@@ -234,14 +234,11 @@ def display_document_list():
         
         # Show overall entity extraction status
         if extraction_status["documents_without_entities"] > 0:
-            st.warning(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
+            st.caption(f"⚠️ {extraction_status['documents_without_entities']} documents missing entity extraction")
             
             # Global entity extraction button
             if settings.enable_entity_extraction:
-                if document_processor.is_entity_extraction_running():
-                    st.info("🔄 Entity extraction running in background...")
-                
-                else:
+                if not document_processor.is_entity_extraction_running():                
                     if st.button("🧠 Extract Entities for All Documents", 
                                key="extract_entities_global_db", 
                                type="primary",
@@ -812,32 +809,6 @@ def main():
                         # Display sources in sidebar
                         if "sources" in latest_message:
                             display_sources_detailed(latest_message["sources"])
-
-                            # Entity extraction button (only show if not all entities are extracted)
-                            try:
-                                extraction_status = graph_db.get_entity_extraction_status()
-                                if not extraction_status["all_extracted"] and settings.enable_entity_extraction:
-                                    st.markdown("---")
-                                    if document_processor.is_entity_extraction_running():
-                                        st.info(f"🔄 Entity extraction running in background...")
-                                        st.caption(f"{extraction_status['documents_without_entities']} documents pending entity extraction")
-                                    else:
-                                        if st.button("🧠 Extract Entities for All Documents", 
-                                                   key="extract_entities_global", 
-                                                   type="primary",
-                                                   help=f"Extract entities for {extraction_status['documents_without_entities']} documents that are missing entity extraction"):
-                                            result = document_processor.extract_entities_for_all_documents()
-                                            if result:
-                                                if result["status"] == "started":
-                                                    st.success(f"✅ {result['message']}")
-                                                    st.rerun()
-                                                elif result["status"] == "no_action_needed":
-                                                    st.info(f"ℹ️ {result['message']}")
-                                                else:
-                                                    st.error(f"❌ {result['message']}")
-                                        st.caption(f"{extraction_status['documents_without_entities']} documents missing entity extraction")
-                            except Exception as e:
-                                st.error(f"Could not check entity extraction status: {e}")
 
                             # Small clear chat button placed next to the title
                             if st.button("🧹 Clear chat", key="clear_chat_top", help="Clear conversation, graph and sources"):

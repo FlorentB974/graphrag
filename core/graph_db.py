@@ -562,7 +562,7 @@ class GraphDB:
                        chunks_with_entities,
                        CASE 
                            WHEN total_chunks = 0 THEN true
-                           WHEN chunks_with_entities = total_chunks AND total_entities > 0 THEN true
+                           WHEN total_entities > 0 AND chunks_with_entities >= (total_chunks * 0.7) THEN true
                            ELSE false
                        END as entities_extracted
                 ORDER BY d.filename ASC

@@ -8,6 +8,8 @@ import time
 import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from enum import Enum
+from dataclasses import dataclass
 
 from core.chunking import document_chunker
 from core.embeddings import embedding_manager
@@ -24,6 +26,30 @@ from ingestion.loaders.pptx_loader import PPTXLoader
 from ingestion.loaders.xlsx_loader import XLSXLoader
 
 logger = logging.getLogger(__name__)
+
+
+class EntityExtractionState(Enum):
+    """States for entity extraction operations."""
+    STARTING = "starting"
+    LLM_EXTRACTION = "llm_extraction"
+    EMBEDDING_GENERATION = "embedding_generation"
+    DATABASE_OPERATIONS = "database_operations"
+    VALIDATION = "validation"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+@dataclass
+class EntityExtractionStatus:
+    """Status of an entity extraction operation."""
+    operation_id: str
+    document_id: str
+    document_name: str
+    state: EntityExtractionState
+    started_at: float
+    last_updated: float
+    progress_info: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class DocumentProcessor:
@@ -57,6 +83,10 @@ class DocumentProcessor:
         # Track background entity extraction threads so the UI can detect ongoing work
         self._bg_entity_threads = []
         self._bg_lock = threading.Lock()
+        
+        # Track entity extraction operation states for more robust status checking
+        self._entity_extraction_operations: Dict[str, EntityExtractionStatus] = {}
+        self._operations_lock = threading.Lock()
 
     def _generate_document_id(self, file_path: Path) -> str:
         """Generate a unique document ID based on file path and modification time."""
@@ -66,6 +96,57 @@ class DocumentProcessor:
     def _generate_entity_id(self, entity_name: str) -> str:
         """Generate a consistent entity ID from entity name."""
         return hashlib.md5(entity_name.lower().encode()).hexdigest()[:16]
+
+    def _generate_operation_id(self, doc_id: str, operation_type: str = "entity_extraction") -> str:
+        """Generate a unique operation ID."""
+        timestamp = str(time.time())
+        content = f"{doc_id}_{operation_type}_{timestamp}"
+        return hashlib.md5(content.encode()).hexdigest()[:16]
+
+    def _start_entity_operation(self, doc_id: str, doc_name: str) -> str:
+        """Start tracking an entity extraction operation."""
+        operation_id = self._generate_operation_id(doc_id)
+        with self._operations_lock:
+            self._entity_extraction_operations[operation_id] = EntityExtractionStatus(
+                operation_id=operation_id,
+                document_id=doc_id,
+                document_name=doc_name,
+                state=EntityExtractionState.STARTING,
+                started_at=time.time(),
+                last_updated=time.time()
+            )
+        return operation_id
+
+    def _update_entity_operation(self, operation_id: str, state: EntityExtractionState,
+                                 progress_info: Optional[str] = None, error_message: Optional[str] = None):
+        """Update the state of an entity extraction operation."""
+        with self._operations_lock:
+            if operation_id in self._entity_extraction_operations:
+                status = self._entity_extraction_operations[operation_id]
+                status.state = state
+                status.last_updated = time.time()
+                if progress_info:
+                    status.progress_info = progress_info
+                if error_message:
+                    status.error_message = error_message
+
+    def _complete_entity_operation(self, operation_id: str):
+        """Mark an entity extraction operation as completed and remove it from tracking."""
+        with self._operations_lock:
+            if operation_id in self._entity_extraction_operations:
+                del self._entity_extraction_operations[operation_id]
+
+    def _cleanup_stale_operations(self, max_age_seconds: float = 3600):
+        """Remove operations that are too old (likely stale due to crashes)."""
+        current_time = time.time()
+        with self._operations_lock:
+            stale_ops = [
+                op_id for op_id, status in self._entity_extraction_operations.items()
+                if current_time - status.started_at > max_age_seconds
+            ]
+            for op_id in stale_ops:
+                logger.warning(f"Removing stale entity extraction operation: {op_id}")
+                del self._entity_extraction_operations[op_id]
 
     def _extract_metadata(
         self, file_path: Path, original_filename: Optional[str] = None
@@ -217,17 +298,37 @@ class DocumentProcessor:
 
                 # Start background thread to perform entity extraction without blocking
                 def _background_entity_worker(doc_id_local, chunks_local):
+                    operation_id = None
                     try:
-                        logger.info(f"Background entity extraction started for document {doc_id_local}")
-                        # Run the async extraction in this thread
+                        # Start tracking this operation
+                        filename = original_filename if original_filename else file_path.name
+                        operation_id = self._start_entity_operation(doc_id_local, filename)
+                        
+                        logger.info(f"Background entity extraction started for document {doc_id_local} (operation: {operation_id})")
+                        
+                        # Phase 1: LLM extraction
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.LLM_EXTRACTION,
+                            "Running LLM entity extraction"
+                        )
                         try:
                             entity_dict, relationship_dict = asyncio.run(
                                 extractor.extract_from_chunks(chunks_local)
                             )
                         except Exception as e:
                             logger.error(f"Entity extractor failed in background for {doc_id_local}: {e}")
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.ERROR,
+                                error_message=f"LLM extraction failed: {str(e)}"
+                            )
                             return
 
+                        # Phase 2: Embedding generation and database operations
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.EMBEDDING_GENERATION,
+                            f"Generating embeddings for {len(entity_dict)} entities"
+                        )
+                        
                         # Persist entities and relationships
                         created_entities = 0
                         created_relationships = 0
@@ -235,6 +336,7 @@ class DocumentProcessor:
                         for entity in entity_dict.values():
                             try:
                                 entity_id = self._generate_entity_id(entity.name)
+                                # This call includes embedding generation which can be slow
                                 graph_db.create_entity_node(
                                     entity_id,
                                     entity.name,
@@ -253,6 +355,12 @@ class DocumentProcessor:
                             except Exception as e:
                                 logger.error(f"Failed to persist entity {entity.name} for doc {doc_id_local}: {e}")
 
+                        # Phase 3: Database operations for relationships
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.DATABASE_OPERATIONS,
+                            f"Creating {sum(len(rels) for rels in relationship_dict.values())} relationships"
+                        )
+                        
                         # Store entity relationships
                         for relationships in relationship_dict.values():
                             for relationship in relationships:
@@ -277,6 +385,12 @@ class DocumentProcessor:
                         except Exception as e:
                             logger.debug(f"Failed to create entity similarities for {doc_id_local}: {e}")
 
+                        # Phase 4: Validation
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.VALIDATION,
+                            "Validating entity embeddings"
+                        )
+                        
                         # Validate entity embeddings after processing
                         try:
                             validation_results = graph_db.validate_entity_embeddings(doc_id_local)
@@ -294,7 +408,16 @@ class DocumentProcessor:
                         logger.info(f"Background entity extraction finished for {doc_id_local}: {created_entities} entities, {created_relationships} relationships")
                     except Exception as e:
                         logger.error(f"Unhandled error in background entity worker for {doc_id_local}: {e}")
+                        if operation_id:
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.ERROR,
+                                error_message=f"Unhandled error: {str(e)}"
+                            )
                     finally:
+                        # Complete the operation tracking
+                        if operation_id:
+                            self._complete_entity_operation(operation_id)
+                        
                         # Remove this thread from the tracking list when finished
                         try:
                             with self._bg_lock:
@@ -350,11 +473,133 @@ class DocumentProcessor:
             return {"file_path": str(file_path), "status": "error", "error": str(e)}
 
     def is_entity_extraction_running(self) -> bool:
-        """Return True if any background entity extraction threads are currently running."""
+        """
+        Return True if any background entity extraction operations are currently running.
+        
+        This function provides a comprehensive check that considers:
+        1. Thread status (alive threads) - both new state-tracked and legacy threads
+        2. Operation states (LLM extraction, embedding generation, database operations, validation)
+        3. Thread names and activities to detect entity extraction work
+        4. Cleanup of stale operations
+        
+        Returns:
+            bool: True if any entity extraction is in progress, False otherwise
+        """
+        # First, clean up stale operations (older than 1 hour)
+        self._cleanup_stale_operations()
+        
+        # Check thread status and operation states
         with self._bg_lock:
             # Clean up dead threads
             self._bg_entity_threads = [t for t in self._bg_entity_threads if t.is_alive()]
-            return len(self._bg_entity_threads) > 0
+            has_alive_threads = len(self._bg_entity_threads) > 0
+            
+            # Additional check: look for threads that might be doing entity work
+            # but weren't tracked by the new system (legacy threads)
+            import threading
+            all_threads = threading.enumerate()
+            entity_related_threads = []
+            
+            for thread in all_threads:
+                # Check if thread is daemon and potentially doing entity extraction
+                if thread.daemon and thread.is_alive():
+                    try:
+                        # Check thread name for entity-related work
+                        thread_name = thread.name.lower()
+                        if ('entity' in thread_name or
+                                'background' in thread_name or
+                                'batch' in thread_name or
+                                'global' in thread_name):
+                            # Additional check: not the main thread or our current thread
+                            if thread != threading.current_thread() and thread != threading.main_thread():
+                                entity_related_threads.append(thread)
+                    except (AttributeError, TypeError):
+                        # Some threads might not have accessible name info
+                        pass
+            
+            has_legacy_entity_threads = len(entity_related_threads) > 0
+            
+        with self._operations_lock:
+            # Check if any operations are in non-completed states
+            has_active_operations = any(
+                status.state in [
+                    EntityExtractionState.STARTING,
+                    EntityExtractionState.LLM_EXTRACTION,
+                    EntityExtractionState.EMBEDDING_GENERATION,
+                    EntityExtractionState.DATABASE_OPERATIONS,
+                    EntityExtractionState.VALIDATION
+                ]
+                for status in self._entity_extraction_operations.values()
+            )
+            
+        # Debug logging to help troubleshoot
+        legacy_count = len(entity_related_threads) if 'entity_related_threads' in locals() else 0
+        
+        # Always log the current state for debugging
+        logger.info(
+            f"Entity extraction status check: tracked_threads={len(self._bg_entity_threads)}, "
+            f"legacy_threads={legacy_count}, "
+            f"active_operations={len(self._entity_extraction_operations)}"
+        )
+        
+        if has_alive_threads or has_legacy_entity_threads or has_active_operations:
+            logger.info("Entity extraction IS running!")
+            if entity_related_threads:
+                for thread in entity_related_threads:
+                    logger.info(f"  Found legacy entity thread: {thread.name}")
+        else:
+            logger.info("Entity extraction is NOT running")
+            
+        # Return True if any of these conditions are met
+        return has_alive_threads or has_legacy_entity_threads or has_active_operations
+
+    def get_entity_extraction_status(self) -> Dict[str, Any]:
+        """
+        Get detailed status information about ongoing entity extraction operations.
+        
+        Returns:
+            dict: Detailed status including active operations, their states, and progress
+        """
+        # Clean up stale operations first
+        self._cleanup_stale_operations()
+        
+        with self._bg_lock:
+            # Clean up dead threads
+            self._bg_entity_threads = [t for t in self._bg_entity_threads if t.is_alive()]
+            thread_count = len(self._bg_entity_threads)
+            
+        with self._operations_lock:
+            # Copy current operations to avoid locking issues
+            operations_copy = dict(self._entity_extraction_operations)
+            
+        # Prepare detailed status information
+        active_operations = []
+        for op_id, status in operations_copy.items():
+            runtime = time.time() - status.started_at
+            active_operations.append({
+                "operation_id": op_id,
+                "document_id": status.document_id,
+                "document_name": status.document_name,
+                "state": status.state.value,
+                "runtime_seconds": runtime,
+                "progress_info": status.progress_info,
+                "error_message": status.error_message,
+                "last_updated": status.last_updated
+            })
+            
+        # Sort by start time (most recent first)
+        active_operations.sort(key=lambda x: x["last_updated"], reverse=True)
+        
+        return {
+            "is_running": len(active_operations) > 0 or thread_count > 0,
+            "active_threads": thread_count,
+            "active_operations": len(active_operations),
+            "operations": active_operations,
+            "states_summary": {
+                state.value: sum(1 for op in active_operations if op["state"] == state.value)
+                for state in EntityExtractionState
+            }
+        }
 
     def process_directory(
         self, directory_path: Path, recursive: bool = True
@@ -540,6 +785,7 @@ class DocumentProcessor:
         
         def _batch_entity_worker(documents_list):
             """Background worker for batch entity extraction."""
+            operation_ids = []
             try:
                 # Get a reference to the entity extractor (should be initialized by now)
                 extractor = self.entity_extractor
@@ -554,20 +800,39 @@ class DocumentProcessor:
                 for doc_info in documents_list:
                     doc_id = doc_info["document_id"]
                     file_name = doc_info["file_name"]
+                    operation_id = None
                     
                     try:
-                        logger.info(f"Processing entities for document {doc_id} ({file_name})")
+                        # Start tracking this operation
+                        operation_id = self._start_entity_operation(doc_id, file_name)
+                        operation_ids.append(operation_id)
+                        
+                        logger.info(f"Processing entities for document {doc_id} ({file_name}) - operation: {operation_id}")
                         
                         # Get chunks for this document from the database
                         chunks_for_extraction = graph_db.get_document_chunks(doc_id)
                         
                         if not chunks_for_extraction:
                             logger.warning(f"No chunks found for document {doc_id}")
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.ERROR,
+                                error_message="No chunks found for document"
+                            )
                             continue
                         
-                        # Run entity extraction
+                        # Phase 1: LLM extraction
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.LLM_EXTRACTION,
+                            "Running LLM entity extraction"
+                        )
                         entity_dict, relationship_dict = asyncio.run(
                             extractor.extract_from_chunks(chunks_for_extraction)
+                        )
+                        
+                        # Phase 2: Embedding generation and database operations
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.EMBEDDING_GENERATION,
+                            f"Generating embeddings for {len(entity_dict)} entities"
                         )
                         
                         # Persist entities and relationships
@@ -577,6 +842,7 @@ class DocumentProcessor:
                         for entity in entity_dict.values():
                             try:
                                 entity_id = self._generate_entity_id(entity.name)
+                                # This call includes embedding generation which can be slow
                                 graph_db.create_entity_node(
                                     entity_id,
                                     entity.name,
@@ -595,6 +861,12 @@ class DocumentProcessor:
                             except Exception as e:
                                 logger.error(f"Failed to persist entity {entity.name} for doc {doc_id}: {e}")
 
+                        # Phase 3: Database operations for relationships
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.DATABASE_OPERATIONS,
+                            f"Creating {sum(len(rels) for rels in relationship_dict.values())} relationships"
+                        )
+                        
                         # Store entity relationships
                         for relationships in relationship_dict.values():
                             for relationship in relationships:
@@ -619,6 +891,12 @@ class DocumentProcessor:
                         except Exception as e:
                             logger.debug(f"Failed to create entity similarities for {doc_id}: {e}")
 
+                        # Phase 4: Validation
+                        self._update_entity_operation(
+                            operation_id, EntityExtractionState.VALIDATION,
+                            "Validating entity embeddings"
+                        )
+                        
                         # Validate entity embeddings after processing
                         try:
                             validation_results = graph_db.validate_entity_embeddings(doc_id)
@@ -645,6 +923,15 @@ class DocumentProcessor:
                         
                     except Exception as e:
                         logger.error(f"Failed to process entities for document {doc_id}: {e}")
+                        if operation_id:
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.ERROR,
+                                error_message=f"Failed to process document: {str(e)}"
+                            )
+                    finally:
+                        # Complete the operation tracking for this document
+                        if operation_id:
+                            self._complete_entity_operation(operation_id)
 
                 return {
                     "total_entities": total_entities,
@@ -655,6 +942,13 @@ class DocumentProcessor:
             except Exception as e:
                 logger.error(f"Unhandled error in batch entity worker: {e}")
                 return None
+            finally:
+                # Complete any remaining operations
+                for op_id in operation_ids:
+                    try:
+                        self._complete_entity_operation(op_id)
+                    except Exception:
+                        pass
 
         # Start thread and track it so the UI can detect background work
         t = threading.Thread(target=_batch_entity_worker, args=(processed_documents,), daemon=True)
@@ -749,7 +1043,7 @@ class DocumentProcessor:
         try:
             status = graph_db.get_entity_extraction_status()
             docs_without_entities = [
-                doc for doc in status["documents"] 
+                doc for doc in status["documents"]
                 if not doc["entities_extracted"] and doc["total_chunks"] > 0
             ]
             
@@ -775,6 +1069,7 @@ class DocumentProcessor:
             # Start batch entity extraction in background
             def _global_entity_worker(documents_list):
                 """Background worker for global entity extraction."""
+                operation_ids = []
                 try:
                     extractor = self.entity_extractor
                     if not extractor:
@@ -788,20 +1083,39 @@ class DocumentProcessor:
                     for doc_info in documents_list:
                         doc_id = doc_info["document_id"]
                         file_name = doc_info["file_name"]
+                        operation_id = None
                         
                         try:
-                            logger.info(f"Processing entities for document {doc_id} ({file_name})")
+                            # Start tracking this operation
+                            operation_id = self._start_entity_operation(doc_id, file_name)
+                            operation_ids.append(operation_id)
+                            
+                            logger.info(f"Processing entities for document {doc_id} ({file_name}) - operation: {operation_id}")
                             
                             # Get chunks for this document from the database
                             chunks_for_extraction = graph_db.get_document_chunks(doc_id)
                             
                             if not chunks_for_extraction:
                                 logger.warning(f"No chunks found for document {doc_id}")
+                                self._update_entity_operation(
+                                    operation_id, EntityExtractionState.ERROR,
+                                    error_message="No chunks found for document"
+                                )
                                 continue
                             
-                            # Run entity extraction
+                            # Phase 1: LLM extraction
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.LLM_EXTRACTION,
+                                "Running LLM entity extraction"
+                            )
                             entity_dict, relationship_dict = asyncio.run(
                                 extractor.extract_from_chunks(chunks_for_extraction)
+                            )
+                            
+                            # Phase 2: Embedding generation and database operations
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.EMBEDDING_GENERATION,
+                                f"Generating embeddings for {len(entity_dict)} entities"
                             )
                             
                             # Persist entities and relationships
@@ -811,6 +1125,7 @@ class DocumentProcessor:
                             for entity in entity_dict.values():
                                 try:
                                     entity_id = self._generate_entity_id(entity.name)
+                                    # This call includes embedding generation which can be slow
                                     graph_db.create_entity_node(
                                         entity_id,
                                         entity.name,
@@ -829,6 +1144,12 @@ class DocumentProcessor:
                                 except Exception as e:
                                     logger.error(f"Failed to persist entity {entity.name} for doc {doc_id}: {e}")
 
+                            # Phase 3: Database operations for relationships
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.DATABASE_OPERATIONS,
+                                f"Creating {sum(len(rels) for rels in relationship_dict.values())} relationships"
+                            )
+                            
                             # Store entity relationships
                             for relationships in relationship_dict.values():
                                 for relationship in relationships:
@@ -853,6 +1174,12 @@ class DocumentProcessor:
                             except Exception as e:
                                 logger.debug(f"Failed to create entity similarities for {doc_id}: {e}")
 
+                            # Phase 4: Validation
+                            self._update_entity_operation(
+                                operation_id, EntityExtractionState.VALIDATION,
+                                "Validating entity embeddings"
+                            )
+                            
                             # Validate entity embeddings after processing
                             try:
                                 validation_results = graph_db.validate_entity_embeddings(doc_id)
@@ -876,12 +1203,28 @@ class DocumentProcessor:
                             
                         except Exception as e:
                             logger.error(f"Failed to process entities for document {doc_id}: {e}")
+                            if operation_id:
+                                self._update_entity_operation(
+                                    operation_id, EntityExtractionState.ERROR,
+                                    error_message=f"Failed to process document: {str(e)}"
+                                )
+                        finally:
+                            # Complete the operation tracking for this document
+                            if operation_id:
+                                self._complete_entity_operation(operation_id)
 
                     logger.info(f"Global entity extraction completed: {processed_docs} documents, {total_entities} entities, {total_relationships} relationships")
                     
                 except Exception as e:
                     logger.error(f"Unhandled error in global entity extraction worker: {e}")
                 finally:
+                    # Complete any remaining operations
+                    for op_id in operation_ids:
+                        try:
+                            self._complete_entity_operation(op_id)
+                        except Exception:
+                            pass
+                    
                     # Remove this thread from the tracking list when finished
                     try:
                         with self._bg_lock:

@@ -108,10 +108,219 @@ class EntityExtractor:
         "DATE",
         "MONEY"
     ]
+    
+    # Patterns for low-value entities that should be filtered out
+    LOW_VALUE_PATTERNS = [
+        # Common articles, prepositions, conjunctions
+        r'^(?:the|and|or|but|with|from|for|at|by|on|in|to|of|a|an)$',
+        # Common pronouns and demonstratives
+        r'^(?:this|that|these|those|here|there|where|when|what|who|how|why)$',
+        # Generic business terms
+        r'^(?:company|organization|group|team|department|division|system|process|method|approach|way|means)$',
+        # Generic data terms
+        r'^(?:data|information|content|text|document|report|file|item|thing|stuff)$',
+        # Common adjectives
+        r'^(?:new|old|first|last|next|previous|current|recent|good|bad|big|small|high|low|major|minor)$',
+        # Just numbers or single characters
+        r'^\d{1,3}$',
+        r'^[a-zA-Z]$',
+        # Very short meaningless strings
+        r'^.{1,2}$',
+        # Common file extensions or codes
+        r'^\.[a-z]{2,4}$',
+        r'^[A-Z]{1,3}\d*$',
+    ]
+    
+    # Entity type normalization mapping
+    ENTITY_TYPE_MAPPING = {
+        # Normalize inconsistent typing
+        "PERSON (ROLE)": "PERSON",
+        "PERSON (COLLECTIVE)": "PERSON", 
+        "PERSON (LEGAL ROLE)": "PERSON",
+        "PERSON/CONCEPT": "PERSON",
+        "PERSON/ORGANIZATION": "PERSON",
+        "PERSON (OR ORGANIZATION)": "PERSON",
+        "**PERSON**": "PERSON",
+        
+        "**ORGANIZATION**": "ORGANIZATION",
+        "ORGANIZATION/TECHNOLOGY": "ORGANIZATION",
+        
+        "**LOCATION**": "LOCATION",
+        "LOCATION/CONCEPT": "LOCATION",
+        
+        "**CONCEPT**": "CONCEPT",
+        "CONCEPT / PRODUCT": "CONCEPT",
+        "TECHNOLOGY / CONCEPT": "CONCEPT",
+        "CONCEPT/DOCUMENT": "CONCEPT",
+        "CONCEPT (LEGISLATION)": "CONCEPT",
+        "CONCEPT (LAND PARCEL)": "CONCEPT",
+        "CONCEPT (PROPERTY INTEREST)": "CONCEPT",
+        "CONCEPT (OWNERSHIP TYPE)": "CONCEPT",
+        "CONCEPT (CLAUSE NUMBER)": "CONCEPT",
+        "MATERIAL (CLASSIFIED UNDER CONCEPT)": "CONCEPT",
+        "SECTION (TREATED AS CONCEPT)": "CONCEPT",
+        "ACTION (TREATED AS CONCEPT FOR EXTRACTION)": "CONCEPT",
+        "TIME (TREATED AS CONCEPT)": "CONCEPT",
+        "PROPERTY (TREATED AS CONCEPT)": "CONCEPT",
+        
+        "**DOCUMENT**": "DOCUMENT",
+        "DOCUMENT (TAX/IDENTIFIER)": "DOCUMENT",
+        "DOCUMENT (AUSTRALIAN BUSINESS NUMBER)": "DOCUMENT",
+        "DOCUMENT (CONTACT INFORMATION)": "DOCUMENT",
+        
+        "PRODUCT (WEBPAGE)": "PRODUCT",
+        "PRODUCT/TECHNOLOGY": "PRODUCT",
+        "TRADEMARK (TREATED AS PRODUCT)": "PRODUCT",
+        
+        "PHONE NUMBER (TECHNOLOGY)": "TECHNOLOGY",
+        "CONTACT (TREATED AS TECHNOLOGY FOR PHONE CONTACT)": "TECHNOLOGY",
+        "EMAIL (TREATED AS A PRODUCT/TECHNOLOGY IDENTIFIER)": "TECHNOLOGY",
+        "EMAIL (PRODUCT/TECHNOLOGY IDENTIFIER)": "TECHNOLOGY",
+        "WEBSITE (TECHNOLOGY)": "TECHNOLOGY",
+        "EMAIL (TECHNOLOGY)": "TECHNOLOGY",
+        "CONTACT (TREATED AS TECHNOLOGY FOR THIS LIST)": "TECHNOLOGY",
+        "CONTACT (TREATED AS TECHNOLOGY FOR EMAIL CONTACT)": "TECHNOLOGY",
+        
+        "**MONEY**": "MONEY",
+        "MONEY (CONCEPT)": "MONEY",
+        
+        "**EVENT**": "EVENT",
+        "SECTION (EVENT)": "EVENT",
+        
+        "DATE (DURATION)": "DATE",
+        
+        "**NUMBER**": "CONCEPT",  # Numbers as concepts
+        
+        # Consolidate contact information
+        "CONTACT": "TECHNOLOGY",
+        "CONTACT INFORMATION": "TECHNOLOGY",
+        "CONTACT INFORMATION (ASSOCIATED WITH ORGANIZATION)": "TECHNOLOGY",
+        "CONTACT (TREATED AS A TELEPHONE NUMBER)": "TECHNOLOGY",
+        "CONTACT (PHONE NUMBER)": "TECHNOLOGY",
+        "CONTACT (PHONE)": "TECHNOLOGY",
+        
+        # Consolidate materials
+        "MATERIAL": "CONCEPT",
+        
+        # Consolidate sections
+        "SECTION": "CONCEPT",
+        
+        # Other consolidations
+        "SOFTWARE": "TECHNOLOGY",
+        "PROGRAM": "TECHNOLOGY",
+        "SERVICE": "PRODUCT",
+        "PROJECT": "CONCEPT",
+        "EDUCATION": "CONCEPT",
+        "LANGUAGE": "CONCEPT",
+    }
 
     def __init__(self, entity_types: Optional[List[str]] = None):
         """Initialize entity extractor."""
         self.entity_types = entity_types or self.DEFAULT_ENTITY_TYPES
+    
+    def _normalize_entity_name(self, name: str) -> str:
+        """Normalize entity name to reduce duplicates."""
+        # Remove extra whitespace and normalize case
+        normalized = re.sub(r'\s+', ' ', name.strip())
+        
+        # Remove unnecessary punctuation but keep meaningful ones
+        normalized = re.sub(r'[^\w\s\-\.\(\)\/]', '', normalized)
+        
+        # Normalize common variations
+        normalized = re.sub(r'\b(?:sub[\-\s]?floor)\b', 'subfloor', normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r'\b(?:sub[\-\s]?structure)\b', 'substructure', normalized, flags=re.IGNORECASE)
+        
+        # Remove redundant parenthetical content
+        normalized = re.sub(r'\s*\([^)]*\)\s*', ' ', normalized)
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return normalized
+    
+    def _normalize_entity_type(self, entity_type: str) -> str:
+        """Normalize entity type using mapping."""
+        # Clean up the type string
+        cleaned_type = entity_type.strip().upper()
+        
+        # Apply mapping if available
+        if cleaned_type in self.ENTITY_TYPE_MAPPING:
+            return self.ENTITY_TYPE_MAPPING[cleaned_type]
+        
+        # Default normalization for unmapped types
+        # Remove excessive descriptors
+        if '(' in cleaned_type and ')' in cleaned_type:
+            base_type = cleaned_type.split('(')[0].strip()
+            if base_type in self.DEFAULT_ENTITY_TYPES:
+                return base_type
+        
+        # Remove prefixed modifiers like "**TYPE**"
+        cleaned_type = re.sub(r'^\*+([A-Z]+)\*+$', r'\1', cleaned_type)
+        
+        # Default to CONCEPT for unclear types
+        if cleaned_type not in self.DEFAULT_ENTITY_TYPES:
+            return "CONCEPT"
+        
+        return cleaned_type
+    
+    def _is_low_value_entity(self, name: str, entity_type: str, importance: float) -> bool:
+        """Check if entity is low value and should be filtered out."""
+        # Filter by importance threshold
+        if importance < 0.3:
+            return True
+        
+        # Filter by name patterns
+        name_lower = name.lower().strip()
+        for pattern in self.LOW_VALUE_PATTERNS:
+            if re.match(pattern, name_lower, re.IGNORECASE):
+                return True
+        
+        # Filter very generic concepts
+        if entity_type == "CONCEPT" and importance < 0.6:
+            generic_patterns = [
+                r'^(?:management|system|program|process|method|approach|solution)$',
+                r'^(?:inspection|treatment|damage|condition|presence|lack)$',
+                r'^(?:area|areas|location|locations|structure|structures)$',
+            ]
+            for pattern in generic_patterns:
+                if re.match(pattern, name_lower, re.IGNORECASE):
+                    return True
+        
+        return False
+    
+    def _deduplicate_entities(self, entities: List[Entity]) -> List[Entity]:
+        """Remove duplicate entities based on normalized names."""
+        seen_entities = {}
+        deduplicated = []
+        
+        for entity in entities:
+            normalized_name = self._normalize_entity_name(entity.name)
+            normalized_type = self._normalize_entity_type(entity.type)
+            
+            # Create a key for deduplication
+            key = (normalized_name.lower(), normalized_type)
+            
+            if key not in seen_entities:
+                # Create new entity with normalized values
+                normalized_entity = Entity(
+                    name=normalized_name,
+                    type=normalized_type,
+                    description=entity.description,
+                    importance_score=entity.importance_score,
+                    source_chunks=entity.source_chunks.copy() if entity.source_chunks else []
+                )
+                seen_entities[key] = normalized_entity
+                deduplicated.append(normalized_entity)
+            else:
+                # Merge with existing entity
+                existing = seen_entities[key]
+                if entity.source_chunks:
+                    existing.source_chunks.extend(entity.source_chunks)
+                # Use better description if available
+                if len(entity.description) > len(existing.description):
+                    existing.description = entity.description
+                # Average importance scores
+                existing.importance_score = (existing.importance_score + entity.importance_score) / 2
+        
+        return deduplicated
     
     def _get_extraction_prompt(self, text: str) -> str:
         """Generate prompt for entity and relationship extraction."""
@@ -167,9 +376,17 @@ RELATIONSHIPS:
                 description = match.group(3).strip()
                 importance = float(match.group(4))
                 
+                # Apply normalization
+                normalized_name = self._normalize_entity_name(name)
+                normalized_type = self._normalize_entity_type(entity_type)
+                
+                # Filter low-value entities
+                if self._is_low_value_entity(normalized_name, normalized_type, importance):
+                    continue
+                
                 entity = Entity(
-                    name=name,
-                    type=entity_type,
+                    name=normalized_name,
+                    type=normalized_type,
                     description=description,
                     importance_score=min(max(importance, 0.0), 1.0),
                     source_chunks=[chunk_id]
@@ -184,9 +401,13 @@ RELATIONSHIPS:
                 description = match.group(3).strip()
                 strength = float(match.group(4))
                 
+                # Normalize entity names in relationships
+                normalized_source = self._normalize_entity_name(source)
+                normalized_target = self._normalize_entity_name(target)
+                
                 relationship = Relationship(
-                    source_entity=source,
-                    target_entity=target,
+                    source_entity=normalized_source,
+                    target_entity=normalized_target,
                     description=description,
                     strength=min(max(strength, 0.0), 1.0),
                     source_chunks=[chunk_id]
@@ -196,6 +417,9 @@ RELATIONSHIPS:
         except Exception as e:
             logger.error(f"Error parsing extraction response for chunk {chunk_id}: {e}")
             logger.debug(f"Response was: {response}")
+        
+        # Apply deduplication
+        entities = self._deduplicate_entities(entities)
         
         logger.info(f"Extracted {len(entities)} entities and {len(relationships)} relationships from chunk {chunk_id}")
         return entities, relationships
@@ -265,7 +489,7 @@ RELATIONSHIPS:
                 logger.error(f"Error in extraction task: {e}")
         
         # Consolidate entities and relationships
-        all_entities = {}
+        all_entities_list = []
         all_relationships = []
         
         for i, result in enumerate(results):
@@ -279,22 +503,15 @@ RELATIONSHIPS:
                 logger.error(f"Unexpected result format for chunk {i}: {result}")
                 continue
             
-            # Consolidate entities (merge duplicates by name)
-            for entity in entities:
-                entity_key = entity.name.upper().strip()
-                if entity_key in all_entities:
-                    # Merge with existing entity
-                    existing = all_entities[entity_key]
-                    existing.source_chunks.extend(entity.source_chunks)
-                    # Use more detailed description if available
-                    if len(entity.description) > len(existing.description):
-                        existing.description = entity.description
-                    # Average importance scores
-                    existing.importance_score = (existing.importance_score + entity.importance_score) / 2
-                else:
-                    all_entities[entity_key] = entity
-            
+            # Collect all entities for global deduplication
+            all_entities_list.extend(entities)
             all_relationships.extend(relationships)
+        
+        # Apply global deduplication across all chunks
+        deduplicated_entities = self._deduplicate_entities(all_entities_list)
+        
+        # Convert to dictionary for compatibility
+        all_entities = {entity.name.upper().strip(): entity for entity in deduplicated_entities}
         
         # Group relationships by entity pair
         relationships_by_pair = {}

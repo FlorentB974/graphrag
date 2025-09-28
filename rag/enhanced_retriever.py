@@ -4,7 +4,7 @@ Enhanced retrieval logic with support for chunk-based, entity-based, and hybrid 
 
 import logging
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import hashlib
 
 from config.settings import settings
@@ -181,7 +181,7 @@ class EnhancedDocumentRetriever:
             return []
 
     async def entity_expansion_retrieval(
-        self, initial_entities: List[str], expansion_depth: int = 1, max_chunks: int = 50
+        self, initial_entities: List[str], expansion_depth: int = 1, max_chunks: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Expand retrieval by following entity relationships.
@@ -189,11 +189,14 @@ class EnhancedDocumentRetriever:
         Args:
             initial_entities: List of initial entity IDs
             expansion_depth: How many relationship hops to follow
-            max_chunks: Maximum chunks to retrieve
+            max_chunks: Maximum chunks to retrieve (defaults to settings.max_expanded_chunks)
             
         Returns:
             List of chunks from expanded entity network
         """
+        if max_chunks is None:
+            max_chunks = settings.max_expanded_chunks
+            
         try:
             expanded_entities = set(initial_entities)
             total_relationships = 0
@@ -203,24 +206,67 @@ class EnhancedDocumentRetriever:
             for entity_id in initial_entities:
                 entity_scores[entity_id] = 1.0  # Initial entities get full score
             
-            # Expand entity network by following relationships
-            for entity_id in initial_entities:
-                relationships = graph_db.get_entity_relationships(entity_id)
-                total_relationships += len(relationships)
-                for rel in relationships:
-                    related_id = rel["related_entity_id"]
-                    expanded_entities.add(related_id)
-                    # Score related entities based on relationship strength
-                    strength = rel.get("strength", 0.5)
-                    entity_scores[related_id] = max(entity_scores.get(related_id, 0.0), strength * 0.7)
+            # Expand entity network by following relationships (with limits)
+            entities_to_process = list(initial_entities)
+            current_depth = 0
             
-            # Get chunks for expanded entity set
+            while entities_to_process and current_depth < min(expansion_depth, settings.max_expansion_depth):
+                next_entities = []
+                entities_processed_this_depth = 0
+                
+                for entity_id in entities_to_process:
+                    if entities_processed_this_depth >= settings.max_entity_connections:
+                        break  # Limit entities processed per depth
+                        
+                    relationships = graph_db.get_entity_relationships(entity_id)
+                    total_relationships += len(relationships)
+                    
+                    # Limit and prioritize relationships by strength
+                    relationships.sort(key=lambda x: x.get("strength", 0.0), reverse=True)
+                    relationships = relationships[:settings.max_entity_connections]
+                    
+                    for rel in relationships:
+                        related_id = rel["related_entity_id"]
+                        strength = rel.get("strength", 0.5)
+                        
+                        # Only follow high-quality relationships
+                        if strength >= settings.expansion_similarity_threshold:
+                            if related_id not in expanded_entities:
+                                expanded_entities.add(related_id)
+                                next_entities.append(related_id)
+                            
+                            # Score related entities based on relationship strength with depth decay
+                            decay_factor = 0.7 ** (current_depth + 1)
+                            entity_scores[related_id] = max(
+                                entity_scores.get(related_id, 0.0), 
+                                strength * decay_factor
+                            )
+                    
+                    entities_processed_this_depth += 1
+                
+                entities_to_process = next_entities
+                current_depth += 1
+                
+                # Stop if we have too many entities
+                if len(expanded_entities) > settings.max_entity_connections * 3:
+                    break
+            
+            # Get chunks for expanded entity set (limit the entity set if too large)
+            if len(expanded_entities) > settings.max_entity_connections * 2:
+                # Keep only the highest scoring entities
+                sorted_entities = sorted(
+                    expanded_entities, 
+                    key=lambda eid: entity_scores.get(eid, 0.0), 
+                    reverse=True
+                )
+                expanded_entities = set(sorted_entities[:settings.max_entity_connections * 2])
+            
             expanded_chunks = graph_db.get_chunks_for_entities(list(expanded_entities))
             
             # Add expansion metadata and similarity scores
             for chunk in expanded_chunks:
                 chunk["retrieval_mode"] = "entity_expansion"
-                chunk["expansion_depth"] = expansion_depth
+                chunk["expansion_depth"] = current_depth
                 
                 # Calculate similarity based on contained entities' scores
                 contained_entities = chunk.get("contained_entities", [])
@@ -239,18 +285,19 @@ class EnhancedDocumentRetriever:
                 else:
                     chunk["similarity"] = 0.0  # No entities
             
-            # Filter by minimum similarity threshold
+            # Filter by enhanced similarity threshold
             filtered_chunks = [
                 chunk for chunk in expanded_chunks
-                if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
+                if chunk.get("similarity", 0.0) >= settings.expansion_similarity_threshold
             ]
             
             # Sort by similarity score
             filtered_chunks.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
             
+            # Apply final chunk limit
             final_chunks = filtered_chunks[:max_chunks]
             logger.info(f"Entity expansion: {len(initial_entities)} entities → {len(expanded_entities)} expanded entities "
-                        f"({total_relationships} relationships) → {len(expanded_chunks)} chunks → {len(filtered_chunks)} filtered → {len(final_chunks)} returned")
+                        f"({total_relationships} relationships, depth {current_depth}) → {len(expanded_chunks)} chunks → {len(filtered_chunks)} filtered → {len(final_chunks)} returned")
             
             return final_chunks
 
@@ -400,14 +447,22 @@ class EnhancedDocumentRetriever:
 
             # Expand based on mode
             if mode in [RetrievalMode.ENTITY_ONLY, RetrievalMode.HYBRID]:
-                # Entity-based expansion
+                # Entity-based expansion (with limits)
+                entity_chunks_added = 0
                 for chunk in initial_chunks:
+                    if entity_chunks_added >= settings.max_expanded_chunks // 2:
+                        break  # Reserve half the limit for entity expansion
+                        
                     entities = chunk.get("contained_entities", [])
                     if entities:
                         entity_ids = self._get_entity_ids_from_names(entities)
                         if entity_ids:  # Only expand if we found valid entity IDs
+                            # Limit entities to process
+                            entity_ids = entity_ids[:settings.max_entity_connections]
+                            
                             expanded = await self.entity_expansion_retrieval(
-                                entity_ids, expansion_depth=expand_depth
+                                entity_ids, expansion_depth=expand_depth,
+                                max_chunks=settings.max_expanded_chunks // len(initial_chunks) + 1
                             )
                             
                             source_similarity = chunk.get("similarity", chunk.get("hybrid_score", 0.3))
@@ -415,47 +470,85 @@ class EnhancedDocumentRetriever:
                             for exp_chunk in expanded:
                                 exp_chunk_id = exp_chunk.get("chunk_id")
                                 if exp_chunk_id and exp_chunk_id not in seen_chunk_ids:
-                                    exp_chunk["expansion_context"] = {
-                                        "source_chunk": chunk.get("chunk_id"),
-                                        "expansion_type": "entity_relationship"
-                                    }
-                                    # Inherit similarity with decay for expansion, but don't force minimum
-                                    if not exp_chunk.get("similarity") or exp_chunk.get("similarity", 0.0) == 0.0:
-                                        exp_chunk["similarity"] = source_similarity * 0.6
-                                    expanded_chunks.append(exp_chunk)
-                                    seen_chunk_ids.add(exp_chunk_id)
+                                    chunk_similarity = exp_chunk.get("similarity", 0.0)
+                                    
+                                    # Only add high-quality expansions
+                                    if chunk_similarity >= settings.expansion_similarity_threshold:
+                                        exp_chunk["expansion_context"] = {
+                                            "source_chunk": chunk.get("chunk_id"),
+                                            "expansion_type": "entity_relationship"
+                                        }
+                                        # Use the calculated similarity from entity expansion
+                                        expanded_chunks.append(exp_chunk)
+                                        seen_chunk_ids.add(exp_chunk_id)
+                                        entity_chunks_added += 1
+                                        
+                                        if entity_chunks_added >= settings.max_expanded_chunks // 2:
+                                            break
+                        
+                        if entity_chunks_added >= settings.max_expanded_chunks // 2:
+                            break
 
             if mode in [RetrievalMode.CHUNK_ONLY, RetrievalMode.HYBRID]:
-                # Chunk similarity expansion
+                # Chunk similarity expansion (with limits)
+                chunks_added = 0
                 for chunk in initial_chunks:
+                    if chunks_added >= settings.max_chunk_connections * len(initial_chunks):
+                        break  # Limit total chunk expansion
+                        
                     chunk_id = chunk.get("chunk_id")
                     if chunk_id:
+                        # Limit depth and get related chunks
+                        effective_depth = min(expand_depth, settings.max_expansion_depth)
                         related_chunks = graph_db.get_related_chunks(
-                            chunk_id, max_depth=expand_depth
+                            chunk_id, max_depth=effective_depth
                         )
+                        
+                        # Limit and prioritize by similarity
+                        related_chunks = related_chunks[:settings.max_chunk_connections]
                         
                         source_similarity = chunk.get("similarity", chunk.get("hybrid_score", 0.3))
                         
                         for rel_chunk in related_chunks:
                             rel_chunk_id = rel_chunk.get("chunk_id")
                             if rel_chunk_id and rel_chunk_id not in seen_chunk_ids:
-                                rel_chunk["expansion_context"] = {
-                                    "source_chunk": chunk_id,
-                                    "expansion_type": "chunk_similarity"
-                                }
                                 # Calculate similarity based on distance and source similarity
                                 distance = rel_chunk.get("distance", 1)
                                 # Decay factor based on graph distance
                                 decay_factor = 1.0 / (distance + 1)
-                                rel_chunk["similarity"] = source_similarity * decay_factor
-                                expanded_chunks.append(rel_chunk)
-                                seen_chunk_ids.add(rel_chunk_id)
+                                calculated_similarity = source_similarity * decay_factor
+                                
+                                # Only add if similarity meets threshold
+                                if calculated_similarity >= settings.expansion_similarity_threshold:
+                                    rel_chunk["expansion_context"] = {
+                                        "source_chunk": chunk_id,
+                                        "expansion_type": "chunk_similarity"
+                                    }
+                                    rel_chunk["similarity"] = calculated_similarity
+                                    expanded_chunks.append(rel_chunk)
+                                    seen_chunk_ids.add(rel_chunk_id)
+                                    chunks_added += 1
+                                    
+                                    # Stop if we've added too many
+                                    if chunks_added >= settings.max_expanded_chunks:
+                                        break
+                        
+                        if chunks_added >= settings.max_expanded_chunks:
+                            break
 
             # Filter out chunks with similarity below threshold
             filtered_chunks = [
                 chunk for chunk in expanded_chunks
-                if chunk.get("similarity", 0.0) >= settings.min_retrieval_similarity
+                if chunk.get("similarity", 0.0) >= settings.expansion_similarity_threshold
             ]
+            
+            # Sort by similarity and apply final limit
+            filtered_chunks.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+            
+            # Apply absolute limit to prevent resource overload
+            if len(filtered_chunks) > settings.max_expanded_chunks:
+                filtered_chunks = filtered_chunks[:settings.max_expanded_chunks]
+                logger.warning(f"Truncated expansion results to {settings.max_expanded_chunks} chunks")
             
             # Count expansion types
             original_count = sum(1 for chunk in filtered_chunks if not chunk.get("expansion_context"))
@@ -464,7 +557,7 @@ class EnhancedDocumentRetriever:
             chunk_expansion_count = sum(1 for chunk in filtered_chunks
                                         if chunk.get("expansion_context", {}).get("expansion_type") == "chunk_similarity")
             
-            logger.info(f"Graph expansion ({mode.value}): {len(initial_chunks)} initial → {len(expanded_chunks)} total → {len(filtered_chunks)} filtered "
+            logger.info(f"Graph expansion ({mode.value}): {len(initial_chunks)} initial → {len(expanded_chunks)} total → {len(filtered_chunks)} final "
                         f"({original_count} original + {entity_expansion_count} entity-expanded + {chunk_expansion_count} similarity-expanded)")
             return filtered_chunks
 

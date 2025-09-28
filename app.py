@@ -1095,9 +1095,9 @@ def main():
                                 temperature=search_config.get('temperature', 0.1),
                                 chunk_weight=search_config.get('hybrid_chunk_weight', 0.6),
                                 graph_expansion=search_config.get('enable_graph_expansion', True),
-                            )                        # Stream the response
+                            )
                         full_response = result["response"]
-                        st.write_stream(stream_response(full_response, 0.02))
+                        st.write_stream(stream_response(full_response, 0.02))  # Stream the response
 
                         # Add assistant message to session state
                         message_data = {

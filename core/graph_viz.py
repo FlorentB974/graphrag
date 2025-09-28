@@ -408,46 +408,17 @@ def get_query_graph_data(
     
     nodes = []
     edges = []
-    
-    # Filter out chunks with low or missing similarity scores
-    filtered_results = []
-    for result in query_results:
-        similarity = result.get("similarity")
-        if similarity is not None and similarity >= settings.min_retrieval_similarity:
-            filtered_results.append(result)
-        elif similarity is not None:
-            logger.debug(f"Filtered chunk with similarity {similarity} (below threshold {settings.min_retrieval_similarity})")
-    
-    # Use filtered results for the rest of the function
-    query_results = filtered_results
-    
-    if not query_results:
-        # Return empty graph if no results meet the threshold
-        return {"nodes": nodes, "edges": edges}
-    
-    # Extract chunk IDs for database queries
-    chunk_ids = []
-    document_ids = set()
-    
-    for result in query_results:
-        chunk_id = result.get("chunk_id")
-        if chunk_id:
-            chunk_ids.append(chunk_id)
-        
-        doc_id = result.get("document_id")
-        if doc_id:
-            document_ids.add(doc_id)
-    nodes = []
-    edges = []
 
-    # Filter out chunks with low or missing similarity scores
-    filtered_results = []
+    # Filter out chunks with low or missing similarity scores up-front
+    filtered_results: List[Dict[str, Any]] = []
     for result in query_results:
         similarity = result.get("similarity")
         if similarity is not None and similarity >= settings.min_retrieval_similarity:
             filtered_results.append(result)
         elif similarity is not None:
-            logger.debug(f"Filtered chunk with similarity {similarity} (below threshold {settings.min_retrieval_similarity})")
+            logger.debug(
+                f"Filtered chunk with similarity {similarity} (below threshold {settings.min_retrieval_similarity})"
+            )
 
     query_results = filtered_results
 
@@ -557,22 +528,19 @@ def get_query_graph_data(
                 })
 
     # --- NEW: include top-N chunks per document and chunk-chunk relationships ---
-    # Select top 5 chunks per document by similarity across the filtered query results
-    top_chunks = []
-    try:
-        top_n_per_doc = 5
-        # Group chunks by document id
-        chunks_by_doc = {}
-        for r in query_results:
-            did = r.get("document_id") or r.get("document_name") or "unknown_doc"
-            chunks_by_doc.setdefault(did, []).append(r)
+    # Select top N chunks per document by similarity across the filtered query results
+    top_chunks: List[Dict[str, Any]] = []
+    top_n_per_doc = 5
+    # Group chunks by document id
+    chunks_by_doc: Dict[str, List[Dict[str, Any]]] = {}
+    for r in query_results:
+        did = r.get("document_id") or r.get("document_name") or "unknown_doc"
+        chunks_by_doc.setdefault(did, []).append(r)
 
-        # For each document pick the top N chunks
-        for did, chunks in chunks_by_doc.items():
-            sorted_chunks = sorted(chunks, key=lambda r: r.get("similarity", 0.0), reverse=True)
-            top_chunks.extend(sorted_chunks[:top_n_per_doc])
-    except Exception:
-        top_chunks = []
+    # For each document pick the top N chunks
+    for did, chunks in chunks_by_doc.items():
+        sorted_chunks = sorted(chunks, key=lambda r: r.get("similarity", 0.0), reverse=True)
+        top_chunks.extend(sorted_chunks[:top_n_per_doc])
 
     # Track which chunk ids we've added to avoid duplicates
     added_chunk_ids = set()
@@ -642,7 +610,6 @@ def get_query_graph_data(
                     if pair in seen_pairs:
                         continue
                     seen_pairs.add(pair)
-                    # Create a more meaningful label: similarity strength and shared entities when available
                     weight = rd.get("weight", 1.0)
                     rel_type = rd.get("rel_type") or "SIMILAR_TO"
                     rel_label = None
@@ -653,12 +620,11 @@ def get_query_graph_data(
                         if shared:
                             rel_label = "shares: " + ", ".join(shared[:3])
                         else:
-                            if weight >= 0.85:
-                                rel_label = "high similarity"
-                            elif weight >= 0.6:
-                                rel_label = "moderate similarity"
-                            else:
-                                rel_label = "related"
+                            rel_label = (
+                                "high similarity"
+                                if weight >= 0.85
+                                else ("moderate similarity" if weight >= 0.6 else "related")
+                            )
                     except Exception:
                         rel_label = None
 

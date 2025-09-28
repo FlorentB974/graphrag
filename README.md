@@ -13,6 +13,7 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 - 📈 **Interactive Graph Visualization**: Real-time view of document relationships and retrieval paths
 - 🔍 **Streaming Responses**: Progressive answer display for better user experience
 - 🎯 **Background File Processing**: Upload documents with progress indicators
+- 🧮 **Token-aware Request Management**: Avoid overwhelming LLM with intelligent token management and request splitting
 
 ### 🆕 **Hybrid Entity-Chunk Retrieval**
 
@@ -318,6 +319,30 @@ Start the FastAPI server for programmatic access:
 ```bash
 uvicorn api.main:app --host 0.0.0.0 --port 8001
 ```
+
+## Token Management & Request Splitting
+
+This project includes a dedicated token management utility (`core/token_manager.py`) which helps the application safely interact with LLMs of different providers and context lengths. Key features and behaviors:
+
+- **Automatic context-size detection**: the TokenManager contains a mapping of common models (OpenAI, Ollama, etc.) to conservative context size estimates. For unknown models it can query the model with a safe low-cost prompt to get the model's reported maximum context length and adjust behavior accordingly.
+- **Precise token counting when available**: if the `tiktoken` package is installed the manager uses model encodings to count tokens accurately. When `tiktoken` is not available it falls back to a robust character-based approximation (~4 characters per token).
+- **Reserved tokens and safety margins**: the manager reserves tokens for system messages, expected model output and an additional safety buffer to avoid truncation or prompt rejection.
+- **Automatic request splitting and batching**: given a user query and a list of context chunks the TokenManager can split chunks into one or more batches that fit within the model's context window. Very large individual chunks are truncated (and marked as truncated) to fit a single batch when necessary.
+- **Response merging**: when multiple model responses are produced from split batches the TokenManager offers two merge strategies: a simple deduplicating concatenation, or an LLM-based merge that asks the model to intelligently consolidate and deduplicate the partial responses into a single coherent answer.
+
+### Where to look and how to tune
+
+- **Implementation**: `core/token_manager.py` (global instance `token_manager`) — other components call into it to count tokens, check `needs_splitting`, create safe batches with `split_context_chunks`, and estimate output budgets using `available_output_tokens_for_messages` / `available_output_tokens_for_prompt`.
+- **Configuration**: model names are read from the application settings (`config/settings.py`) and matched against the internal `MODEL_CONTEXT_SIZES` mapping. If you add a custom model, add an entry there or allow the TokenManager to detect context size at runtime.
+- **Recommended**: install `tiktoken` in production environments to get accurate token accounting. Without it, the system still works using approximations but results can be conservative.
+
+### Practical tips
+
+- For large documents rely on chunking (see `CHUNK_SIZE` and `CHUNK_OVERLAP` environment variables) and let the TokenManager batch chunks automatically to avoid overfull prompts.
+- If you enable LLM-based merging for higher-quality consolidated answers, ensure your model configuration has sufficient output token budget — the TokenManager reserves a default safety margin but you can tune `reserved_tokens` in `core/token_manager.py` if required.
+- Monitor logs for warnings about unknown models, truncated chunks, or token-count fallbacks — these messages indicate when manual tuning or `MODEL_CONTEXT_SIZES` updates are useful.
+
+This token management layer makes the RAG pipeline robust across different models, deployments and input sizes by preventing overfull prompts and by providing deterministic, explainable splitting/merging behavior.
 
 ## Project Structure
 

@@ -39,43 +39,93 @@ def generate_response(
                 },
             }
 
-        # Generate response using LLM
+        # Filter out chunks with 0.000 similarity before processing sources
+        relevant_chunks = [
+            chunk for chunk in context_chunks
+            if chunk.get("similarity", chunk.get("hybrid_score", 0.0)) > 0.0
+        ]
+        
+        # Generate response using LLM with only relevant chunks
         response_data = llm_manager.generate_rag_response(
             query=query,
-            context_chunks=context_chunks,
+            context_chunks=relevant_chunks,
             include_sources=True,
             temperature=temperature,
         )
 
-        # Prepare sources information
+        # Prepare sources information with entity support
         sources = []
-        for i, chunk in enumerate(context_chunks):
+        for i, chunk in enumerate(relevant_chunks):
             source_info = {
                 "chunk_id": chunk.get("chunk_id", f"chunk_{i}"),
                 "content": chunk.get("content", ""),
-                "similarity": chunk.get("similarity", 0.0),
+                "similarity": chunk.get("similarity", chunk.get("hybrid_score", 0.0)),
                 "document_name": chunk.get("document_name", "Unknown Document"),
                 "document_id": chunk.get("document_id", ""),
                 "filename": chunk.get(
                     "filename", chunk.get("document_name", "Unknown Document")
                 ),
                 "metadata": chunk.get("metadata", {}),
+                "chunk_index": chunk.get("chunk_index"),
             }
-            sources.append(source_info)
+            
+            # Add entity information if available
+            retrieval_mode = chunk.get("retrieval_mode", "")
+            retrieval_source = chunk.get("retrieval_source", "")
+            
+            # Check if chunk has entity information regardless of retrieval mode
+            contained_entities = chunk.get("contained_entities", [])
+            relevant_entities = chunk.get("relevant_entities", [])
+            
+            # Use the most relevant entities or contained entities
+            entities = relevant_entities or contained_entities
+            
+            # For entity-based retrieval, create entity sources
+            if retrieval_mode == "entity_based" or retrieval_source == "entity_based":
+                if entities:
+                    # Create separate entity sources for entity-based retrieval
+                    for entity_name in entities[:3]:  # Limit to top 3 entities
+                        entity_source = {
+                            "entity_name": entity_name,
+                            "entity_type": "Entity",  # Default type
+                            "entity_id": f"entity_{hash(entity_name) % 10000}",
+                            "relevance_score": source_info["similarity"],
+                            "content": chunk.get("content", ""),
+                            "related_chunks": [{
+                                "chunk_id": chunk.get("chunk_id"),
+                                "content": chunk.get("content", "")[:200] + "..."
+                            }],
+                            "document_name": source_info["document_name"],
+                            "filename": source_info["filename"],
+                        }
+                        sources.append(entity_source)
+                else:
+                    # No entities, add as regular chunk
+                    sources.append(source_info)
+            else:
+                # For chunk-based or hybrid mode, add entity info to chunk source
+                if entities:
+                    source_info["contained_entities"] = entities
+                    source_info["entity_enhanced"] = True
+                
+                sources.append(source_info)
 
         # Enhance response with analysis insights
         query_type = query_analysis.get("query_type", "factual")
         complexity = query_analysis.get("complexity", "simple")
 
         metadata = {
-            "chunks_used": len(context_chunks),
+            "chunks_used": len(relevant_chunks),
+            "chunks_filtered": len(context_chunks) - len(relevant_chunks),
             "query_type": query_type,
             "complexity": complexity,
             "requires_reasoning": query_analysis.get("requires_reasoning", False),
             "key_concepts": query_analysis.get("key_concepts", []),
         }
 
-        logger.info(f"Generated response using {len(context_chunks)} chunks")
+        if len(relevant_chunks) < len(context_chunks):
+            logger.info(f"Filtered out {len(context_chunks) - len(relevant_chunks)} chunks with 0.000 similarity")
+        logger.info(f"Generated response using {len(relevant_chunks)} relevant chunks")
 
         return {
             "response": response_data.get("answer", ""),

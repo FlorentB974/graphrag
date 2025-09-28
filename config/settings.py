@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     min_retrieval_similarity: float = Field(default=0.1, description="Minimum similarity for chunk retrieval")
     hybrid_chunk_weight: float = Field(default=0.6, description="Weight for chunk-based results")
     enable_graph_expansion: bool = Field(default=True, description="Enable graph expansion")
+    
+    # Graph Expansion Limits
+    max_expanded_chunks: int = Field(default=500, description="Maximum number of chunks after expansion")
+    max_entity_connections: int = Field(default=20, description="Maximum entity connections to follow")
+    max_chunk_connections: int = Field(default=10, description="Maximum chunk similarity connections to follow")
+    expansion_similarity_threshold: float = Field(default=0.1, description="Minimum similarity for expansion")
+    max_expansion_depth: int = Field(default=2, description="Maximum depth for graph traversal")
 
     # Application Configuration
     log_level: str = Field(default="INFO", description="Logging level")

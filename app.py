@@ -534,10 +534,10 @@ def display_sources_detailed(sources: List[Dict[str, Any]]):
                 if hidden_chunks_count:
                     st.caption(f"... and {hidden_chunks_count} more sections hidden (showing top 10)")
                 # If there were more entities than displayed, indicate how many were hidden
-                if entities and hidden_entities_count:
+                if entities and len(entities) > 10:
+                    hidden_entities_count = len(entities) - 10
                     st.caption(f"... and {hidden_entities_count} more entities hidden (showing top 10)")
 
-    
     # Show total count
     total_documents = len(document_groups)
     total_chunks = sum(len(doc["chunks"]) for doc in document_groups.values())
@@ -643,6 +643,60 @@ def display_document_upload():
     return
 
 
+def get_search_mode_config(search_mode: str):
+    """
+    Get configuration parameters for different search modes.
+    
+    Args:
+        search_mode: One of 'quick', 'normal', or 'deep'
+        
+    Returns:
+        Dictionary with all search parameters
+    """
+    configs = {
+        'quick': {
+            'min_retrieval_similarity': 0.3,
+            'hybrid_chunk_weight': 0.8,
+            'enable_graph_expansion': False,
+            'max_expanded_chunks': 50,
+            'max_entity_connections': 5,
+            'max_chunk_connections': 3,
+            'expansion_similarity_threshold': 0.4,
+            'max_expansion_depth': 1,
+            'top_k': 3,
+            'temperature': 0.1,
+            'retrieval_mode': 'hybrid' if settings.enable_entity_extraction else 'chunk_only'
+        },
+        'normal': {
+            'min_retrieval_similarity': 0.1,
+            'hybrid_chunk_weight': 0.6,
+            'enable_graph_expansion': True,
+            'max_expanded_chunks': 500,
+            'max_entity_connections': 20,
+            'max_chunk_connections': 10,
+            'expansion_similarity_threshold': 0.1,
+            'max_expansion_depth': 2,
+            'top_k': 5,
+            'temperature': 0.1,
+            'retrieval_mode': 'hybrid' if settings.enable_entity_extraction else 'chunk_only'
+        },
+        'deep': {
+            'min_retrieval_similarity': 0.05,
+            'hybrid_chunk_weight': 0.4,
+            'enable_graph_expansion': True,
+            'max_expanded_chunks': 1000,
+            'max_entity_connections': 50,
+            'max_chunk_connections': 20,
+            'expansion_similarity_threshold': 0.05,
+            'max_expansion_depth': 3,
+            'top_k': 10,
+            'temperature': 0.1,
+            'retrieval_mode': 'hybrid' if settings.enable_entity_extraction else 'chunk_only'
+        }
+    }
+    return configs.get(search_mode, configs['normal'])
+
+
 def get_rag_settings(key_suffix: str = ""):
     """
     Render RAG settings controls in the sidebar and return their values.
@@ -652,84 +706,190 @@ def get_rag_settings(key_suffix: str = ""):
             the settings are rendered from multiple places in the UI.
 
     Returns:
-        Tuple of (retrieval_mode, top_k, temperature, chunk_weight, graph_expansion)
+        Dictionary with all search parameters
     """
-    st.markdown("### 🧠 RAG Settings")
+    st.markdown("### 🧠 Search Settings")
 
-    # Update retrieval modes to match hybrid approach
-    mode_options = ["chunk_only", "entity_only", "hybrid"]
-    mode_labels = [
-        "Chunk Only (Traditional)",
-        "Entity Only (GraphRAG)",
-        "Hybrid (Best of Both)"
+    # Search Mode Selection
+    search_modes = ['quick', 'normal', 'deep']
+    search_mode_labels = [
+        '🚀 Quick Search',
+        '⚖️ Normal Search',
+        '🔍 Deep Search'
     ]
     
-    # Show entity extraction status
-    if settings.enable_entity_extraction:
-        st.info("✅ Entity extraction enabled - All modes available")
-        default_mode = 2  # hybrid
-    else:
-        st.warning("⚠️ Entity extraction disabled - Only chunk mode available")
-        mode_options = ["chunk_only"]
-        mode_labels = ["Chunk Only (Traditional)"]
-        default_mode = 0
-
-    retrieval_mode = st.selectbox(
-        "Retrieval Strategy",
-        mode_options,
-        format_func=lambda x: mode_labels[mode_options.index(x)] if x in mode_options else x,
-        index=min(default_mode, len(mode_options) - 1),
-        key=f"retrieval_mode{key_suffix}",
+    search_mode = st.selectbox(
+        "Search Mode",
+        search_modes,
+        format_func=lambda x: search_mode_labels[search_modes.index(x)],
+        index=1,  # Default to 'normal'
+        key=f"search_mode{key_suffix}",
         help="""
-        • **Chunk Only**: Traditional vector similarity search (fastest)
-        • **Entity Only**: GraphRAG-style entity relationship search (slowest, most comprehensive)
-        • **Hybrid**: Combines chunk similarity + entity relationships (recommended)
+        Choose your search strategy:
+        • **Quick**: Fast results, fewer chunks, minimal graph traversal
+        • **Normal**: Balanced performance and comprehensiveness (recommended)
+        • **Deep**: Comprehensive search, more context, extensive graph exploration
         """
     )
-
-    top_k = st.slider(
-        "Number of chunks to retrieve (value can be adjusted after query analysis)",
-        min_value=1,
-        max_value=15,
-        value=5,
-        key=f"top_k{key_suffix}",
-        help="More chunks provide better context but may include less relevant information"
-    )
-
-    temperature = st.slider(
-        "Response creativity (temperature)",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.1,
-        step=0.1,
-        key=f"temperature{key_suffix}",
-        help="Lower values produce more focused responses, higher values more creative"
-    )
-
-    # Show additional hybrid settings if hybrid mode is selected
-    chunk_weight = settings.hybrid_chunk_weight  # Default values
-    graph_expansion = settings.enable_graph_expansion
     
-    if retrieval_mode == "hybrid" and settings.enable_entity_extraction:
-        with st.expander("🔧 Advanced Hybrid Settings", expanded=False):
-            chunk_weight = st.slider(
-                "Chunk Weight (vs Entity Weight)",
+    # Get base configuration for selected mode
+    config = get_search_mode_config(search_mode)
+    
+    # Brief explanation of current mode
+    mode_explanations = {
+        'quick': "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion.",
+        'normal': "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Best for most queries.",
+        'deep': "🔍 **Deep mode**: Maximum comprehensiveness. Explores more connections and relationships for complex queries."
+    }
+    
+    st.info(mode_explanations[search_mode])
+    
+    # Show entity extraction status if not using quick mode
+    if search_mode != 'quick':
+        if settings.enable_entity_extraction:
+            st.success("✅ Entity extraction enabled - Enhanced search available")
+        else:
+            st.warning("⚠️ Entity extraction disabled - Using chunk-only search")
+            config['retrieval_mode'] = 'chunk_only'
+    
+    # Advanced Settings Expander
+    with st.expander("🔧 Advanced Settings", expanded=False):
+        st.markdown("**Current Configuration:**")
+        
+        # Display current configuration in a more readable format
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write(f"**Retrieval Mode:** {config['retrieval_mode'].replace('_', ' ').title()}")
+            st.write(f"**Chunks Retrieved:** {config['top_k']}")
+            st.write(f"**Temperature:** {config['temperature']}")
+            st.write(f"**Min Similarity:** {config['min_retrieval_similarity']}")
+            
+        with col2:
+            st.write(f"**Graph Expansion:** {'✅' if config['enable_graph_expansion'] else '❌'}")
+            st.write(f"**Max Expanded Chunks:** {config['max_expanded_chunks']}")
+            st.write(f"**Chunk Weight:** {config['hybrid_chunk_weight']}")
+            st.write(f"**Expansion Depth:** {config['max_expansion_depth']}")
+        
+        st.markdown("---")
+        st.markdown("**Override Settings** (optional):")
+        
+        # Allow users to override specific settings
+        use_custom = st.checkbox(
+            "Customize parameters",
+            key=f"use_custom{key_suffix}",
+            help="Enable to modify individual parameters"
+        )
+        
+        if use_custom:
+            # Basic settings
+            st.markdown("**Basic Settings:**")
+            
+            # Update retrieval modes to match hybrid approach
+            mode_options = ["chunk_only", "entity_only", "hybrid"]
+            mode_labels = [
+                "Chunk Only (Traditional)",
+                "Entity Only (GraphRAG)",
+                "Hybrid (Best of Both)"
+            ]
+            
+            if not settings.enable_entity_extraction:
+                mode_options = ["chunk_only"]
+                mode_labels = ["Chunk Only (Traditional)"]
+            
+            current_mode_index = 0
+            if config['retrieval_mode'] in mode_options:
+                current_mode_index = mode_options.index(config['retrieval_mode'])
+            
+            config['retrieval_mode'] = st.selectbox(
+                "Retrieval Strategy",
+                mode_options,
+                format_func=lambda x: mode_labels[mode_options.index(x)] if x in mode_options else x,
+                index=current_mode_index,
+                key=f"retrieval_mode_custom{key_suffix}",
+            )
+
+            config['top_k'] = st.slider(
+                "Number of chunks to retrieve",
+                min_value=1,
+                max_value=20,
+                value=config['top_k'],
+                key=f"top_k_custom{key_suffix}",
+            )
+
+            config['temperature'] = st.slider(
+                "Response creativity (temperature)",
                 min_value=0.0,
                 max_value=1.0,
-                value=settings.hybrid_chunk_weight,
+                value=config['temperature'],
                 step=0.1,
-                key=f"chunk_weight{key_suffix}",
-                help="Higher values favor chunk-based results, lower values favor entity-based results"
+                key=f"temperature_custom{key_suffix}",
             )
             
-            graph_expansion = st.checkbox(
-                "Enable Graph Expansion",
-                value=settings.enable_graph_expansion,
-                key=f"graph_expansion{key_suffix}",
-                help="Use entity relationships to expand context (slower but more comprehensive)"
+            # Advanced retrieval settings
+            st.markdown("**Advanced Retrieval:**")
+            
+            config['min_retrieval_similarity'] = st.slider(
+                "Minimum similarity threshold",
+                min_value=0.0,
+                max_value=0.5,
+                value=config['min_retrieval_similarity'],
+                step=0.05,
+                key=f"min_similarity_custom{key_suffix}",
+                help="Lower values retrieve more chunks, higher values are more selective"
             )
+            
+            if config['retrieval_mode'] == 'hybrid':
+                config['hybrid_chunk_weight'] = st.slider(
+                    "Chunk weight (vs Entity weight)",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=config['hybrid_chunk_weight'],
+                    step=0.1,
+                    key=f"chunk_weight_custom{key_suffix}",
+                    help="Higher values favor chunk-based results, lower values favor entity-based results"
+                )
+            
+            # Graph expansion settings
+            st.markdown("**Graph Expansion:**")
+            
+            config['enable_graph_expansion'] = st.checkbox(
+                "Enable graph expansion",
+                value=config['enable_graph_expansion'],
+                key=f"graph_expansion_custom{key_suffix}",
+                help="Use entity relationships to expand context"
+            )
+            
+            if config['enable_graph_expansion']:
+                config['max_expanded_chunks'] = st.number_input(
+                    "Max expanded chunks",
+                    min_value=50,
+                    max_value=2000,
+                    value=config['max_expanded_chunks'],
+                    step=50,
+                    key=f"max_chunks_custom{key_suffix}",
+                )
+                
+                config['max_expansion_depth'] = st.slider(
+                    "Max expansion depth",
+                    min_value=1,
+                    max_value=5,
+                    value=config['max_expansion_depth'],
+                    key=f"max_depth_custom{key_suffix}",
+                    help="How many hops to follow in the graph"
+                )
+                
+                config['expansion_similarity_threshold'] = st.slider(
+                    "Expansion similarity threshold",
+                    min_value=0.0,
+                    max_value=0.5,
+                    value=config['expansion_similarity_threshold'],
+                    step=0.05,
+                    key=f"expansion_threshold_custom{key_suffix}",
+                    help="Minimum similarity for expanding through relationships"
+                )
 
-    return retrieval_mode, top_k, temperature, chunk_weight, graph_expansion
+    return config
 
 
 def main():
@@ -817,11 +977,10 @@ def main():
                                     if k in st.session_state:
                                         del st.session_state[k]
                                 # Also clear any latest widget-bound settings
-                                for sfx in ["_latest"]:
-                                    for key_base in ["retrieval_mode", "top_k", "temperature"]:
-                                        k = f"{key_base}{sfx}"
-                                        if k in st.session_state:
-                                            del st.session_state[k]
+                                for sfx in ["_latest", "_default"]:
+                                    k = f"search_config{sfx}"
+                                    if k in st.session_state:
+                                        del st.session_state[k]
                                 st.rerun()
                             
                     with tab2:
@@ -839,7 +998,8 @@ def main():
                         display_document_upload()
                         
                     with tab5:
-                        retrieval_mode, top_k, temperature, chunk_weight, graph_expansion = get_rag_settings(key_suffix="_latest")
+                        search_config = get_rag_settings(key_suffix="_latest")
+                        st.session_state["search_config_latest"] = search_config
 
             else:
                 # tab1, tab2, tab3 = st.tabs(["📊 Database", "📂 Upload File", "⚙️"])
@@ -858,7 +1018,8 @@ def main():
                     display_document_upload()
                     
                 with tab5:
-                    retrieval_mode, top_k, temperature, chunk_weight, graph_expansion = get_rag_settings(key_suffix="_default")
+                    search_config = get_rag_settings(key_suffix="_default")
+                    st.session_state["search_config_default"] = search_config
                                 
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -902,40 +1063,21 @@ def main():
             with main_col:
                 with st.chat_message("assistant"):
                     try:
-                        # Ensure RAG settings are defined (read from session state set by widgets)
-                        retrieval_mode = st.session_state.get(
-                            "retrieval_mode_latest",
-                            st.session_state.get("retrieval_mode_default", "graph_enhanced"),
-                        )
-
-                        top_k = st.session_state.get(
-                            "top_k_latest", st.session_state.get("top_k_default", 5)
-                        )
-
-                        temperature = st.session_state.get(
-                            "temperature_latest", st.session_state.get("temperature_default", 0.1)
-                        )
-
                         with st.spinner("🔍 Generating response..."):
-                            # Process query through RAG pipeline
-                            # Ensure hybrid tuning options are read from session state
-                            chunk_weight = st.session_state.get(
-                                "chunk_weight_latest", st.session_state.get("chunk_weight_default", 0.5)
-                            )
-                            graph_expansion = st.session_state.get(
-                                "graph_expansion_latest", st.session_state.get("graph_expansion_default", True)
+                            # Get search configuration (from new unified settings)
+                            search_config = st.session_state.get(
+                                "search_config_latest",
+                                st.session_state.get("search_config_default", get_search_mode_config("normal"))
                             )
 
                             result = graph_rag.query(
                                 user_query,
-                                retrieval_mode=retrieval_mode,
-                                top_k=top_k,
-                                temperature=temperature,
-                                chunk_weight=chunk_weight,
-                                graph_expansion=graph_expansion,
-                            )
-
-                        # Stream the response
+                                retrieval_mode=search_config.get('retrieval_mode', 'hybrid'),
+                                top_k=search_config.get('top_k', 5),
+                                temperature=search_config.get('temperature', 0.1),
+                                chunk_weight=search_config.get('hybrid_chunk_weight', 0.6),
+                                graph_expansion=search_config.get('enable_graph_expansion', True),
+                            )                        # Stream the response
                         full_response = result["response"]
                         st.write_stream(stream_response(full_response, 0.02))
 

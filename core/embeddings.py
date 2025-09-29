@@ -182,40 +182,12 @@ class EmbeddingManager:
 
     async def aget_embedding(self, text: str) -> List[float]:
         """Asynchronously generate embedding for a single text using httpx.AsyncClient with retry logic."""
-
-        # Apply async retry decorator
-        @async_retry_with_exponential_backoff(
-            max_retries=3, base_delay=1.0, max_delay=60.0
-        )
-        async def _get_embedding_with_retry():
-            async with httpx.AsyncClient(
-                verify=False if settings.openai_proxy else True
-            ) as client:
-                if self.provider == "ollama":
-                    url = f"{self.ollama_base_url.rstrip('/')}/api/embeddings"
-                    resp = await client.post(
-                        url, json={"model": self.model, "prompt": text}, timeout=120.0
-                    )
-                    resp.raise_for_status()
-                    return resp.json().get("embedding", [])
-                else:
-                    # Handle None base_url
-                    base_url = settings.openai_base_url or "https://api.openai.com/v1"
-                    base = base_url.rstrip("/")
-                    url = f"{base}/embeddings"
-                    headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
-                    resp = await client.post(
-                        url,
-                        json={"input": text, "model": self.model},
-                        headers=headers,
-                        timeout=120.0,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    return data.get("data", [])[0].get("embedding", [])
-
+        # Reuse the synchronous get_embedding (which already has retry logic)
+        # by running it in a thread so callers can `await` it without performing
+        # manual HTTP calls here. This keeps all OpenAI interactions using the
+        # `openai` client and preserves existing retry behavior.
         try:
-            return await _get_embedding_with_retry()
+            return await asyncio.to_thread(self.get_embedding, text)
         except Exception as e:
             logger.error(f"Failed to generate async embedding: {e}")
             raise

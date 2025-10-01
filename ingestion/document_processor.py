@@ -686,26 +686,6 @@ class DocumentProcessor:
                 for status in self._entity_extraction_operations.values()
             )
 
-        # Debug logging to help troubleshoot
-        legacy_count = (
-            len(entity_related_threads) if "entity_related_threads" in locals() else 0
-        )
-
-        # Always log the current state for debugging
-        logger.info(
-            f"Entity extraction status check: tracked_threads={len(self._bg_entity_threads)}, "
-            f"legacy_threads={legacy_count}, "
-            f"active_operations={len(self._entity_extraction_operations)}"
-        )
-
-        if has_alive_threads or has_legacy_entity_threads or has_active_operations:
-            logger.info("Entity extraction IS running!")
-            if entity_related_threads:
-                for thread in entity_related_threads:
-                    logger.info(f"  Found legacy entity thread: {thread.name}")
-        else:
-            logger.info("Entity extraction is NOT running")
-
         # Return True if any of these conditions are met
         return has_alive_threads or has_legacy_entity_threads or has_active_operations
 

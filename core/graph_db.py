@@ -2,6 +2,7 @@
 Neo4j graph database operations for the RAG pipeline.
 """
 
+import asyncio
 import logging
 import math
 from typing import Any, Dict, List, Optional
@@ -634,7 +635,7 @@ class GraphDB:
 
     # Entity-related methods
 
-    def create_entity_node(
+    async def acreate_entity_node(
         self,
         entity_id: str,
         name: str,
@@ -643,14 +644,38 @@ class GraphDB:
         importance_score: float = 0.5,
         source_chunks: Optional[List[str]] = None,
     ) -> None:
-        """Create an entity node in the graph with embedding."""
+        """Create an entity node in the graph with embedding (async version)."""
         if source_chunks is None:
             source_chunks = []
 
         # Generate embedding for the entity using name and description
         entity_text = f"{name}: {description}"
-        embedding = embedding_manager.get_embedding(entity_text)
+        embedding = await embedding_manager.aget_embedding(entity_text)
 
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            self._create_entity_node_sync,
+            entity_id,
+            name,
+            entity_type,
+            description,
+            importance_score,
+            source_chunks,
+            embedding,
+        )
+
+    def _create_entity_node_sync(
+        self,
+        entity_id: str,
+        name: str,
+        entity_type: str,
+        description: str,
+        importance_score: float,
+        source_chunks: List[str],
+        embedding: List[float],
+    ) -> None:
+        """Synchronous helper for creating entity node in database."""
         with self.driver.session() as session:  # type: ignore
             session.run(
                 """
@@ -672,8 +697,113 @@ class GraphDB:
                 embedding=embedding,
             )
 
+    def create_entity_node(
+        self,
+        entity_id: str,
+        name: str,
+        entity_type: str,
+        description: str,
+        importance_score: float = 0.5,
+        source_chunks: Optional[List[str]] = None,
+    ) -> None:
+        """Create an entity node in the graph with embedding (sync version kept for compatibility)."""
+        if source_chunks is None:
+            source_chunks = []
+
+        # Generate embedding for the entity using name and description
+        entity_text = f"{name}: {description}"
+        embedding = embedding_manager.get_embedding(entity_text)
+
+        self._create_entity_node_sync(
+            entity_id, name, entity_type, description, importance_score, source_chunks, embedding
+        )
+
+    async def aupdate_entities_with_embeddings(self) -> int:
+        """Update existing entities that don't have embeddings (async version)."""
+        with self.driver.session() as session:  # type: ignore
+            # Get entities without embeddings
+            result = session.run(
+                """
+                MATCH (e:Entity)
+                WHERE e.embedding IS NULL
+                RETURN e.id as entity_id, e.name as name, e.description as description
+                """
+            )
+
+            entities_to_update = [
+                (record["entity_id"], record["name"], record["description"])
+                for record in result
+            ]
+
+            logger.info(f"Found {len(entities_to_update)} entities without embeddings")
+
+            if not entities_to_update:
+                return 0
+
+            # Process entities with parallel embedding generation
+            updated_count = 0
+            concurrency = getattr(settings, "embedding_concurrency")
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _embed_and_update_entity(entity_data):
+                nonlocal updated_count
+                entity_id, name, description = entity_data
+
+                async with sem:
+                    try:
+                        # Add small delay to prevent API flooding
+                        await asyncio.sleep(0.1)
+                        entity_text = f"{name}: {description}" if description else name
+                        embedding = await embedding_manager.aget_embedding(entity_text)
+                    except Exception as e:
+                        logger.error(f"Async embedding failed for entity {entity_id}: {e}")
+                        return None
+
+                # Persist to DB in a thread to avoid blocking the event loop
+                loop = asyncio.get_running_loop()
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        self._update_entity_embedding_sync,
+                        entity_id,
+                        embedding,
+                    )
+                    updated_count += 1
+
+                    if updated_count % 100 == 0:
+                        logger.info(
+                            f"Updated {updated_count}/{len(entities_to_update)} entities with embeddings"
+                        )
+                    return entity_id
+                except Exception as e:
+                    logger.error(f"Failed to update entity {entity_id} with embedding: {e}")
+                    return None
+
+            tasks = [asyncio.create_task(_embed_and_update_entity(entity)) for entity in entities_to_update]
+
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    await coro
+                except Exception as e:
+                    logger.error(f"Error in entity update task: {e}")
+
+            logger.info(f"Successfully updated {updated_count} entities with embeddings")
+            return updated_count
+
+    def _update_entity_embedding_sync(self, entity_id: str, embedding: List[float]) -> None:
+        """Synchronous helper for updating entity embedding in database."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (e:Entity {id: $entity_id})
+                SET e.embedding = $embedding
+                """,
+                entity_id=entity_id,
+                embedding=embedding,
+            )
+
     def update_entities_with_embeddings(self) -> int:
-        """Update existing entities that don't have embeddings."""
+        """Update existing entities that don't have embeddings (sync version kept for compatibility)."""
         updated_count = 0
 
         with self.driver.session() as session:  # type: ignore
@@ -1107,13 +1237,159 @@ class GraphDB:
 
             return validation_results
 
+    async def afix_invalid_embeddings(
+        self,
+        chunk_ids: Optional[List[str]] = None,
+        entity_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fix invalid embeddings by regenerating them (async version).
+
+        Args:
+            chunk_ids: List of chunk IDs to fix (if None, fixes all invalid chunk embeddings)
+            entity_ids: List of entity IDs to fix (if None, fixes all invalid entity embeddings)
+
+        Returns:
+            Dictionary with fix results
+        """
+        results = {"chunks_fixed": 0, "entities_fixed": 0, "errors": []}
+
+        # Fix chunk embeddings in parallel
+        if chunk_ids is not None:
+            concurrency = getattr(settings, "embedding_concurrency")
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _fix_chunk_embedding(chunk_id):
+                async with sem:
+                    try:
+                        # Get chunk content in executor to avoid blocking
+                        loop = asyncio.get_running_loop()
+                        content = await loop.run_in_executor(
+                            None,
+                            self._get_chunk_content_sync,
+                            chunk_id,
+                        )
+                        
+                        if content:
+                            # Add small delay to prevent API flooding
+                            await asyncio.sleep(0.1)
+                            # Generate new embedding
+                            embedding = await embedding_manager.aget_embedding(content)
+                            
+                            # Update chunk with new embedding in executor
+                            await loop.run_in_executor(
+                                None,
+                                self._update_chunk_embedding_sync,
+                                chunk_id,
+                                embedding,
+                            )
+                            results["chunks_fixed"] += 1
+                            logger.info(f"Fixed embedding for chunk {chunk_id}")
+                            return True
+                    except Exception as e:
+                        error_msg = f"Failed to fix embedding for chunk {chunk_id}: {e}"
+                        results["errors"].append(error_msg)
+                        logger.error(error_msg)
+                        return False
+                return False
+
+            if chunk_ids:
+                tasks = [asyncio.create_task(_fix_chunk_embedding(chunk_id)) for chunk_id in chunk_ids]
+                
+                for coro in asyncio.as_completed(tasks):
+                    try:
+                        await coro
+                    except Exception as e:
+                        logger.error(f"Error in chunk fix task: {e}")
+
+        # Fix entity embeddings in parallel
+        if entity_ids is not None:
+            concurrency = getattr(settings, "embedding_concurrency")
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _fix_entity_embedding(entity_id):
+                async with sem:
+                    try:
+                        # Get entity data in executor to avoid blocking
+                        loop = asyncio.get_running_loop()
+                        entity_data = await loop.run_in_executor(
+                            None,
+                            self._get_entity_data_sync,
+                            entity_id,
+                        )
+                        
+                        if entity_data:
+                            # Add small delay to prevent API flooding
+                            await asyncio.sleep(0.1)
+                            # Use entity name + description for embedding
+                            text = f"{entity_data['name']}: {entity_data['description']}"
+                            # Generate new embedding
+                            embedding = await embedding_manager.aget_embedding(text)
+                            
+                            # Update entity with new embedding in executor
+                            await loop.run_in_executor(
+                                None,
+                                self._update_entity_embedding_sync,
+                                entity_id,
+                                embedding,
+                            )
+                            results["entities_fixed"] += 1
+                            logger.info(f"Fixed embedding for entity {entity_id}")
+                            return True
+                    except Exception as e:
+                        error_msg = f"Failed to fix embedding for entity {entity_id}: {e}"
+                        results["errors"].append(error_msg)
+                        logger.error(error_msg)
+                        return False
+                return False
+
+            if entity_ids:
+                tasks = [asyncio.create_task(_fix_entity_embedding(entity_id)) for entity_id in entity_ids]
+                
+                for coro in asyncio.as_completed(tasks):
+                    try:
+                        await coro
+                    except Exception as e:
+                        logger.error(f"Error in entity fix task: {e}")
+
+        return results
+
+    def _get_chunk_content_sync(self, chunk_id: str) -> Optional[str]:
+        """Synchronous helper for getting chunk content."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                "MATCH (c:Chunk {id: $chunk_id}) RETURN c.content as content",
+                chunk_id=chunk_id,
+            )
+            record = result.single()
+            return record["content"] if record else None
+
+    def _update_chunk_embedding_sync(self, chunk_id: str, embedding: List[float]) -> None:
+        """Synchronous helper for updating chunk embedding."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                "MATCH (c:Chunk {id: $chunk_id}) SET c.embedding = $embedding",
+                chunk_id=chunk_id,
+                embedding=embedding,
+            )
+
+    def _get_entity_data_sync(self, entity_id: str) -> Optional[Dict[str, str]]:
+        """Synchronous helper for getting entity data."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                "MATCH (e:Entity {id: $entity_id}) RETURN e.name as name, e.description as description",
+                entity_id=entity_id,
+            )
+            record = result.single()
+            return {"name": record["name"], "description": record["description"]} if record else None
+
     def fix_invalid_embeddings(
         self,
         chunk_ids: Optional[List[str]] = None,
         entity_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Fix invalid embeddings by regenerating them.
+        Fix invalid embeddings by regenerating them (sync version kept for compatibility).
 
         Args:
             chunk_ids: List of chunk IDs to fix (if None, fixes all invalid chunk embeddings)

@@ -241,6 +241,92 @@ class DocumentProcessor:
 
         return processed_chunks
 
+    async def _create_entities_async(
+        self, entity_dict, relationship_dict, doc_id_local: str
+    ) -> tuple[int, int]:
+        """Asynchronously create entities and relationships with parallel embedding generation."""
+        created_entities = 0
+        created_relationships = 0
+        
+        # Process entities in parallel with controlled concurrency
+        concurrency = getattr(settings, "embedding_concurrency")
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _create_single_entity(entity):
+            nonlocal created_entities
+            async with sem:
+                try:
+                    entity_id = self._generate_entity_id(entity.name)
+                    # Add small delay to prevent API flooding
+                    await asyncio.sleep(0.1)
+                    # Use async entity creation
+                    await graph_db.acreate_entity_node(
+                        entity_id,
+                        entity.name,
+                        entity.type,
+                        entity.description,
+                        entity.importance_score,
+                        entity.source_chunks or [],
+                    )
+                    # Link chunks to entity (run in executor to avoid blocking)
+                    loop = asyncio.get_running_loop()
+                    for chunk_id in entity.source_chunks or []:
+                        try:
+                            await loop.run_in_executor(
+                                None,
+                                graph_db.create_chunk_entity_relationship,
+                                chunk_id,
+                                entity_id,
+                            )
+                        except Exception as e:
+                            logger.debug(
+                                f"Failed to create chunk-entity rel {chunk_id}->{entity_id}: {e}"
+                            )
+                    created_entities += 1
+                    return entity_id
+                except Exception as e:
+                    logger.error(
+                        f"Failed to persist entity {entity.name} for doc {doc_id_local}: {e}"
+                    )
+                    return None
+
+        # Create all entities in parallel
+        if entity_dict:
+            tasks = [asyncio.create_task(_create_single_entity(entity)) for entity in entity_dict.values()]
+            
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    await coro
+                except Exception as e:
+                    logger.error(f"Error in entity creation task: {e}")
+
+        # Create relationships after all entities are created
+        # Store entity relationships
+        for relationships in relationship_dict.values():
+            for relationship in relationships:
+                try:
+                    source_id = self._generate_entity_id(
+                        relationship.source_entity
+                    )
+                    target_id = self._generate_entity_id(
+                        relationship.target_entity
+                    )
+                    graph_db.create_entity_relationship(
+                        entity_id1=source_id,
+                        entity_id2=target_id,
+                        relationship_type="RELATED_TO",
+                        description=relationship.description,
+                        strength=relationship.strength,
+                        source_chunks=relationship.source_chunks or [],
+                    )
+                    created_relationships += 1
+                except Exception as e:
+                    logger.debug(
+                        f"Failed to persist relationship for doc {doc_id_local}: {e}"
+                    )
+
+        return created_entities, created_relationships
+
     def process_file(
         self,
         file_path: Path,
@@ -371,37 +457,10 @@ class DocumentProcessor:
                             f"Generating embeddings for {len(entity_dict)} entities",
                         )
 
-                        # Persist entities and relationships
-                        created_entities = 0
-                        created_relationships = 0
-
-                        for entity in entity_dict.values():
-                            try:
-                                entity_id = self._generate_entity_id(entity.name)
-                                # This call includes embedding generation which can be slow
-                                graph_db.create_entity_node(
-                                    entity_id,
-                                    entity.name,
-                                    entity.type,
-                                    entity.description,
-                                    entity.importance_score,
-                                    entity.source_chunks or [],
-                                )
-                                # Link chunks to entity
-                                for chunk_id in entity.source_chunks or []:
-                                    try:
-                                        graph_db.create_chunk_entity_relationship(
-                                            chunk_id, entity_id
-                                        )
-                                    except Exception as e:
-                                        logger.debug(
-                                            f"Failed to create chunk-entity rel {chunk_id}->{entity_id}: {e}"
-                                        )
-                                created_entities += 1
-                            except Exception as e:
-                                logger.error(
-                                    f"Failed to persist entity {entity.name} for doc {doc_id_local}: {e}"
-                                )
+                        # Persist entities and relationships asynchronously
+                        created_entities, created_relationships = asyncio.run(
+                            self._create_entities_async(entity_dict, relationship_dict, doc_id_local)
+                        )
 
                         # Phase 3: Database operations for relationships
                         self._update_entity_operation(
@@ -971,37 +1030,10 @@ class DocumentProcessor:
                             f"Generating embeddings for {len(entity_dict)} entities",
                         )
 
-                        # Persist entities and relationships
-                        created_entities = 0
-                        created_relationships = 0
-
-                        for entity in entity_dict.values():
-                            try:
-                                entity_id = self._generate_entity_id(entity.name)
-                                # This call includes embedding generation which can be slow
-                                graph_db.create_entity_node(
-                                    entity_id,
-                                    entity.name,
-                                    entity.type,
-                                    entity.description,
-                                    entity.importance_score,
-                                    entity.source_chunks or [],
-                                )
-                                # Link chunks to entity
-                                for chunk_id in entity.source_chunks or []:
-                                    try:
-                                        graph_db.create_chunk_entity_relationship(
-                                            chunk_id, entity_id
-                                        )
-                                    except Exception as e:
-                                        logger.debug(
-                                            f"Failed to create chunk-entity rel {chunk_id}->{entity_id}: {e}"
-                                        )
-                                created_entities += 1
-                            except Exception as e:
-                                logger.error(
-                                    f"Failed to persist entity {entity.name} for doc {doc_id}: {e}"
-                                )
+                        # Persist entities and relationships asynchronously
+                        created_entities, created_relationships = asyncio.run(
+                            self._create_entities_async(entity_dict, relationship_dict, doc_id)
+                        )
 
                         # Phase 3: Database operations for relationships
                         self._update_entity_operation(
@@ -1315,37 +1347,10 @@ class DocumentProcessor:
                                 f"Generating embeddings for {len(entity_dict)} entities",
                             )
 
-                            # Persist entities and relationships
-                            created_entities = 0
-                            created_relationships = 0
-
-                            for entity in entity_dict.values():
-                                try:
-                                    entity_id = self._generate_entity_id(entity.name)
-                                    # This call includes embedding generation which can be slow
-                                    graph_db.create_entity_node(
-                                        entity_id,
-                                        entity.name,
-                                        entity.type,
-                                        entity.description,
-                                        entity.importance_score,
-                                        entity.source_chunks or [],
-                                    )
-                                    # Link chunks to entity
-                                    for chunk_id in entity.source_chunks or []:
-                                        try:
-                                            graph_db.create_chunk_entity_relationship(
-                                                chunk_id, entity_id
-                                            )
-                                        except Exception as e:
-                                            logger.debug(
-                                                f"Failed to create chunk-entity rel {chunk_id}->{entity_id}: {e}"
-                                            )
-                                    created_entities += 1
-                                except Exception as e:
-                                    logger.error(
-                                        f"Failed to persist entity {entity.name} for doc {doc_id}: {e}"
-                                    )
+                            # Persist entities and relationships asynchronously
+                            created_entities, created_relationships = asyncio.run(
+                                self._create_entities_async(entity_dict, relationship_dict, doc_id)
+                            )
 
                             # Phase 3: Database operations for relationships
                             self._update_entity_operation(

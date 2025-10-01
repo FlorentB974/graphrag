@@ -80,8 +80,123 @@ def show_stats():
         return False
 
 
+async def afind_and_fix_bad_embeddings(session, apply: bool = False):
+    """Scan chunks for missing/empty/invalid embeddings and optionally recompute them (async version).
+
+    Notes:
+    - This routine uses hardcoded behavior: it inspects up to 10000 chunks and shows 3 previews.
+    - If `apply` is False the function performs a dry-run and only prints what would be changed.
+    """
+    import asyncio
+    from core.embeddings import embedding_manager
+
+    # Hardcoded parameters per request
+    params = {"limit": 10000}
+    query = (
+        "MATCH (c:Chunk) RETURN c.id as id, c.embedding as embedding, c.content as content,"
+        " c.filename as filename ORDER BY c.id LIMIT $limit"
+    )
+
+    result = session.run(query, **params)
+
+    total = 0
+    missing = []
+    empty = []
+    bad_type = []
+    samples = []
+    updates = 0
+    bad_chunks = []  # Store chunks that need fixing
+
+    # preview count hardcoded
+    preview = 3
+    for record in result:
+        total += 1
+        cid = record["id"]
+        emb = record["embedding"]
+        content = record.get("content") or ""
+
+        is_bad = False
+        if emb is None:
+            missing.append(cid)
+            is_bad = True
+        elif isinstance(emb, list):
+            if len(emb) == 0:
+                empty.append(cid)
+                is_bad = True
+        else:
+            bad_type.append((cid, type(emb).__name__))
+            is_bad = True
+
+        if is_bad and len(samples) < preview:
+            samples.append((cid, content[:120]))
+
+        if is_bad:
+            bad_chunks.append((cid, content))
+
+    # Process bad chunks in parallel using async
+    if bad_chunks and apply:
+        concurrency = getattr(settings, "embedding_concurrency")
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _fix_chunk_embedding(chunk_data):
+            nonlocal updates
+            cid, content = chunk_data
+
+            async with sem:
+                try:
+                    # Add small delay to prevent API flooding
+                    await asyncio.sleep(0.1)
+                    new_emb = await embedding_manager.aget_embedding(content)
+                except Exception as e:
+                    logger.error(f"Failed computing embedding for chunk {cid}: {e}")
+                    return False
+
+            # Update database in executor to avoid blocking
+            loop = asyncio.get_running_loop()
+            try:
+                await loop.run_in_executor(
+                    None,
+                    _update_chunk_embedding_sync,
+                    session,
+                    cid,
+                    new_emb,
+                )
+                updates += 1
+                logger.info(f"Updated embedding for chunk {cid} (len={len(new_emb)})")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to update chunk {cid}: {e}")
+                return False
+
+        def _update_chunk_embedding_sync(session, cid, embedding):
+            """Synchronous helper for updating chunk embedding."""
+            session.run(
+                "MATCH (c:Chunk {id: $cid}) SET c.embedding = $emb",
+                cid=cid,
+                emb=embedding,
+            )
+
+        if bad_chunks:
+            tasks = [asyncio.create_task(_fix_chunk_embedding(chunk)) for chunk in bad_chunks]
+            
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    await coro
+                except Exception as e:
+                    logger.error(f"Error in chunk fix task: {e}")
+
+    elif bad_chunks and not apply:
+        # Just show what would be done
+        for cid, content in bad_chunks:
+            try:
+                new_emb = await embedding_manager.aget_embedding(content)
+                print(f"DRY-RUN: chunk {cid} -> new embedding length {len(new_emb)}")
+            except Exception as e:
+                logger.error(f"Failed computing embedding for chunk {cid}: {e}")
+
+
 def find_and_fix_bad_embeddings(session, apply: bool = False):
-    """Scan chunks for missing/empty/invalid embeddings and optionally recompute them.
+    """Scan chunks for missing/empty/invalid embeddings and optionally recompute them (sync version for compatibility).
 
     Notes:
     - This routine uses hardcoded behavior: it inspects up to 10000 chunks and shows 3 previews.

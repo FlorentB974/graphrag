@@ -63,6 +63,17 @@ class Settings(BaseSettings):
         default=True, description="Enable entity extraction"
     )
 
+    # OCR Configuration
+    enable_ocr: bool = Field(
+        default=True, description="Enable OCR processing for scanned documents"
+    )
+    enable_quality_filtering: bool = Field(
+        default=True, description="Enable chunk quality filtering"
+    )
+    ocr_quality_threshold: float = Field(
+        default=0.6, description="Quality threshold for OCR processing"
+    )
+
     # Retrieval Configuration
     min_retrieval_similarity: float = Field(
         default=0.1, description="Minimum similarity for chunk retrieval"

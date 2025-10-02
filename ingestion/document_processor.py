@@ -15,12 +15,15 @@ from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from core.chunking import document_chunker
+from core.enhanced_chunking import enhanced_document_chunker
 from core.embeddings import embedding_manager
 from core.entity_extraction import EntityExtractor
 from core.graph_db import graph_db
+from core.ocr import ocr_processor
 from ingestion.loaders.csv_loader import CSVLoader
 from ingestion.loaders.docx_loader import DOCXLoader
-from ingestion.loaders.pdf_loader import PDFLoader
+from ingestion.loaders.enhanced_pdf_loader import EnhancedPDFLoader
+
 from ingestion.loaders.pptx_loader import PPTXLoader
 from ingestion.loaders.text_loader import TextLoader
 from ingestion.loaders.xlsx_loader import XLSXLoader
@@ -59,8 +62,9 @@ class DocumentProcessor:
 
     def __init__(self):
         """Initialize the document processor."""
+        # Initialize loaders with OCR support
         self.loaders = {
-            ".pdf": PDFLoader(),
+            ".pdf": EnhancedPDFLoader(),  # Use enhanced PDF loader with OCR
             ".docx": DOCXLoader(),
             ".txt": TextLoader(),
             ".md": TextLoader(),
@@ -72,7 +76,17 @@ class DocumentProcessor:
             ".pptx": PPTXLoader(),
             ".xlsx": XLSXLoader(),
             ".xls": XLSXLoader(),  # Also support legacy Excel format
+            # Add support for image files
+            ".jpg": "ImageLoader",
+            ".jpeg": "ImageLoader",
+            ".png": "ImageLoader",
+            ".tiff": "ImageLoader",
+            ".bmp": "ImageLoader",
         }
+        
+        # Enable OCR processing
+        self.enable_ocr = getattr(settings, "enable_ocr", True)
+        self.enable_quality_filtering = getattr(settings, "enable_quality_filtering", True)
 
         # Initialize entity extractor if enabled
         if settings.enable_entity_extraction:
@@ -332,6 +346,8 @@ class DocumentProcessor:
         file_path: Path,
         original_filename: Optional[str] = None,
         progress_callback=None,
+        enable_ocr: Optional[bool] = None,
+        enable_quality_filtering: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Process a single file and store it in the graph database.
@@ -340,39 +356,70 @@ class DocumentProcessor:
             file_path: Path to the file to process
             original_filename: Optional original filename to preserve (useful for uploaded files)
             progress_callback: Optional callback function to report chunk processing progress
+            enable_ocr: Optional override for OCR processing (if None, uses global setting)
+            enable_quality_filtering: Optional override for quality filtering (if None, uses global setting)
 
         Returns:
             Processing result dictionary or None if failed
         """
         try:
+            # Determine OCR settings (use provided params or fall back to global settings)
+            use_ocr = enable_ocr if enable_ocr is not None else self.enable_ocr
+            use_quality_filtering = enable_quality_filtering if enable_quality_filtering is not None else self.enable_quality_filtering
+            
             start_time = time.time()
             if not file_path.exists():
                 logger.error(f"File not found: {file_path}")
                 return None
 
             # Get appropriate loader
-            loader = self.loaders.get(file_path.suffix.lower())
-            if not loader:
-                logger.warning(f"No loader available for file type: {file_path.suffix}")
+            file_ext = file_path.suffix.lower()
+            loader = self.loaders.get(file_ext)
+            
+            # Handle image files with OCR
+            if loader == "ImageLoader":
+                if not use_ocr:
+                    logger.warning(f"OCR disabled, skipping image file: {file_path}")
+                    return None
+                logger.info(f"Processing image file with OCR: {file_path}")
+                content = ocr_processor.process_standalone_image(file_path)
+                if not content:
+                    logger.warning(f"No text extracted from image: {file_path}")
+                    return None
+            elif not loader:
+                logger.warning(f"No loader available for file type: {file_ext}")
                 return None
+            else:
+                # Load document content using appropriate loader
+                logger.info(f"Processing file: {file_path}")
+                # Pass OCR settings to enhanced PDF loader if it supports it
+                if hasattr(loader, 'load_with_ocr'):
+                    content = loader.load_with_ocr(file_path, enable_ocr=use_ocr)
+                else:
+                    content = loader.load(file_path)
+                if not content:
+                    logger.warning(f"No content extracted from: {file_path}")
+                    return None
 
             # Generate document ID and extract metadata
             doc_id = self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
 
-            logger.info(f"Processing file: {file_path}")
-
-            # Load document content
-            content = loader.load(file_path)
-            if not content:
-                logger.warning(f"No content extracted from: {file_path}")
-                return None
-
             # Create document node
             graph_db.create_document_node(doc_id, metadata)
 
-            # Chunk the document
-            chunks = document_chunker.chunk_text(content, doc_id)
+            # Chunk the document with enhanced processing
+            if use_ocr or use_quality_filtering:
+                chunks = enhanced_document_chunker.chunk_text(
+                    content,
+                    doc_id,
+                    enable_quality_filtering=use_quality_filtering,
+                    enable_ocr_enhancement=use_ocr
+                )
+                logger.info(f"Used enhanced chunking (OCR: {use_ocr}, Quality: {use_quality_filtering}) for {doc_id}")
+            else:
+                chunks = document_chunker.chunk_text(content, doc_id)
+                logger.info(f"Used standard chunking for {doc_id}")
 
             # Process chunks asynchronously with configurable concurrency (embeddings + storing)
             try:
@@ -798,6 +845,8 @@ class DocumentProcessor:
         file_path: Path,
         original_filename: Optional[str] = None,
         progress_callback=None,
+        enable_ocr: Optional[bool] = None,
+        enable_quality_filtering: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Process a file for chunks only, without entity extraction.
@@ -807,39 +856,71 @@ class DocumentProcessor:
             file_path: Path to the file to process
             original_filename: Optional original filename to preserve
             progress_callback: Optional callback function to report chunk processing progress
+            enable_ocr: Optional override for OCR processing (if None, uses global setting)
+            enable_quality_filtering: Optional override for quality filtering (if None, uses global setting)
 
         Returns:
             Processing result dictionary or None if failed
         """
         try:
+            # Determine OCR settings (use provided params or fall back to global settings)
+            use_ocr = enable_ocr if enable_ocr is not None else self.enable_ocr
+            use_quality_filtering = enable_quality_filtering if enable_quality_filtering is not None else self.enable_quality_filtering
+            
             start_time = time.time()
             if not file_path.exists():
                 logger.error(f"File not found: {file_path}")
                 return None
 
             # Get appropriate loader
-            loader = self.loaders.get(file_path.suffix.lower())
-            if not loader:
-                logger.warning(f"No loader available for file type: {file_path.suffix}")
-                return None
-
-            # Generate document ID and extract metadata
+            file_ext = file_path.suffix.lower()
+            loader = self.loaders.get(file_ext)
+            
+            # Generate document ID and extract metadata (needed for all cases)
             doc_id = self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
-
+            
             logger.info(f"Processing file chunks only: {file_path}")
-
-            # Load document content
-            content = loader.load(file_path)
-            if not content:
-                logger.warning(f"No content extracted from: {file_path}")
+            
+            # Handle image files with OCR
+            if loader == "ImageLoader":
+                if not use_ocr:
+                    logger.warning(f"OCR disabled, skipping image file: {file_path}")
+                    return None
+                logger.info(f"Processing image file with OCR: {file_path}")
+                content = ocr_processor.process_standalone_image(file_path)
+                if not content:
+                    logger.warning(f"No text extracted from image: {file_path}")
+                    return None
+            elif not loader:
+                logger.warning(f"No loader available for file type: {file_ext}")
                 return None
+            else:
+                # Load document content using appropriate loader
+                # Pass OCR settings to enhanced PDF loader if it supports it
+                if hasattr(loader, 'load_with_ocr'):
+                    content = loader.load_with_ocr(file_path, enable_ocr=use_ocr)
+                else:
+                    content = loader.load(file_path)
+                if not content:
+                    logger.warning(f"No content extracted from: {file_path}")
+                    return None
 
             # Create document node
             graph_db.create_document_node(doc_id, metadata)
 
-            # Chunk the document
-            chunks = document_chunker.chunk_text(content, doc_id)
+            # Chunk the document with enhanced processing
+            if use_ocr or use_quality_filtering:
+                chunks = enhanced_document_chunker.chunk_text(
+                    content,
+                    doc_id,
+                    enable_quality_filtering=use_quality_filtering,
+                    enable_ocr_enhancement=use_ocr
+                )
+                logger.info(f"Used enhanced chunking (OCR: {use_ocr}, Quality: {use_quality_filtering}) for {doc_id}")
+            else:
+                chunks = document_chunker.chunk_text(content, doc_id)
+                logger.info(f"Used standard chunking for {doc_id}")
 
             # Process chunks asynchronously with configurable concurrency (embeddings + storing)
             try:

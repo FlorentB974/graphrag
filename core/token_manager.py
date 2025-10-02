@@ -52,6 +52,7 @@ class TokenManager:
         "llama3": 8192,
         "llama3:8b": 8192,
         "llama3:70b": 8192,
+        "tinyllama-64": 64000,
         # Default fallback
         "default": 4096,
     }

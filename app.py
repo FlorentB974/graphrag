@@ -55,7 +55,7 @@ def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None
 
 
 def process_files_background(
-    uploaded_files: List[Any], progress_container, extract_entities: bool = True
+    uploaded_files: List[Any], progress_container, extract_entities: bool = True, enable_ocr: bool = True
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
@@ -122,7 +122,7 @@ def process_files_background(
             try:
                 # Process the file with chunks only (disable entity extraction for this phase)
                 result = document_processor.process_file_chunks_only(
-                    tmp_path, uploaded_file.name, chunk_progress_callback
+                    tmp_path, uploaded_file.name, chunk_progress_callback, enable_ocr=enable_ocr
                 )
 
                 if result and result.get("status") == "success":
@@ -682,21 +682,43 @@ def display_document_upload():
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
 
-    # Add entity extraction checkbox
-    extract_entities = st.checkbox(
-        "Extract entities during upload",
-        value=True,
-        help="If checked, entities will be extracted in background after chunk creation. If unchecked, only chunks will be created (faster upload).",
-        key="extract_entities_checkbox",
-    )
+    # Add checkboxes for document processing options
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Add OCR checkbox
+        enable_ocr = st.checkbox(
+            "Enable OCR processing",
+            value=True,
+            help="If checked, OCR will be used to extract text from scanned documents and images. This helps process low-quality PDFs and understand diagrams inside documents.",
+            key="enable_ocr_checkbox",
+        )
+        
+    with col2:
+        # Add entity extraction checkbox
+        extract_entities = st.checkbox(
+            "Extract entities during upload",
+            value=True,
+            help="If checked, entities will be extracted in background after chunk creation. If unchecked, only chunks will be created (faster upload).",
+            key="extract_entities_checkbox",
+        )
 
-    if extract_entities:
+    # Information messages based on selected options
+    if enable_ocr and extract_entities:
         st.info(
-            "Chunks are created and usable immediately. Entity extraction runs in background."
+            "🔍 OCR enabled for scanned documents and images. Chunks are created immediately. Entity extraction runs in background."
+        )
+    elif enable_ocr and not extract_entities:
+        st.info(
+            "🔍 OCR enabled for scanned documents and images. Only chunks will be created (faster upload). Entity extraction can be run manually later."
+        )
+    elif not enable_ocr and extract_entities:
+        st.info(
+            "⚡ Standard processing (no OCR). Chunks are created immediately. Entity extraction runs in background."
         )
     else:
         st.info(
-            "Only chunks will be created (faster upload). Entity extraction can be run manually later."
+            "⚡ Standard processing only (no OCR, faster upload). Entity extraction can be run manually later."
         )
 
     uploaded_files = st.file_uploader(
@@ -722,8 +744,11 @@ def display_document_upload():
                 extract_entities = st.session_state.get(
                     "extract_entities_checkbox", True
                 )
+                enable_ocr = st.session_state.get(
+                    "enable_ocr_checkbox", True
+                )
                 results = process_files_background(
-                    uploaded_files, progress_container, extract_entities
+                    uploaded_files, progress_container, extract_entities, enable_ocr
                 )
 
                 # Display results

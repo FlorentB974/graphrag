@@ -22,8 +22,8 @@ class RetrievalMode(Enum):
     HYBRID = "hybrid"
 
 
-class EnhancedDocumentRetriever:
-    """Enhanced document retriever with multiple retrieval strategies."""
+class DocumentRetriever:
+    """Document retriever with multiple retrieval strategies."""
 
     def __init__(self):
         """Initialize the enhanced document retriever."""
@@ -652,5 +652,5 @@ class EnhancedDocumentRetriever:
             return []
 
 
-# Global enhanced retriever instance
-enhanced_retriever = EnhancedDocumentRetriever()
+# Global instance of the document retriever
+document_retriever = DocumentRetriever()

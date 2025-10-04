@@ -15,14 +15,13 @@ from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from core.chunking import document_chunker
-from core.enhanced_chunking import enhanced_document_chunker
 from core.embeddings import embedding_manager
 from core.entity_extraction import EntityExtractor
 from core.graph_db import graph_db
 from ingestion.loaders.csv_loader import CSVLoader
 from ingestion.loaders.docx_loader import DOCXLoader
-from ingestion.loaders.smart_pdf_loader import SmartPDFLoader
-from ingestion.loaders.smart_image_loader import SmartImageLoader
+from ingestion.loaders.pdf_loader import PDFLoader
+from ingestion.loaders.image_loader import ImageLoader
 from ingestion.loaders.pptx_loader import PPTXLoader
 from ingestion.loaders.text_loader import TextLoader
 from ingestion.loaders.xlsx_loader import XLSXLoader
@@ -61,10 +60,10 @@ class DocumentProcessor:
 
     def __init__(self):
         """Initialize the document processor."""
-        # Initialize loaders with smart OCR support
-        smart_image_loader = SmartImageLoader()
+        # Initialize loaders with intelligent OCR support
+        image_loader = ImageLoader()
         self.loaders = {
-            ".pdf": SmartPDFLoader(),  # Smart PDF loader with intelligent OCR
+            ".pdf": PDFLoader(),  # PDF loader with intelligent OCR
             ".docx": DOCXLoader(),
             ".txt": TextLoader(),
             ".md": TextLoader(),
@@ -76,12 +75,12 @@ class DocumentProcessor:
             ".pptx": PPTXLoader(),
             ".xlsx": XLSXLoader(),
             ".xls": XLSXLoader(),  # Also support legacy Excel format
-            # Add support for image files with smart OCR
-            ".jpg": smart_image_loader,
-            ".jpeg": smart_image_loader,
-            ".png": smart_image_loader,
-            ".tiff": smart_image_loader,
-            ".bmp": smart_image_loader,
+            # Add support for image files with intelligent OCR
+            ".jpg": image_loader,
+            ".jpeg": image_loader,
+            ".png": image_loader,
+            ".tiff": image_loader,
+            ".bmp": image_loader,
         }
         
         # Smart OCR is always enabled and applied intelligently
@@ -373,18 +372,18 @@ class DocumentProcessor:
             file_ext = file_path.suffix.lower()
             loader = self.loaders.get(file_ext)
             
-            # Handle image files with smart OCR
+            # Handle image files with intelligent OCR
             ocr_metadata = {}
-            if isinstance(loader, SmartImageLoader):
-                logger.info(f"Processing image file with smart OCR: {file_path}")
+            if isinstance(loader, ImageLoader):
+                logger.info(f"Processing image file with intelligent OCR: {file_path}")
                 result = loader.load_with_metadata(file_path)
                 if not result or not result["content"]:
                     logger.info(f"No text content detected in image: {file_path}")
                     return None
                 content = result["content"]
                 ocr_metadata = result.get("metadata", {})
-            elif isinstance(loader, SmartPDFLoader):
-                logger.info(f"Processing PDF file with smart OCR: {file_path}")
+            elif isinstance(loader, PDFLoader):
+                logger.info(f"Processing PDF file with intelligent OCR: {file_path}")
                 result = loader.load_with_metadata(file_path)
                 if not result or not result["content"]:
                     logger.warning(f"No content extracted from PDF: {file_path}")
@@ -415,7 +414,7 @@ class DocumentProcessor:
 
             # Chunk the document with enhanced processing
             if use_quality_filtering:
-                chunks = enhanced_document_chunker.chunk_text(
+                chunks = document_chunker.chunk_text(
                     content,
                     doc_id,
                     enable_quality_filtering=use_quality_filtering,
@@ -886,18 +885,18 @@ class DocumentProcessor:
             
             logger.info(f"Processing file chunks only: {file_path}")
             
-            # Handle image and PDF files with smart OCR
+            # Handle image and PDF files with intelligent OCR
             ocr_metadata = {}
-            if isinstance(loader, SmartImageLoader):
-                logger.info(f"Processing image file with smart OCR: {file_path}")
+            if isinstance(loader, ImageLoader):
+                logger.info(f"Processing image file with intelligent OCR: {file_path}")
                 result = loader.load_with_metadata(file_path)
                 if not result or not result["content"]:
                     logger.info(f"No text content detected in image: {file_path}")
                     return None
                 content = result["content"]
                 ocr_metadata = result.get("metadata", {})
-            elif isinstance(loader, SmartPDFLoader):
-                logger.info(f"Processing PDF file with smart OCR: {file_path}")
+            elif isinstance(loader, PDFLoader):
+                logger.info(f"Processing PDF file with intelligent OCR: {file_path}")
                 result = loader.load_with_metadata(file_path)
                 if not result or not result["content"]:
                     logger.warning(f"No content extracted from PDF: {file_path}")
@@ -923,7 +922,7 @@ class DocumentProcessor:
 
             # Chunk the document with enhanced processing
             if use_quality_filtering:
-                chunks = enhanced_document_chunker.chunk_text(
+                chunks = document_chunker.chunk_text(
                     content,
                     doc_id,
                     enable_quality_filtering=use_quality_filtering,

@@ -383,7 +383,7 @@ graphrag/
 │   ├── __init__.py
 │   ├── graph_rag.py            # LangGraph RAG implementation
 │   ├── retriever.py            # Legacy document retrieval logic
-│   ├── enhanced_retriever.py   # 🆕 Multi-mode retrieval (chunk/entity/hybrid)
+│   ├── retriever.py   # 🆕 Multi-mode retrieval (chunk/entity/hybrid)
 │   └── nodes/                  # LangGraph node definitions
 │       ├── __init__.py
 │       ├── query_analysis.py   # Query analysis and classification

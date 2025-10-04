@@ -367,8 +367,8 @@ def display_document_list():
                 summary_ocr_pages = doc.get("summary_ocr_pages", 0)
                 summary_total_pages = doc.get("summary_total_pages", 0)
 
-                if processing_method == "smart_ocr" or processing_method == "smart_image_ocr":
-                    if processing_method == "smart_image_ocr" and ocr_applied_pages > 0:
+                if processing_method == "ocr" or processing_method == "image_ocr":
+                    if processing_method == "image_ocr" and ocr_applied_pages > 0:
                         type_display = f" ({content_primary_type})" if content_primary_type else ""
                         st.write(f"**OCR Processing:** 🔍 Smart OCR applied (Image{type_display})")
                     elif summary_total_pages and summary_ocr_pages > 0:

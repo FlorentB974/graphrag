@@ -1,83 +1,347 @@
 """
-OCR processing for document ingestion pipeline.
-Handles text extraction from images, scanned documents, and diagrams.
+Smart OCR processor that automatically detects when OCR is needed.
+Handles images, diagrams, and scanned content while preserving readable text.
 """
 
 import logging
+import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
+from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
 
 
 class OCRProcessor:
-    """Handles OCR processing for extracting text from images and scanned documents."""
+    """Intelligently determines when and what to OCR in documents."""
 
     def __init__(self):
-        """Initialize the OCR processor."""
-        # Configure tesseract if needed
-        self.tesseract_config = "--oem 3 --psm 6"  # Default config for mixed text
+        """Initialize the smart OCR processor."""
+        # Ensure poppler is available in PATH
+        self._setup_poppler_path()
         
-        # Quality thresholds
-        self.MIN_TEXT_RATIO = 0.1  # Minimum ratio of alphanumeric chars to total chars
-        self.MIN_CHUNK_LENGTH = 50  # Minimum meaningful chunk length
-        self.MAX_WHITESPACE_RATIO = 0.7  # Maximum ratio of whitespace characters
+        # Content detection thresholds
+        self.MIN_TEXT_RATIO = 0.15  # Minimum ratio of alphanumeric chars to total chars
+        self.MAX_WHITESPACE_RATIO = 0.65  # Maximum ratio of whitespace characters
+        self.MIN_CHUNK_LENGTH = 30  # Minimum meaningful chunk length
+        self.MIN_WORDS_PER_LINE = 2  # Minimum words per line to consider readable text
         
-        # Image preprocessing settings
+        # Image analysis settings
         self.IMAGE_DPI = 300  # DPI for PDF to image conversion
-        self.ENHANCE_IMAGES = True  # Whether to apply image enhancement
+        self.ANALYSIS_DPI = 150  # Lower DPI for content analysis (faster)
         
-        logger.info("OCR processor initialized with tesseract")
+        # OCR configuration
+        self.tesseract_config = "--oem 3 --psm 6"
+        
+        logger.info("Smart OCR processor initialized")
+    
+    def _setup_poppler_path(self):
+        """Ensure poppler utilities are available in PATH."""
+        try:
+            # Common poppler installation paths
+            homebrew_bin = "/opt/homebrew/bin"
+            macports_bin = "/opt/local/bin"
+            
+            current_path = os.environ.get("PATH", "")
+            
+            # Check if poppler is already accessible
+            import subprocess
+            try:
+                subprocess.run(["pdftoppm", "-v"], capture_output=True, check=True)
+                logger.info("Poppler already available in PATH")
+                return
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                pass
+            
+            # Try to add homebrew bin to PATH if it exists and contains pdftoppm
+            if os.path.exists(os.path.join(homebrew_bin, "pdftoppm")):
+                if homebrew_bin not in current_path:
+                    os.environ["PATH"] = f"{homebrew_bin}:{current_path}"
+                    logger.info(f"Added {homebrew_bin} to PATH for poppler access")
+                return
+                
+            # Try macportsrrr
+            if os.path.exists(os.path.join(macports_bin, "pdftoppm")):
+                if macports_bin not in current_path:
+                    os.environ["PATH"] = f"{macports_bin}:{current_path}"
+                    logger.info(f"Added {macports_bin} to PATH for poppler access")
+                return
+                
+            logger.warning("Poppler not found in common installation paths. OCR may fail for PDFs requiring image conversion.")
+            
+        except Exception as e:
+            logger.warning(f"Failed to setup poppler PATH: {e}. OCR may fail for some PDFs.")
 
-    def _is_scanned_pdf_page(self, page_text: str) -> bool:
+    def _analyze_text_quality(self, text: str) -> Dict[str, Any]:
         """
-        Detect if a PDF page is likely scanned based on text quality.
+        Analyze text quality to determine if it's readable or needs OCR.
         
         Args:
-            page_text: Extracted text from PDF page
+            text: Text content to analyze
             
         Returns:
-            True if page appears to be scanned, False otherwise
+            Dictionary with quality metrics and assessment
         """
-        if not page_text or len(page_text.strip()) < 10:
-            return True
-            
-        # Calculate text quality metrics
-        total_chars = len(page_text)
-        alpha_chars = sum(1 for c in page_text if c.isalnum())
-        whitespace_chars = sum(1 for c in page_text if c.isspace())
+        if not text or len(text.strip()) < 5:
+            return {
+                "is_readable": False,
+                "quality_score": 0.0,
+                "reason": "Empty or too short",
+                "metrics": {"total_chars": len(text) if text else 0}
+            }
         
-        # Calculate ratios
+        # Calculate quality metrics
+        total_chars = len(text)
+        alpha_chars = sum(1 for c in text if c.isalnum())
+        whitespace_chars = sum(1 for c in text if c.isspace())
+        lines = text.split('\n')
+        
+        # Text composition metrics
         text_ratio = alpha_chars / total_chars if total_chars > 0 else 0
         whitespace_ratio = whitespace_chars / total_chars if total_chars > 0 else 0
         
-        # Check for common scanned document artifacts
-        has_ocr_artifacts = bool(re.search(r'[^\x00-\x7F]+', page_text))  # Non-ASCII chars
-        has_fragmented_words = len(re.findall(r'\b\w{1,2}\b', page_text)) > total_chars * 0.1
+        # Line structure analysis
+        non_empty_lines = [line.strip() for line in lines if line.strip()]
+        avg_words_per_line = 0
+        if non_empty_lines:
+            total_words = sum(len(line.split()) for line in non_empty_lines)
+            avg_words_per_line = total_words / len(non_empty_lines)
         
-        # Determine if page is scanned
-        is_scanned = (
-            text_ratio < self.MIN_TEXT_RATIO
-            or whitespace_ratio > self.MAX_WHITESPACE_RATIO
-            or has_ocr_artifacts
-            or has_fragmented_words
+        # Pattern detection
+        has_ocr_artifacts = bool(re.search(r'[^\x00-\x7F]+', text))  # Non-ASCII chars
+        has_fragmented_words = len(re.findall(r'\b\w{1,2}\b', text)) > total_chars * 0.1
+        has_excessive_spaces = '   ' in text  # Multiple consecutive spaces
+        
+        # Calculate overall quality score (0-1)
+        quality_score = text_ratio * 0.4 + (1 - whitespace_ratio) * 0.3 + min(avg_words_per_line / 5, 1) * 0.3
+        
+        # Apply penalties
+        if has_ocr_artifacts:
+            quality_score *= 0.8
+        if has_fragmented_words:
+            quality_score *= 0.7
+        if has_excessive_spaces:
+            quality_score *= 0.9
+        if total_chars < self.MIN_CHUNK_LENGTH:
+            quality_score *= 0.6
+            
+        # Determine if text is readable
+        is_readable = (
+            quality_score >= 0.5
+            and text_ratio >= self.MIN_TEXT_RATIO
+            and whitespace_ratio <= self.MAX_WHITESPACE_RATIO
+            and avg_words_per_line >= self.MIN_WORDS_PER_LINE
+            and not (has_fragmented_words and has_ocr_artifacts)
         )
         
-        logger.debug(
-            f"Page scan detection - text_ratio: {text_ratio:.3f}, "
-            f"whitespace_ratio: {whitespace_ratio:.3f}, "
-            f"artifacts: {has_ocr_artifacts}, fragmented: {has_fragmented_words}, "
-            f"is_scanned: {is_scanned}"
-        )
+        # Generate reason
+        reasons = []
+        if text_ratio < self.MIN_TEXT_RATIO:
+            reasons.append(f"Low text ratio ({text_ratio:.2f})")
+        if whitespace_ratio > self.MAX_WHITESPACE_RATIO:
+            reasons.append(f"High whitespace ratio ({whitespace_ratio:.2f})")
+        if avg_words_per_line < self.MIN_WORDS_PER_LINE:
+            reasons.append(f"Few words per line ({avg_words_per_line:.1f})")
+        if has_fragmented_words:
+            reasons.append("Fragmented words detected")
+        if has_ocr_artifacts:
+            reasons.append("OCR artifacts detected")
+        if total_chars < self.MIN_CHUNK_LENGTH:
+            reasons.append("Content too short")
+            
+        reason = "; ".join(reasons) if reasons else "Good quality text"
         
-        return is_scanned
+        return {
+            "is_readable": is_readable,
+            "quality_score": quality_score,
+            "reason": reason,
+            "metrics": {
+                "total_chars": total_chars,
+                "text_ratio": text_ratio,
+                "whitespace_ratio": whitespace_ratio,
+                "avg_words_per_line": avg_words_per_line,
+                "lines": len(lines),
+                "has_ocr_artifacts": has_ocr_artifacts,
+                "has_fragmented_words": has_fragmented_words
+            }
+        }
+
+    def assess_chunk_quality(self, chunk: str) -> Dict[str, Any]:
+        """
+        Assess the quality of a text chunk to determine if it needs OCR or should be filtered.
+        
+        This is a public method used by the chunking module to evaluate chunk quality.
+        
+        Args:
+            chunk: Text chunk to assess
+            
+        Returns:
+            Dictionary with quality assessment including:
+            - quality_score: float between 0-1
+            - reason: string describing quality issues
+            - needs_ocr: boolean indicating if OCR might improve quality
+            - metrics: detailed quality metrics
+        """
+        # Use the internal text quality analysis
+        analysis = self._analyze_text_quality(chunk)
+        
+        # Determine if OCR might help (for chunks with poor quality)
+        needs_ocr = not analysis["is_readable"] and analysis["quality_score"] < 0.3
+        
+        # Map metrics to match expected format in chunking module
+        metrics = {
+            "total_chars": analysis["metrics"]["total_chars"],
+            "text_ratio": analysis["metrics"]["text_ratio"],
+            "whitespace_ratio": analysis["metrics"]["whitespace_ratio"],
+            "fragmentation_ratio": 1.0 if analysis["metrics"]["has_fragmented_words"] else 0.0,
+            "has_artifacts": analysis["metrics"]["has_ocr_artifacts"],
+        }
+        
+        return {
+            "quality_score": analysis["quality_score"],
+            "reason": analysis["reason"],
+            "needs_ocr": needs_ocr,
+            "metrics": metrics
+        }
+
+    def should_remove_chunk(
+        self, chunk_text: str, entity_count: int = 0, relationship_count: int = 0
+    ) -> bool:
+        """
+        Determine if a chunk should be removed based on quality and entity extraction results.
+        
+        Args:
+            chunk_text: The text content of the chunk
+            entity_count: Number of entities extracted from this chunk
+            relationship_count: Number of relationships extracted from this chunk
+            
+        Returns:
+            True if the chunk should be removed, False otherwise
+        """
+        # Assess chunk quality
+        quality_assessment = self.assess_chunk_quality(chunk_text)
+        
+        # Remove if quality is very poor AND no meaningful entities were extracted
+        if quality_assessment["quality_score"] < 0.2 and entity_count == 0 and relationship_count == 0:
+            return True
+        
+        # Remove if the chunk is too short and has no entities
+        if len(chunk_text.strip()) < self.MIN_CHUNK_LENGTH and entity_count == 0:
+            return True
+        
+        # Keep the chunk otherwise
+        return False
+
+    def _detect_image_content(self, image: np.ndarray) -> Dict[str, Any]:
+        """
+        Analyze an image to detect if it contains text, diagrams, or other content.
+        
+        Args:
+            image: Image as numpy array
+            
+        Returns:
+            Dictionary with content type analysis
+        """
+        try:
+            # Convert to grayscale if needed
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = image.copy()
+            
+            # Basic image statistics
+            height, width = gray.shape
+            total_pixels = height * width
+            
+            # Edge detection to find structural content
+            edges = cv2.Canny(gray, 50, 150)
+            edge_pixel_ratio = np.sum(edges > 0) / total_pixels
+            
+            # Brightness analysis
+            mean_brightness = gray.mean()
+            brightness_std = gray.std()
+            
+            # Text detection using connected components
+            # Apply threshold to get binary image
+            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # Find connected components (potential text regions)
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
+            
+            # Analyze component characteristics
+            text_like_components = 0
+            for i in range(1, num_labels):  # Skip background (label 0)
+                x, y, w, h, area = stats[i]
+                aspect_ratio = w / h if h > 0 else 0
+                
+                # Text-like components are usually rectangular with certain aspect ratios
+                if 0.1 <= aspect_ratio <= 10 and 50 <= area <= total_pixels * 0.1:
+                    text_like_components += 1
+            
+            text_component_ratio = text_like_components / max(num_labels - 1, 1)
+            
+            # Determine content type
+            content_types = []
+            confidence_scores = {}
+            
+            # Text content detection
+            if text_component_ratio > 0.1 or edge_pixel_ratio < 0.05:
+                content_types.append("text")
+                confidence_scores["text"] = min(text_component_ratio * 2, 1.0)
+            
+            # Diagram/structural content detection
+            if edge_pixel_ratio > 0.1 and brightness_std > 30:
+                content_types.append("diagram")
+                confidence_scores["diagram"] = min(edge_pixel_ratio * 2, 1.0)
+            
+            # Scanned page detection (high contrast, structured layout)
+            if brightness_std > 40 and text_component_ratio > 0.05:
+                content_types.append("scanned_page")
+                confidence_scores["scanned_page"] = min((brightness_std / 100) * text_component_ratio, 1.0)
+            
+            # Image/photo detection (low text components, varied brightness)
+            if text_component_ratio < 0.02 and brightness_std > 20:
+                content_types.append("image")
+                confidence_scores["image"] = 1.0 - text_component_ratio
+            
+            # Default to mixed if unclear
+            if not content_types:
+                content_types.append("mixed")
+                confidence_scores["mixed"] = 0.5
+            
+            # Select primary content type
+            primary_type = max(content_types, key=lambda t: confidence_scores.get(t, 0))
+            
+            return {
+                "primary_type": primary_type,
+                "content_types": content_types,
+                "confidence_scores": confidence_scores,
+                "needs_ocr": primary_type in ["text", "diagram", "scanned_page"],
+                "metrics": {
+                    "edge_pixel_ratio": edge_pixel_ratio,
+                    "text_component_ratio": text_component_ratio,
+                    "mean_brightness": mean_brightness,
+                    "brightness_std": brightness_std,
+                    "total_components": num_labels - 1
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Image content detection failed: {e}")
+            return {
+                "primary_type": "unknown",
+                "content_types": ["unknown"],
+                "confidence_scores": {"unknown": 0.5},
+                "needs_ocr": True,  # Default to OCR for safety
+                "metrics": {}
+            }
 
     def _enhance_image_for_ocr(self, image: np.ndarray) -> np.ndarray:
         """
@@ -115,300 +379,339 @@ class OCRProcessor:
             logger.warning(f"Image enhancement failed, using original: {e}")
             return image
 
-    def _extract_text_from_image(self, image: Image.Image, enhance: bool = True) -> str:
+    def _extract_text_from_image(self, image: Image.Image, content_type: str = "mixed") -> Optional[str]:
         """
-        Extract text from a PIL Image using OCR.
+        Extract text from a PIL Image using OCR with content-aware configuration.
         
         Args:
             image: PIL Image object
-            enhance: Whether to apply image enhancement
+            content_type: Type of content detected in image
             
         Returns:
-            Extracted text
+            Extracted text or None if failed
         """
         try:
             # Convert PIL Image to numpy array
             img_array = np.array(image)
             
-            # Apply enhancement if requested
-            if enhance and self.ENHANCE_IMAGES:
+            # Apply enhancement based on content type
+            if content_type in ["diagram", "scanned_page"]:
                 img_array = self._enhance_image_for_ocr(img_array)
-                # Convert back to PIL Image
                 enhanced_image = Image.fromarray(img_array)
             else:
                 enhanced_image = image
             
+            # Adjust OCR config based on content type
+            if content_type == "diagram":
+                config = "--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?()[]{}/-+=*&%$#@"
+            elif content_type == "scanned_page":
+                config = "--oem 3 --psm 4"  # Assume single column of text
+            else:
+                config = self.tesseract_config  # Default config
+            
             # Perform OCR
-            text = pytesseract.image_to_string(enhanced_image, config=self.tesseract_config)
+            text = pytesseract.image_to_string(enhanced_image, config=config)
             
             # Clean up the extracted text
             text = text.strip()
             text = re.sub(r'\n\s*\n', '\n\n', text)  # Clean up excessive newlines
             text = re.sub(r' +', ' ', text)  # Clean up excessive spaces
             
-            return text
+            return text if text else None
             
         except Exception as e:
             logger.error(f"OCR text extraction failed: {e}")
-            return ""
+            return None
 
-    def process_scanned_pdf(self, file_path: Path) -> Optional[str]:
+    def analyze_pdf_content(self, file_path: Path) -> Dict[str, Any]:
         """
-        Process a scanned PDF using OCR.
+        Analyze PDF content to determine which parts need OCR.
         
         Args:
             file_path: Path to the PDF file
             
         Returns:
-            Extracted text content or None if failed
+            Dictionary with analysis results for each page
         """
         try:
-            logger.info(f"Processing scanned PDF with OCR: {file_path}")
+            reader = PdfReader(str(file_path))
+            analysis_results = {
+                "pages": [],
+                "summary": {
+                    "total_pages": len(reader.pages),
+                    "readable_pages": 0,
+                    "ocr_pages": 0,
+                    "image_pages": 0,
+                    "mixed_pages": 0
+                }
+            }
             
-            # Convert PDF pages to images
-            images = convert_from_path(
-                str(file_path),
-                dpi=self.IMAGE_DPI,
-                fmt='RGB'
-            )
-            
-            extracted_pages = []
-            for page_num, image in enumerate(images):
+            # Analyze each page
+            for page_num, page in enumerate(reader.pages):
                 try:
-                    logger.debug(f"Processing page {page_num + 1}/{len(images)}")
+                    # Extract existing text
+                    page_text = page.extract_text()
                     
-                    # Extract text from the page image
-                    page_text = self._extract_text_from_image(image, enhance=True)
+                    # Analyze text quality
+                    text_analysis = self._analyze_text_quality(page_text)
                     
-                    if page_text.strip():
-                        extracted_pages.append(f"--- Page {page_num + 1} ---\n{page_text}")
+                    page_result = {
+                        "page_number": page_num + 1,
+                        "has_text": bool(page_text.strip()),
+                        "text_analysis": text_analysis,
+                        "needs_ocr": not text_analysis["is_readable"],
+                        "content_types": [],
+                        "ocr_items": []
+                    }
+                    
+                    # If text is not readable, analyze the page as an image
+                    if not text_analysis["is_readable"]:
+                        try:
+                            # Convert page to image for analysis
+                            images = convert_from_path(
+                                str(file_path),
+                                first_page=page_num + 1,
+                                last_page=page_num + 1,
+                                dpi=self.ANALYSIS_DPI,
+                                fmt='RGB'
+                            )
+                            
+                            if images:
+                                img_array = np.array(images[0])
+                                image_analysis = self._detect_image_content(img_array)
+                                
+                                page_result["image_analysis"] = image_analysis
+                                page_result["content_types"] = image_analysis["content_types"]
+                                
+                                # Determine OCR strategy
+                                if image_analysis["needs_ocr"]:
+                                    ocr_item = {
+                                        "type": image_analysis["primary_type"],
+                                        "source": "full_page",
+                                        "confidence": image_analysis["confidence_scores"].get(image_analysis["primary_type"], 0.5)
+                                    }
+                                    page_result["ocr_items"].append(ocr_item)
+                                
+                        except Exception as e:
+                            logger.warning(f"Failed to analyze page {page_num + 1} as image: {e}")
+                            # Default to OCR for safety
+                            page_result["ocr_items"].append({
+                                "type": "scanned_page",
+                                "source": "full_page",
+                                "confidence": 0.5
+                            })
+                    
+                    # Update summary
+                    if text_analysis["is_readable"]:
+                        analysis_results["summary"]["readable_pages"] += 1
+                    elif any(item["type"] in ["text", "scanned_page"] for item in page_result["ocr_items"]):
+                        analysis_results["summary"]["ocr_pages"] += 1
+                    elif any(item["type"] == "image" for item in page_result["ocr_items"]):
+                        analysis_results["summary"]["image_pages"] += 1
                     else:
-                        logger.warning(f"No text extracted from page {page_num + 1}")
+                        analysis_results["summary"]["mixed_pages"] += 1
+                    
+                    analysis_results["pages"].append(page_result)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to analyze page {page_num + 1}: {e}")
+                    # Add error page with default OCR
+                    error_page = {
+                        "page_number": page_num + 1,
+                        "has_text": False,
+                        "text_analysis": {"is_readable": False, "quality_score": 0.0, "reason": "Analysis failed"},
+                        "needs_ocr": True,
+                        "content_types": ["unknown"],
+                        "ocr_items": [{"type": "unknown", "source": "full_page", "confidence": 0.5}],
+                        "error": str(e)
+                    }
+                    analysis_results["pages"].append(error_page)
+                    analysis_results["summary"]["mixed_pages"] += 1
+            
+            logger.info(f"Analyzed PDF {file_path}: {analysis_results['summary']}")
+            return analysis_results
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze PDF content: {e}")
+            return {
+                "pages": [],
+                "summary": {"total_pages": 0, "readable_pages": 0, "ocr_pages": 0, "image_pages": 0, "mixed_pages": 0},
+                "error": str(e)
+            }
+
+    def process_pdf_intelligently(self, file_path: Path) -> Dict[str, Any]:
+        """
+        Process PDF with intelligent OCR application.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            Dictionary with extracted content and processing metadata
+        """
+        try:
+            # First, analyze the PDF to determine OCR strategy
+            analysis = self.analyze_pdf_content(file_path)
+            
+            if not analysis["pages"]:
+                logger.warning(f"No analyzable pages in PDF: {file_path}")
+                return {"content": None, "ocr_metadata": {"error": "No analyzable pages"}}
+            
+            reader = PdfReader(str(file_path))
+            text_content = []
+            ocr_metadata = {
+                "total_pages": len(reader.pages),
+                "pages_processed": 0,
+                "ocr_applied": 0,
+                "ocr_items": [],
+                "readable_text_pages": 0,
+                "processing_summary": analysis["summary"]
+            }
+            
+            # Process each page based on analysis
+            for page_analysis in analysis["pages"]:
+                page_num = page_analysis["page_number"] - 1  # Convert to 0-based index
+                
+                try:
+                    if page_analysis["text_analysis"]["is_readable"]:
+                        # Use existing readable text
+                        page_text = reader.pages[page_num].extract_text()
+                        text_content.append(f"--- Page {page_num + 1} ---\n{page_text}")
+                        ocr_metadata["readable_text_pages"] += 1
+                        logger.debug(f"Page {page_num + 1}: Using readable text")
                         
+                    elif page_analysis["ocr_items"]:
+                        # Apply OCR to specific items
+                        for ocr_item in page_analysis["ocr_items"]:
+                            try:
+                                # Convert page to image for OCR
+                                images = convert_from_path(
+                                    str(file_path),
+                                    first_page=page_num + 1,
+                                    last_page=page_num + 1,
+                                    dpi=self.IMAGE_DPI,
+                                    fmt='RGB'
+                                )
+                                
+                                if images:
+                                    # Extract text using OCR
+                                    ocr_text = self._extract_text_from_image(images[0], ocr_item["type"])
+                                    
+                                    if ocr_text and ocr_text.strip():
+                                        ocr_label = f"Page {page_num + 1} ({ocr_item['type'].title()})"
+                                        text_content.append(f"--- {ocr_label} ---\n{ocr_text}")
+                                        
+                                        # Track OCR usage
+                                        ocr_metadata["ocr_items"].append({
+                                            "page": page_num + 1,
+                                            "type": ocr_item["type"],
+                                            "source": ocr_item["source"],
+                                            "confidence": ocr_item["confidence"],
+                                            "text_length": len(ocr_text)
+                                        })
+                                        ocr_metadata["ocr_applied"] += 1
+                                        
+                                        logger.debug(f"Page {page_num + 1}: OCR applied for {ocr_item['type']}")
+                                    else:
+                                        logger.warning(f"Page {page_num + 1}: OCR produced no text for {ocr_item['type']}")
+                                        
+                            except Exception as e:
+                                logger.error(f"OCR failed for page {page_num + 1}, item {ocr_item['type']}: {e}")
+                                continue
+                    else:
+                        logger.debug(f"Page {page_num + 1}: Skipped (no readable text or OCR items)")
+                    
+                    ocr_metadata["pages_processed"] += 1
+                    
                 except Exception as e:
                     logger.error(f"Failed to process page {page_num + 1}: {e}")
                     continue
             
-            if not extracted_pages:
-                logger.warning(f"No text content extracted from scanned PDF: {file_path}")
-                return None
-                
-            full_text = "\n\n".join(extracted_pages)
-            logger.info(f"Successfully processed scanned PDF: {file_path} ({len(images)} pages)")
-            return full_text
+            # Combine all content
+            if not text_content:
+                logger.warning(f"No content extracted from PDF: {file_path}")
+                return {"content": None, "ocr_metadata": ocr_metadata}
             
-        except Exception as e:
-            logger.error(f"Failed to process scanned PDF {file_path}: {e}")
-            return None
-
-    def extract_images_from_pdf(self, file_path: Path) -> List[Tuple[int, Image.Image]]:
-        """
-        Extract images/diagrams from PDF pages by converting pages to images.
-        This is a simpler approach that works more reliably across different PDF types.
-        
-        Args:
-            file_path: Path to the PDF file
+            full_content = "\n\n".join(text_content)
             
-        Returns:
-            List of tuples (page_number, image)
-        """
-        try:
-            # Convert PDF pages to images for image analysis
-            # This approach is more reliable than trying to extract embedded images
-            images = convert_from_path(
-                str(file_path),
-                dpi=150,  # Lower DPI for image detection
-                fmt='RGB'
+            # Log processing summary
+            logger.info(
+                f"Smart OCR processing completed for {file_path}: "
+                f"{ocr_metadata['pages_processed']} pages processed, "
+                f"{ocr_metadata['ocr_applied']} pages with OCR, "
+                f"{ocr_metadata['readable_text_pages']} pages with readable text"
             )
             
-            extracted_images = []
-            for page_num, image in enumerate(images):
-                # For now, we treat each page as a potential image
-                # In the future, we could add image detection algorithms here
-                extracted_images.append((page_num + 1, image))
-            
-            logger.info(f"Converted {len(extracted_images)} PDF pages to images: {file_path}")
-            return extracted_images
+            return {
+                "content": full_content,
+                "ocr_metadata": ocr_metadata
+            }
             
         except Exception as e:
-            logger.error(f"Failed to extract images from PDF {file_path}: {e}")
-            return []
+            logger.error(f"Smart OCR processing failed for {file_path}: {e}")
+            return {
+                "content": None,
+                "ocr_metadata": {"error": str(e), "total_pages": 0, "pages_processed": 0, "ocr_applied": 0}
+            }
 
-    def process_images_in_pdf(self, file_path: Path) -> Optional[str]:
+    def process_standalone_image(self, file_path: Path) -> Dict[str, Any]:
         """
-        Extract and OCR all images/diagrams found in a PDF.
-        
-        Args:
-            file_path: Path to the PDF file
-            
-        Returns:
-            Extracted text from all images or None if no images found
-        """
-        try:
-            extracted_images = self.extract_images_from_pdf(file_path)
-            
-            if not extracted_images:
-                return None
-                
-            image_texts = []
-            for page_num, image in extracted_images:
-                try:
-                    # Extract text from the image
-                    image_text = self._extract_text_from_image(image, enhance=True)
-                    
-                    if image_text.strip():
-                        image_texts.append(f"--- Image from Page {page_num} ---\n{image_text}")
-                        
-                except Exception as e:
-                    logger.error(f"Failed to OCR image from page {page_num}: {e}")
-                    continue
-            
-            if not image_texts:
-                return None
-                
-            combined_text = "\n\n".join(image_texts)
-            logger.info(f"Extracted text from {len(image_texts)} images in PDF: {file_path}")
-            return combined_text
-            
-        except Exception as e:
-            logger.error(f"Failed to process images in PDF {file_path}: {e}")
-            return None
-
-    def process_standalone_image(self, file_path: Path) -> Optional[str]:
-        """
-        Process a standalone image file with OCR.
+        Process a standalone image file with smart OCR.
         
         Args:
             file_path: Path to the image file
             
         Returns:
-            Extracted text or None if failed
+            Dictionary with extracted content and metadata
         """
         try:
-            logger.info(f"Processing standalone image with OCR: {file_path}")
+            logger.info(f"Processing standalone image with smart OCR: {file_path}")
             
-            # Open and process the image
+            # Open and analyze the image
             with Image.open(file_path) as image:
                 # Convert to RGB if necessary
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
                 
-                # Extract text
-                text = self._extract_text_from_image(image, enhance=True)
+                # Analyze content type
+                img_array = np.array(image)
+                content_analysis = self._detect_image_content(img_array)
                 
-                if text.strip():
-                    logger.info(f"Successfully extracted text from image: {file_path}")
-                    return text
+                ocr_metadata = {
+                    "file_type": "standalone_image",
+                    "content_analysis": content_analysis,
+                    "ocr_applied": 0,
+                    "ocr_items": []
+                }
+                
+                # Apply OCR if needed
+                if content_analysis["needs_ocr"]:
+                    ocr_text = self._extract_text_from_image(image, content_analysis["primary_type"])
+                    
+                    if ocr_text and ocr_text.strip():
+                        ocr_metadata["ocr_applied"] = 1
+                        ocr_metadata["ocr_items"].append({
+                            "type": content_analysis["primary_type"],
+                            "source": "full_image",
+                            "confidence": content_analysis["confidence_scores"].get(content_analysis["primary_type"], 0.5),
+                            "text_length": len(ocr_text)
+                        })
+                        
+                        logger.info(f"Successfully extracted text from image: {file_path}")
+                        return {"content": ocr_text, "ocr_metadata": ocr_metadata}
+                    else:
+                        logger.warning(f"OCR produced no text for image: {file_path}")
+                        return {"content": None, "ocr_metadata": ocr_metadata}
                 else:
-                    logger.warning(f"No text found in image: {file_path}")
-                    return None
+                    logger.info(f"Image does not contain OCR-able content: {file_path}")
+                    return {"content": None, "ocr_metadata": ocr_metadata}
                     
         except Exception as e:
             logger.error(f"Failed to process image {file_path}: {e}")
-            return None
-
-    def assess_chunk_quality(self, chunk_text: str) -> Dict[str, Any]:
-        """
-        Assess the quality of a text chunk to determine if OCR might help.
-        
-        Args:
-            chunk_text: Text content of the chunk
-            
-        Returns:
-            Dictionary with quality assessment results
-        """
-        if not chunk_text:
             return {
-                "quality_score": 0.0,
-                "needs_ocr": True,
-                "reason": "Empty chunk",
-                "metrics": {}
+                "content": None,
+                "ocr_metadata": {"error": str(e), "file_type": "standalone_image", "ocr_applied": 0}
             }
-        
-        # Calculate quality metrics
-        total_chars = len(chunk_text)
-        alpha_chars = sum(1 for c in chunk_text if c.isalnum())
-        whitespace_chars = sum(1 for c in chunk_text if c.isspace())
-        
-        text_ratio = alpha_chars / total_chars if total_chars > 0 else 0
-        whitespace_ratio = whitespace_chars / total_chars if total_chars > 0 else 0
-        
-        # Check for OCR artifacts
-        has_artifacts = bool(re.search(r'[^\x00-\x7F]+', chunk_text))
-        fragmented_words = len(re.findall(r'\b\w{1,2}\b', chunk_text))
-        fragmentation_ratio = fragmented_words / len(chunk_text.split()) if chunk_text.split() else 0
-        
-        # Calculate overall quality score (0-1)
-        quality_score = text_ratio * 0.4 + (1 - whitespace_ratio) * 0.3 + (1 - fragmentation_ratio) * 0.3
-        
-        # Penalties for artifacts and short length
-        if has_artifacts:
-            quality_score *= 0.8
-        if total_chars < self.MIN_CHUNK_LENGTH:
-            quality_score *= 0.7
-            
-        # Determine if OCR is needed
-        needs_ocr = (
-            quality_score < 0.6
-            or text_ratio < self.MIN_TEXT_RATIO
-            or whitespace_ratio > self.MAX_WHITESPACE_RATIO
-            or fragmentation_ratio > 0.3
-        )
-        
-        reason = []
-        if text_ratio < self.MIN_TEXT_RATIO:
-            reason.append(f"Low text ratio ({text_ratio:.2f})")
-        if whitespace_ratio > self.MAX_WHITESPACE_RATIO:
-            reason.append(f"High whitespace ratio ({whitespace_ratio:.2f})")
-        if fragmentation_ratio > 0.3:
-            reason.append(f"High fragmentation ({fragmentation_ratio:.2f})")
-        if has_artifacts:
-            reason.append("OCR artifacts detected")
-        if total_chars < self.MIN_CHUNK_LENGTH:
-            reason.append("Too short")
-            
-        return {
-            "quality_score": quality_score,
-            "needs_ocr": needs_ocr,
-            "reason": "; ".join(reason) if reason else "Good quality",
-            "metrics": {
-                "total_chars": total_chars,
-                "text_ratio": text_ratio,
-                "whitespace_ratio": whitespace_ratio,
-                "fragmentation_ratio": fragmentation_ratio,
-                "has_artifacts": has_artifacts
-            }
-        }
-
-    def should_remove_chunk(self, chunk_text: str, entity_count: int = 0, relationship_count: int = 0) -> bool:
-        """
-        Determine if a chunk should be removed due to poor quality and lack of entities.
-        
-        Args:
-            chunk_text: Text content of the chunk
-            entity_count: Number of entities extracted from the chunk
-            relationship_count: Number of relationships extracted from the chunk
-            
-        Returns:
-            True if chunk should be removed, False otherwise
-        """
-        quality_assessment = self.assess_chunk_quality(chunk_text)
-        
-        # Remove chunk if it's very low quality AND has no entities/relationships
-        should_remove = (
-            quality_assessment["quality_score"] < 0.3
-            and entity_count == 0
-            and relationship_count == 0
-            and len(chunk_text.strip()) < self.MIN_CHUNK_LENGTH
-        )
-        
-        if should_remove:
-            logger.info(
-                f"Marking chunk for removal - Quality: {quality_assessment['quality_score']:.2f}, "
-                f"Entities: {entity_count}, Relationships: {relationship_count}"
-            )
-        
-        return should_remove
 
 
 # Global OCR processor instance

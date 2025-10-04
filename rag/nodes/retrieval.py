@@ -7,12 +7,12 @@ import logging
 from typing import Any, Dict, List
 
 from config.settings import settings
-from rag.enhanced_retriever import EnhancedDocumentRetriever, RetrievalMode
+from rag.retriever import DocumentRetriever, RetrievalMode
 
 logger = logging.getLogger(__name__)
 
 # Initialize enhanced retriever
-enhanced_retriever = EnhancedDocumentRetriever()
+document_retriever = DocumentRetriever()
 
 
 async def retrieve_documents_async(
@@ -82,14 +82,14 @@ async def retrieve_documents_async(
 
         # Use enhanced retriever. Prefer graph expansion when configured
         if (complexity == "complex" or query_type == "comparative") and graph_expansion:
-            chunks = await enhanced_retriever.retrieve_with_graph_expansion(
+            chunks = await document_retriever.retrieve_with_graph_expansion(
                 query=query,
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,
             )
         else:
             # Pass chunk_weight through to hybrid retriever if present
-            chunks = await enhanced_retriever.retrieve(
+            chunks = await document_retriever.retrieve(
                 query=query,
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,

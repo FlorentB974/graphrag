@@ -113,9 +113,9 @@ The test suite demonstrates:
 
 ### Processing a Scanned PDF
 ```python
-from ingestion.loaders.enhanced_pdf_loader import EnhancedPDFLoader
+from ingestion.loaders.pdf_loader import PDFLoader
 
-loader = EnhancedPDFLoader()
+loader = PDFLoader()
 content = loader.load("scanned_document.pdf")
 # Returns text with OCR markers: "--- Page 1 (OCR) ---"
 ```

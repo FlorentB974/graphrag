@@ -410,13 +410,13 @@ class GraphDB:
                 MATCH path = (start)-[*1..{max_depth}]-(related:Chunk)
                 WHERE ALL(r in relationships(path) WHERE type(r) IN $relationship_types)
                 OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(related)
-                WITH related, d, length(path) as distance, 
+                WITH related, d, length(path) as distance,
                      [r in relationships(path) WHERE type(r) = 'SIMILAR_TO' | r.score] as similarity_scores
                 WITH related, d, distance,
-                     CASE 
-                         WHEN size(similarity_scores) > 0 THEN 
+                     CASE
+                         WHEN size(similarity_scores) > 0 THEN
                              reduce(avg = 0.0, s in similarity_scores | avg + s) / size(similarity_scores)
-                         ELSE 
+                         ELSE
                              CASE distance
                                  WHEN 1 THEN 0.3
                                  WHEN 2 THEN 0.2
@@ -584,7 +584,7 @@ class GraphDB:
                        total_chunks,
                        total_entities,
                        chunks_with_entities,
-                       CASE 
+                       CASE
                            WHEN total_chunks = 0 THEN true
                            WHEN total_entities > 0 AND chunks_with_entities >= (total_chunks * 0.7) THEN true
                            ELSE false

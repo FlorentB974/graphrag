@@ -55,7 +55,7 @@ def stream_response(text: str, delay: float = 0.02) -> Generator[str, None, None
 
 
 def process_files_background(
-    uploaded_files: List[Any], progress_container, extract_entities: bool = True, enable_ocr: bool = True
+    uploaded_files: List[Any], progress_container, extract_entities: bool = True
 ) -> Dict[str, Any]:
     """
     Process uploaded files in background with chunk-level progress tracking.
@@ -122,7 +122,7 @@ def process_files_background(
             try:
                 # Process the file with chunks only (disable entity extraction for this phase)
                 result = document_processor.process_file_chunks_only(
-                    tmp_path, uploaded_file.name, chunk_progress_callback, enable_ocr=enable_ocr
+                    tmp_path, uploaded_file.name, chunk_progress_callback
                 )
 
                 if result and result.get("status") == "success":
@@ -356,6 +356,34 @@ def display_document_list():
             with st.expander(f"{entity_indicator} {filename}", expanded=False):
                 st.write(f"**Chunks:** {chunk_count}")
                 st.write(f"**Size:** {size_str}")
+
+                # OCR processing status
+                processing_method = doc.get("processing_method", "")
+                ocr_applied_pages = doc.get("ocr_applied_pages", 0)
+                readable_text_pages = doc.get("readable_text_pages", 0)
+                total_pages = doc.get("total_pages", 0)
+                ocr_items_count = doc.get("ocr_items_count", 0)
+                content_primary_type = doc.get("content_primary_type", "")
+                summary_ocr_pages = doc.get("summary_ocr_pages", 0)
+                summary_total_pages = doc.get("summary_total_pages", 0)
+
+                if processing_method == "smart_ocr" or processing_method == "smart_image_ocr":
+                    if processing_method == "smart_image_ocr" and ocr_applied_pages > 0:
+                        type_display = f" ({content_primary_type})" if content_primary_type else ""
+                        st.write(f"**OCR Processing:** 🔍 Smart OCR applied (Image{type_display})")
+                    elif summary_total_pages and summary_ocr_pages > 0:
+                        st.write(f"**OCR Processing:** 🔍 Smart OCR applied ({summary_ocr_pages}/{summary_total_pages} pages)")
+                        
+                        # Show OCR details
+                        if ocr_items_count > 0:
+                            st.caption(f"OCR items processed: {ocr_items_count}")
+                    elif summary_total_pages and (summary_total_pages - summary_ocr_pages) > 0:
+                        readable_pages = summary_total_pages - summary_ocr_pages
+                        st.write(f"**OCR Processing:** ✅ Readable text used ({readable_pages}/{summary_total_pages} pages)")
+                    elif total_pages and readable_text_pages > 0:
+                        st.write(f"**OCR Processing:** ✅ Readable text used ({readable_text_pages}/{total_pages} pages)")
+                    else:
+                        st.write("**OCR Processing:** ✅ Smart processing applied")
 
                 # Entity extraction status
                 if entities_extracted and total_entities > 0:
@@ -682,43 +710,22 @@ def display_document_upload():
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
 
-    # Add checkboxes for document processing options
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Add OCR checkbox
-        enable_ocr = st.checkbox(
-            "Enable OCR processing",
-            value=True,
-            help="If checked, OCR will be used to extract text from scanned documents and images. This helps process low-quality PDFs and understand diagrams inside documents.",
-            key="enable_ocr_checkbox",
-        )
-        
-    with col2:
-        # Add entity extraction checkbox
-        extract_entities = st.checkbox(
-            "Extract entities during upload",
-            value=True,
-            help="If checked, entities will be extracted in background after chunk creation. If unchecked, only chunks will be created (faster upload).",
-            key="extract_entities_checkbox",
-        )
+    # Add checkbox for entity extraction option
+    extract_entities = st.checkbox(
+        "Extract entities during upload",
+        value=True,
+        help="If checked, entities will be extracted in background after chunk creation. If unchecked, only chunks will be created (faster upload).",
+        key="extract_entities_checkbox",
+    )
 
-    # Information messages based on selected options
-    if enable_ocr and extract_entities:
+    # Information message about smart processing
+    if extract_entities:
         st.info(
-            "🔍 OCR enabled for scanned documents and images. Chunks are created immediately. Entity extraction runs in background."
-        )
-    elif enable_ocr and not extract_entities:
-        st.info(
-            "🔍 OCR enabled for scanned documents and images. Only chunks will be created (faster upload). Entity extraction can be run manually later."
-        )
-    elif not enable_ocr and extract_entities:
-        st.info(
-            "⚡ Standard processing (no OCR). Chunks are created immediately. Entity extraction runs in background."
+            "🧠 Smart processing enabled: OCR automatically applied to images, diagrams, and scanned content only. Chunks created immediately, entity extraction runs in background."
         )
     else:
         st.info(
-            "⚡ Standard processing only (no OCR, faster upload). Entity extraction can be run manually later."
+            "🧠 Smart processing enabled: OCR automatically applied to images, diagrams, and scanned content only. Entity extraction can be run manually later."
         )
 
     uploaded_files = st.file_uploader(
@@ -744,11 +751,8 @@ def display_document_upload():
                 extract_entities = st.session_state.get(
                     "extract_entities_checkbox", True
                 )
-                enable_ocr = st.session_state.get(
-                    "enable_ocr_checkbox", True
-                )
                 results = process_files_background(
-                    uploaded_files, progress_container, extract_entities, enable_ocr
+                    uploaded_files, progress_container, extract_entities
                 )
 
                 # Display results

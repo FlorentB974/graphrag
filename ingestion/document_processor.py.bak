@@ -19,6 +19,7 @@ from core.enhanced_chunking import enhanced_document_chunker
 from core.embeddings import embedding_manager
 from core.entity_extraction import EntityExtractor
 from core.graph_db import graph_db
+from core.ocr import ocr_processor
 from ingestion.loaders.csv_loader import CSVLoader
 from ingestion.loaders.docx_loader import DOCXLoader
 from ingestion.loaders.smart_pdf_loader import SmartPDFLoader
@@ -374,23 +375,12 @@ class DocumentProcessor:
             loader = self.loaders.get(file_ext)
             
             # Handle image files with smart OCR
-            ocr_metadata = {}
             if isinstance(loader, SmartImageLoader):
                 logger.info(f"Processing image file with smart OCR: {file_path}")
-                result = loader.load_with_metadata(file_path)
-                if not result or not result["content"]:
+                content = loader.load(file_path)
+                if not content:
                     logger.info(f"No text content detected in image: {file_path}")
                     return None
-                content = result["content"]
-                ocr_metadata = result.get("metadata", {})
-            elif isinstance(loader, SmartPDFLoader):
-                logger.info(f"Processing PDF file with smart OCR: {file_path}")
-                result = loader.load_with_metadata(file_path)
-                if not result or not result["content"]:
-                    logger.warning(f"No content extracted from PDF: {file_path}")
-                    return None
-                content = result["content"]
-                ocr_metadata = result.get("metadata", {})
             elif not loader:
                 logger.warning(f"No loader available for file type: {file_ext}")
                 return None
@@ -405,23 +395,19 @@ class DocumentProcessor:
             # Generate document ID and extract metadata
             doc_id = self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
-            
-            # Add OCR metadata if available
-            if ocr_metadata:
-                metadata.update(ocr_metadata)
 
             # Create document node
             graph_db.create_document_node(doc_id, metadata)
 
             # Chunk the document with enhanced processing
-            if use_quality_filtering:
+            if use_ocr or use_quality_filtering:
                 chunks = enhanced_document_chunker.chunk_text(
                     content,
                     doc_id,
                     enable_quality_filtering=use_quality_filtering,
-                    enable_ocr_enhancement=False  # OCR already applied by smart loaders
+                    enable_ocr_enhancement=use_ocr
                 )
-                logger.info(f"Used enhanced chunking (Quality filtering: {use_quality_filtering}) for {doc_id}")
+                logger.info(f"Used enhanced chunking (OCR: {use_ocr}, Quality: {use_quality_filtering}) for {doc_id}")
             else:
                 chunks = document_chunker.chunk_text(content, doc_id)
                 logger.info(f"Used standard chunking for {doc_id}")
@@ -860,7 +846,7 @@ class DocumentProcessor:
             file_path: Path to the file to process
             original_filename: Optional original filename to preserve
             progress_callback: Optional callback function to report chunk processing progress
-            
+            enable_ocr: Optional override for OCR processing (if None, uses global setting)
             enable_quality_filtering: Optional override for quality filtering (if None, uses global setting)
 
         Returns:
@@ -868,7 +854,7 @@ class DocumentProcessor:
         """
         try:
             # Determine OCR settings (use provided params or fall back to global settings)
-            # Smart OCR applied automatically
+            use_ocr = enable_ocr if enable_ocr is not None else self.enable_ocr
             use_quality_filtering = enable_quality_filtering if enable_quality_filtering is not None else self.enable_quality_filtering
             
             start_time = time.time()
@@ -886,24 +872,16 @@ class DocumentProcessor:
             
             logger.info(f"Processing file chunks only: {file_path}")
             
-            # Handle image and PDF files with smart OCR
-            ocr_metadata = {}
-            if isinstance(loader, SmartImageLoader):
-                logger.info(f"Processing image file with smart OCR: {file_path}")
-                result = loader.load_with_metadata(file_path)
-                if not result or not result["content"]:
-                    logger.info(f"No text content detected in image: {file_path}")
+            # Handle image files with OCR
+            if loader == "ImageLoader":
+                if not use_ocr:
+                    logger.warning(f"OCR disabled, skipping image file: {file_path}")
                     return None
-                content = result["content"]
-                ocr_metadata = result.get("metadata", {})
-            elif isinstance(loader, SmartPDFLoader):
-                logger.info(f"Processing PDF file with smart OCR: {file_path}")
-                result = loader.load_with_metadata(file_path)
-                if not result or not result["content"]:
-                    logger.warning(f"No content extracted from PDF: {file_path}")
+                logger.info(f"Processing image file with OCR: {file_path}")
+                content = ocr_processor.process_standalone_image(file_path)
+                if not content:
+                    logger.warning(f"No text extracted from image: {file_path}")
                     return None
-                content = result["content"]
-                ocr_metadata = result.get("metadata", {})
             elif not loader:
                 logger.warning(f"No loader available for file type: {file_ext}")
                 return None
@@ -913,23 +891,19 @@ class DocumentProcessor:
                 if not content:
                     logger.warning(f"No content extracted from: {file_path}")
                     return None
-            
-            # Add OCR metadata if available
-            if ocr_metadata:
-                metadata.update(ocr_metadata)
 
             # Create document node
             graph_db.create_document_node(doc_id, metadata)
 
             # Chunk the document with enhanced processing
-            if use_quality_filtering:
+            if use_ocr or use_quality_filtering:
                 chunks = enhanced_document_chunker.chunk_text(
                     content,
                     doc_id,
                     enable_quality_filtering=use_quality_filtering,
-                    enable_ocr_enhancement=False  # OCR already applied by smart loaders
+                    enable_ocr_enhancement=use_ocr
                 )
-                logger.info(f"Used enhanced chunking (Quality filtering: {use_quality_filtering}) for {doc_id}")
+                logger.info(f"Used enhanced chunking (OCR: {use_ocr}, Quality: {use_quality_filtering}) for {doc_id}")
             else:
                 chunks = document_chunker.chunk_text(content, doc_id)
                 logger.info(f"Used standard chunking for {doc_id}")

@@ -515,7 +515,7 @@ class GraphDB:
             )
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
-        """Get all documents with their metadata and chunk counts."""
+        """Get all documents with their metadata, chunk counts, and OCR information."""
         with self.driver.session() as session:  # type: ignore
             result = session.run(
                 """
@@ -528,6 +528,17 @@ class GraphDB:
                        d.file_extension as file_extension,
                        d.created_at as created_at,
                        d.modified_at as modified_at,
+                       COALESCE(d.processing_method, '') as processing_method,
+                       COALESCE(d.ocr_applied_pages, 0) as ocr_applied_pages,
+                       COALESCE(d.readable_text_pages, 0) as readable_text_pages,
+                       COALESCE(d.total_pages, 0) as total_pages,
+                       COALESCE(d.ocr_items_count, 0) as ocr_items_count,
+                       COALESCE(d.summary_total_pages, 0) as summary_total_pages,
+                       COALESCE(d.summary_readable_pages, 0) as summary_readable_pages,
+                       COALESCE(d.summary_ocr_pages, 0) as summary_ocr_pages,
+                       COALESCE(d.summary_image_pages, 0) as summary_image_pages,
+                       COALESCE(d.summary_mixed_pages, 0) as summary_mixed_pages,
+                       COALESCE(d.content_primary_type, '') as content_primary_type,
                        chunk_count
                 ORDER BY d.filename ASC
                 """

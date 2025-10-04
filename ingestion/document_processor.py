@@ -190,6 +190,37 @@ class DocumentProcessor:
             "modified_at": file_path.stat().st_mtime,
         }
 
+    def _derive_content_primary_type(self, file_extension: Optional[str]) -> str:
+        """Derive a simple primary content type from a file extension.
+
+        Returns a small set of canonical types (pdf, image, text, word, presentation,
+        spreadsheet, unknown) used to populate the `content_primary_type` property
+        on Document nodes.
+        """
+        ext = (file_extension or "").lower()
+        mapping = {
+            ".pdf": "pdf",
+            ".docx": "word",
+            ".doc": "word",
+            ".txt": "text",
+            ".md": "text",
+            ".py": "text",
+            ".js": "text",
+            ".html": "text",
+            ".css": "text",
+            ".csv": "spreadsheet",
+            ".xlsx": "spreadsheet",
+            ".xls": "spreadsheet",
+            ".pptx": "presentation",
+            ".ppt": "presentation",
+            ".jpg": "image",
+            ".jpeg": "image",
+            ".png": "image",
+            ".tiff": "image",
+            ".bmp": "image",
+        }
+        return mapping.get(ext, "unknown")
+
     async def process_file_async(
         self, chunks: List[Dict[str, Any]], doc_id: str, progress_callback=None
     ) -> List[Dict[str, Any]]:
@@ -408,6 +439,11 @@ class DocumentProcessor:
             # Add OCR metadata if available
             if ocr_metadata:
                 metadata.update(ocr_metadata)
+
+            # Ensure content_primary_type is set (derive from file extension if missing)
+            metadata["content_primary_type"] = metadata.get(
+                "content_primary_type"
+            ) or self._derive_content_primary_type(metadata.get("file_extension"))
 
             # Create document node
             graph_db.create_document_node(doc_id, metadata)
@@ -916,6 +952,11 @@ class DocumentProcessor:
             # Add OCR metadata if available
             if ocr_metadata:
                 metadata.update(ocr_metadata)
+
+            # Ensure content_primary_type is set (derive from file extension if missing)
+            metadata["content_primary_type"] = metadata.get(
+                "content_primary_type"
+            ) or self._derive_content_primary_type(metadata.get("file_extension"))
 
             # Create document node
             graph_db.create_document_node(doc_id, metadata)

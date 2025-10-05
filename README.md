@@ -199,6 +199,14 @@ CHUNK_OVERLAP=200
 
 # Entity Extraction Configuration (NEW)
 ENABLE_ENTITY_EXTRACTION=true  # Enable/disable entity extraction
+
+---
+
+Notes on dependencies
+
+The `requirements-docker.txt` file has been trimmed to include only packages that are directly imported by the codebase and are required at runtime. A few transitive or unused packages (for example `python-dotenv` and `python-multipart`) were removed to reduce Docker image size and maintenance burden. If you rely on functionality provided by those packages in your deployment, re-add them to `requirements-docker.txt`.
+
+If you add new imports to the codebase, please update `requirements-docker.txt` before building the Docker image.
 LLM_CONCURRENCY=2  # Concurrent LLM requests for entity extraction
 EMBEDDING_CONCURRENCY=3  # Concurrent embedding requests
 

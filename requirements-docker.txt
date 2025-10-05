@@ -1,34 +1,43 @@
-# Core runtime dependencies for Docker container
-# Essential web framework
+# Core runtime dependencies for Docker container (trimmed)
+
+# Web UI
 streamlit>=1.28.0
 
-# LangGraph and LangChain for RAG pipeline
+# RAG orchestration
 langgraph>=0.0.40
 langchain>=0.1.0
+langchain-text-splitters>=0.3.11
 
-# OpenAI API client
+# LLM / Embeddings
 openai>=1.3.0
+httpx>=0.24.0
+requests>=2.31.0
 
-# Neo4j database driver
+# Database
 neo4j>=5.0.0
 
-# Document processing - essential loaders
+# Document & OCR processing
 pypdf>=3.17.0
 python-docx>=0.8.11
 python-pptx>=0.6.21
 openpyxl>=3.1.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+pdf2image>=1.17.0
+opencv-python>=4.8.0
 
-# Configuration and environment
+# Data handling
+pandas>=2.2.0
+numpy>=1.25.0
+
+# Configuration / Settings
 pydantic>=2.0.0
 pydantic-settings>=1.0.0
-python-dotenv>=1.0.0
 
-# Graph visualization (used by app.py)
+# Graph visualization
 plotly>=5.17.0
 networkx>=3.2.0
 
-# File upload handling
-python-multipart>=0.0.6
-
-# Essential utilities
-requests>=2.31.0
+# Notes:
+# - Removed python-dotenv and python-multipart because the codebase doesn't import them directly.
+# - Added httpx, pandas and numpy which are used in embeddings/llm/xlsx/ocr modules.

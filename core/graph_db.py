@@ -5,7 +5,8 @@ Neo4j graph database operations for the RAG pipeline.
 import asyncio
 import logging
 import math
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
 
 from neo4j import Driver, GraphDatabase
 
@@ -13,6 +14,37 @@ from config.settings import settings
 from core.embeddings import embedding_manager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Entity:
+    """Entity node in the graph."""
+    id: str
+    name: str
+    type: str
+    description: str = ""
+    importance_score: float = 0.5
+    embedding: Optional[List[float]] = None
+
+
+@dataclass
+class Relationship:
+    """Relationship between entities."""
+    source_entity_id: str
+    target_entity_id: str
+    type: str
+    description: str = ""
+    strength: float = 0.5
+    source_chunks: List[str] = field(default_factory=list)
+
+
+@dataclass
+class PathResult:
+    """Result of a multi-hop path traversal."""
+    entities: List[Entity]
+    relationships: List[Relationship]
+    score: float
+    supporting_chunk_ids: List[List[str]]  # List of chunk ids per hop
 
 
 class GraphDB:
@@ -410,13 +442,13 @@ class GraphDB:
                 MATCH path = (start)-[*1..{max_depth}]-(related:Chunk)
                 WHERE ALL(r in relationships(path) WHERE type(r) IN $relationship_types)
                 OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(related)
-                WITH related, d, length(path) as distance, 
+                WITH related, d, length(path) as distance,
                      [r in relationships(path) WHERE type(r) = 'SIMILAR_TO' | r.score] as similarity_scores
                 WITH related, d, distance,
-                     CASE 
-                         WHEN size(similarity_scores) > 0 THEN 
+                     CASE
+                         WHEN size(similarity_scores) > 0 THEN
                              reduce(avg = 0.0, s in similarity_scores | avg + s) / size(similarity_scores)
-                         ELSE 
+                         ELSE
                              CASE distance
                                  WHEN 1 THEN 0.3
                                  WHEN 2 THEN 0.2
@@ -515,7 +547,7 @@ class GraphDB:
             )
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
-        """Get all documents with their metadata and chunk counts."""
+        """Get all documents with their metadata, chunk counts, and OCR information."""
         with self.driver.session() as session:  # type: ignore
             result = session.run(
                 """
@@ -528,6 +560,17 @@ class GraphDB:
                        d.file_extension as file_extension,
                        d.created_at as created_at,
                        d.modified_at as modified_at,
+                       COALESCE(d.processing_method, '') as processing_method,
+                       COALESCE(d.ocr_applied_pages, 0) as ocr_applied_pages,
+                       COALESCE(d.readable_text_pages, 0) as readable_text_pages,
+                       COALESCE(d.total_pages, 0) as total_pages,
+                       COALESCE(d.ocr_items_count, 0) as ocr_items_count,
+                       COALESCE(d.summary_total_pages, 0) as summary_total_pages,
+                       COALESCE(d.summary_readable_pages, 0) as summary_readable_pages,
+                       COALESCE(d.summary_ocr_pages, 0) as summary_ocr_pages,
+                       COALESCE(d.summary_image_pages, 0) as summary_image_pages,
+                       COALESCE(d.summary_mixed_pages, 0) as summary_mixed_pages,
+                       COALESCE(d.content_primary_type, '') as content_primary_type,
                        chunk_count
                 ORDER BY d.filename ASC
                 """
@@ -584,7 +627,7 @@ class GraphDB:
                        total_chunks,
                        total_entities,
                        chunks_with_entities,
-                       CASE 
+                       CASE
                            WHEN total_chunks = 0 THEN true
                            WHEN total_entities > 0 AND chunks_with_entities >= (total_chunks * 0.7) THEN true
                            ELSE false
@@ -1460,6 +1503,182 @@ class GraphDB:
                         logger.error(error_msg)
 
         return results
+
+    def find_scored_paths(
+        self,
+        seed_entity_ids: List[str],
+        max_hops: int = 2,
+        beam_size: int = 8,
+        min_edge_strength: float = 0.0,
+        node_filter: Optional[Callable[[Entity], bool]] = None,
+    ) -> List[PathResult]:
+        """
+        Find scored paths from seed entities using beam search.
+
+        Args:
+            seed_entity_ids: Starting entity IDs for path traversal
+            max_hops: Maximum number of hops to traverse
+            beam_size: Number of best paths to keep at each depth
+            min_edge_strength: Minimum relationship strength to follow
+            node_filter: Optional filter function for entities
+
+        Returns:
+            List of PathResult objects sorted by score
+        """
+        if not seed_entity_ids:
+            logger.warning("No seed entities provided for path search")
+            return []
+
+        try:
+            with self.driver.session() as session:  # type: ignore
+                # Get seed entities with their data
+                seed_entities_data = session.run(
+                    """
+                    MATCH (e:Entity)
+                    WHERE e.id IN $entity_ids
+                    RETURN e.id as id, e.name as name, e.type as type,
+                           e.description as description, e.importance_score as importance_score,
+                           e.embedding as embedding
+                    """,
+                    entity_ids=seed_entity_ids,
+                ).data()
+
+                if not seed_entities_data:
+                    logger.warning(f"No entities found for IDs: {seed_entity_ids}")
+                    return []
+
+                # Initialize paths with seed entities
+                current_paths = []
+                for entity_data in seed_entities_data:
+                    entity = Entity(
+                        id=entity_data["id"],
+                        name=entity_data["name"],
+                        type=entity_data["type"],
+                        description=entity_data.get("description", ""),
+                        importance_score=entity_data.get("importance_score", 0.5),
+                        embedding=entity_data.get("embedding"),
+                    )
+                    
+                    # Apply node filter if provided
+                    if node_filter and not node_filter(entity):
+                        continue
+                    
+                    # Start with single-entity paths
+                    path = PathResult(
+                        entities=[entity],
+                        relationships=[],
+                        score=entity.importance_score,
+                        supporting_chunk_ids=[],
+                    )
+                    current_paths.append(path)
+
+                # Perform beam search up to max_hops
+                for hop in range(max_hops):
+                    next_paths = []
+                    visited_in_hop = set()  # Track what we've expanded this hop
+
+                    for path in current_paths:
+                        # Get the last entity in the path
+                        last_entity = path.entities[-1]
+                        
+                        # Skip if we've already expanded from this entity in this hop
+                        path_key = (tuple(e.id for e in path.entities), hop)
+                        if path_key in visited_in_hop:
+                            continue
+                        visited_in_hop.add(path_key)
+
+                        # Get relationships from last entity
+                        relationships_data = session.run(
+                            """
+                            MATCH (e1:Entity {id: $entity_id})-[r:RELATED_TO]-(e2:Entity)
+                            WHERE r.strength >= $min_strength
+                            AND NOT e2.id IN $visited_ids
+                            RETURN e2.id as target_id, e2.name as target_name,
+                                   e2.type as target_type, e2.description as target_description,
+                                   e2.importance_score as target_importance,
+                                   e2.embedding as target_embedding,
+                                   r.type as rel_type, r.description as rel_description,
+                                   r.strength as rel_strength,
+                                   coalesce(r.source_chunks, []) as source_chunks,
+                                   startNode(r).id as source_id
+                            ORDER BY r.strength DESC
+                            LIMIT $limit
+                            """,
+                            entity_id=last_entity.id,
+                            min_strength=min_edge_strength,
+                            visited_ids=[e.id for e in path.entities],
+                            limit=beam_size * 2,  # Get more candidates than beam size
+                        ).data()
+
+                        # Expand path with each relationship
+                        for rel_data in relationships_data:
+                            target_entity = Entity(
+                                id=rel_data["target_id"],
+                                name=rel_data["target_name"],
+                                type=rel_data["target_type"],
+                                description=rel_data.get("target_description", ""),
+                                importance_score=rel_data.get("target_importance", 0.5),
+                                embedding=rel_data.get("target_embedding"),
+                            )
+
+                            # Apply node filter if provided
+                            if node_filter and not node_filter(target_entity):
+                                continue
+
+                            # Determine direction of relationship
+                            if rel_data["source_id"] == last_entity.id:
+                                source_id = last_entity.id
+                                target_id = target_entity.id
+                            else:
+                                source_id = target_entity.id
+                                target_id = last_entity.id
+
+                            relationship = Relationship(
+                                source_entity_id=source_id,
+                                target_entity_id=target_id,
+                                type=rel_data["rel_type"],
+                                description=rel_data.get("rel_description", ""),
+                                strength=rel_data.get("rel_strength", 0.5),
+                                source_chunks=rel_data.get("source_chunks", []),
+                            )
+
+                            # Calculate new path score
+                            # Score = average of: path score, relationship strength, target importance
+                            new_score = (
+                                path.score * 0.5
+                                + relationship.strength * 0.3
+                                + target_entity.importance_score * 0.2
+                            )
+
+                            # Create new path
+                            new_path = PathResult(
+                                entities=path.entities + [target_entity],
+                                relationships=path.relationships + [relationship],
+                                score=new_score,
+                                supporting_chunk_ids=path.supporting_chunk_ids
+                                + [relationship.source_chunks],
+                            )
+                            next_paths.append(new_path)
+
+                    # Apply beam search: keep only top beam_size paths
+                    next_paths.sort(key=lambda p: p.score, reverse=True)
+                    current_paths = next_paths[:beam_size]
+
+                    # Stop if no more paths to expand
+                    if not current_paths:
+                        break
+
+                # Return all paths sorted by score
+                current_paths.sort(key=lambda p: p.score, reverse=True)
+                logger.info(
+                    f"Found {len(current_paths)} paths from {len(seed_entity_ids)} seed entities "
+                    f"with max_hops={max_hops}, beam_size={beam_size}"
+                )
+                return current_paths
+
+        except Exception as e:
+            logger.error(f"Path finding failed: {e}")
+            return []
 
 
 # Global database instance

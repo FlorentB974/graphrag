@@ -7,12 +7,12 @@ import logging
 from typing import Any, Dict, List
 
 from config.settings import settings
-from rag.enhanced_retriever import EnhancedDocumentRetriever, RetrievalMode
+from rag.retriever import DocumentRetriever, RetrievalMode
 
 logger = logging.getLogger(__name__)
 
 # Initialize enhanced retriever
-enhanced_retriever = EnhancedDocumentRetriever()
+document_retriever = DocumentRetriever()
 
 
 async def retrieve_documents_async(
@@ -22,6 +22,7 @@ async def retrieve_documents_async(
     top_k: int = 5,
     chunk_weight: float = 0.5,
     graph_expansion: bool = True,
+    use_multi_hop: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Retrieve relevant documents based on query and analysis using enhanced retriever.
@@ -31,6 +32,9 @@ async def retrieve_documents_async(
         query_analysis: Query analysis results
         retrieval_mode: Retrieval strategy ("chunk_only", "entity_only", "hybrid", "auto")
         top_k: Number of chunks to retrieve
+        chunk_weight: Weight for chunk-based results in hybrid mode
+        graph_expansion: Whether to use graph expansion
+        use_multi_hop: Whether to use multi-hop reasoning
 
     Returns:
         List of relevant document chunks
@@ -82,22 +86,25 @@ async def retrieve_documents_async(
 
         # Use enhanced retriever. Prefer graph expansion when configured
         if (complexity == "complex" or query_type == "comparative") and graph_expansion:
-            chunks = await enhanced_retriever.retrieve_with_graph_expansion(
+            chunks = await document_retriever.retrieve_with_graph_expansion(
                 query=query,
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,
+                use_multi_hop=use_multi_hop,
             )
         else:
-            # Pass chunk_weight through to hybrid retriever if present
-            chunks = await enhanced_retriever.retrieve(
+            # Pass chunk_weight and multi_hop through to hybrid retriever if present
+            chunks = await document_retriever.retrieve(
                 query=query,
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,
                 chunk_weight=chunk_weight,
+                use_multi_hop=use_multi_hop,
             )
 
         logger.info(
-            f"Retrieved {len(chunks)} chunks using {retrieval_mode} mode (enhanced_mode: {enhanced_mode.value}) with top_k={adjusted_top_k}"
+            f"Retrieved {len(chunks)} chunks using {retrieval_mode} mode (enhanced_mode: {enhanced_mode.value}) "
+            f"with top_k={adjusted_top_k}, multi_hop={use_multi_hop}"
         )
         return chunks
 
@@ -113,6 +120,7 @@ def retrieve_documents(
     top_k: int = 5,
     chunk_weight: float = 0.5,
     graph_expansion: bool = True,
+    use_multi_hop: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Synchronous wrapper for document retrieval.
@@ -122,6 +130,9 @@ def retrieve_documents(
         query_analysis: Query analysis results
         retrieval_mode: Retrieval strategy
         top_k: Number of chunks to retrieve
+        chunk_weight: Weight for chunk-based results
+        graph_expansion: Whether to use graph expansion
+        use_multi_hop: Whether to use multi-hop reasoning
 
     Returns:
         List of relevant document chunks
@@ -135,6 +146,7 @@ def retrieve_documents(
                 top_k,
                 chunk_weight,
                 graph_expansion,
+                use_multi_hop,
             )
         )
     except RuntimeError:
@@ -149,6 +161,7 @@ def retrieve_documents(
                     top_k,
                     chunk_weight,
                     graph_expansion,
+                    use_multi_hop,
                 )
             )
         else:
@@ -160,6 +173,7 @@ def retrieve_documents(
                     top_k,
                     chunk_weight,
                     graph_expansion,
+                    use_multi_hop,
                 )
             )
     except Exception as e:

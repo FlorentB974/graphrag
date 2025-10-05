@@ -357,6 +357,34 @@ def display_document_list():
                 st.write(f"**Chunks:** {chunk_count}")
                 st.write(f"**Size:** {size_str}")
 
+                # OCR processing status
+                processing_method = doc.get("processing_method", "")
+                ocr_applied_pages = doc.get("ocr_applied_pages", 0)
+                readable_text_pages = doc.get("readable_text_pages", 0)
+                total_pages = doc.get("total_pages", 0)
+                ocr_items_count = doc.get("ocr_items_count", 0)
+                content_primary_type = doc.get("content_primary_type", "")
+                summary_ocr_pages = doc.get("summary_ocr_pages", 0)
+                summary_total_pages = doc.get("summary_total_pages", 0)
+
+                if processing_method == "ocr" or processing_method == "image_ocr":
+                    if processing_method == "image_ocr" and ocr_applied_pages > 0:
+                        type_display = f" ({content_primary_type})" if content_primary_type else ""
+                        st.write(f"**OCR Processing:** 🔍 Smart OCR applied (Image{type_display})")
+                    elif summary_total_pages and summary_ocr_pages > 0:
+                        st.write(f"**OCR Processing:** 🔍 Smart OCR applied ({summary_ocr_pages}/{summary_total_pages} pages)")
+                        
+                        # Show OCR details
+                        if ocr_items_count > 0:
+                            st.caption(f"OCR items processed: {ocr_items_count}")
+                    elif summary_total_pages and (summary_total_pages - summary_ocr_pages) > 0:
+                        readable_pages = summary_total_pages - summary_ocr_pages
+                        st.write(f"**OCR Processing:** ✅ Readable text used ({readable_pages}/{summary_total_pages} pages)")
+                    elif total_pages and readable_text_pages > 0:
+                        st.write(f"**OCR Processing:** ✅ Readable text used ({readable_text_pages}/{total_pages} pages)")
+                    else:
+                        st.write("**OCR Processing:** ✅ Smart processing applied")
+
                 # Entity extraction status
                 if entities_extracted and total_entities > 0:
                     st.write(f"**Entities:** {total_entities} ✅")
@@ -682,7 +710,7 @@ def display_document_upload():
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
 
-    # Add entity extraction checkbox
+    # Add checkbox for entity extraction option
     extract_entities = st.checkbox(
         "Extract entities during upload",
         value=True,
@@ -690,13 +718,14 @@ def display_document_upload():
         key="extract_entities_checkbox",
     )
 
+    # Information message about smart processing
     if extract_entities:
         st.info(
-            "Chunks are created and usable immediately. Entity extraction runs in background."
+            "🧠 Smart processing enabled: OCR automatically applied to images, diagrams, and scanned content only. Chunks created immediately, entity extraction runs in background."
         )
     else:
         st.info(
-            "Only chunks will be created (faster upload). Entity extraction can be run manually later."
+            "🧠 Smart processing enabled: OCR automatically applied to images, diagrams, and scanned content only. Entity extraction can be run manually later."
         )
 
     uploaded_files = st.file_uploader(
@@ -780,6 +809,7 @@ def get_search_mode_config(search_mode: str):
             "retrieval_mode": (
                 "hybrid" if settings.enable_entity_extraction else "chunk_only"
             ),
+            "use_multi_hop": True,  # Always enabled, conditionally applied based on query analysis
         },
         "normal": {
             "min_retrieval_similarity": 0.1,
@@ -795,6 +825,7 @@ def get_search_mode_config(search_mode: str):
             "retrieval_mode": (
                 "hybrid" if settings.enable_entity_extraction else "chunk_only"
             ),
+            "use_multi_hop": True,  # Always enabled, conditionally applied based on query analysis
         },
         "deep": {
             "min_retrieval_similarity": 0.05,
@@ -810,6 +841,7 @@ def get_search_mode_config(search_mode: str):
             "retrieval_mode": (
                 "hybrid" if settings.enable_entity_extraction else "chunk_only"
             ),
+            "use_multi_hop": True,  # Always enabled, conditionally applied based on query analysis
         },
     }
     return configs.get(search_mode, configs["normal"])
@@ -851,9 +883,9 @@ def get_rag_settings(key_suffix: str = ""):
 
     # Brief explanation of current mode
     mode_explanations = {
-        "quick": "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion.",
-        "normal": "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Best for most queries.",
-        "deep": "🔍 **Deep mode**: Maximum comprehensiveness. Explores more connections and relationships for complex queries.",
+        "quick": "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion. Multi-hop reasoning automatically applied when beneficial.",
+        "normal": "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Multi-hop reasoning automatically applied when beneficial. Best for most queries.",
+        "deep": "🔍 **Deep mode**: Maximum comprehensiveness with extensive graph exploration. Multi-hop reasoning automatically applied when beneficial for complex queries.",
     }
 
     st.info(mode_explanations[search_mode])
@@ -1008,6 +1040,9 @@ def get_rag_settings(key_suffix: str = ""):
                     key=f"expansion_threshold_custom{key_suffix}",
                     help="Minimum similarity for expanding through relationships",
                 )
+
+            # Multi-hop reasoning is now automatically applied based on query analysis
+            # No manual control needed - the system intelligently decides when to use it
 
     return config
 
@@ -1209,6 +1244,9 @@ def main():
                                 ),
                                 graph_expansion=search_config.get(
                                     "enable_graph_expansion", True
+                                ),
+                                use_multi_hop=search_config.get(
+                                    "use_multi_hop", False
                                 ),
                             )
                         full_response = result["response"]

@@ -14,6 +14,8 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 - 🔍 **Streaming Responses**: Progressive answer display for better user experience
 - 🎯 **Background File Processing**: Upload documents with progress indicators
 - 🧮 **Token-aware Request Management**: Avoid overwhelming LLM with intelligent token management and request splitting
+- 🖨️ **OCR / Smart OCR Support**: Robust OCR pipeline for scanned documents and images (see `docs/OCR_IMPLEMENTATION.md`)
+- 🔗 **Multi-hop Search / Graph Expansion**: Deep graph traversal for multi-step reasoning and investigative queries (see `docs/MULTI_HOP_IMPLEMENTATION.md`)
 
 ### 🆕 **Hybrid Entity-Chunk Retrieval**
 
@@ -257,6 +259,7 @@ GraphRAG4 supports intelligent processing of multiple document formats with spec
 - **Structure Preservation**: Maintains document hierarchy and formatting context
 - **Progress Tracking**: Real-time feedback during file processing
 - **Batch Processing**: Upload and process multiple files simultaneously
+- **Smart OCR**: Applies OCR to PDF scanned pages, diagrams or images
 
 ### Hybrid Entity-Chunk Approach
 
@@ -266,6 +269,18 @@ This implementation combines the reliability of traditional chunk-based retrieva
 - **Progressive Enhancement**: Enable entity extraction when ready for enhanced capabilities  
 - **Cost-Aware Processing**: Configurable concurrency and model selection for budget management
 - **Rich Graph Visualization**: View both chunks and entities in interactive Neo4j browser
+
+### OCR (Scanned Documents & Images)
+
+- The project includes a robust OCR pipeline for handling scanned PDFs and images. See `core/ocr.py` for the core OCR utilities and `ingestion/document_processor.py` for how OCR is integrated into the ingestion flow.
+- A "Smart OCR" mode applies image pre-processing and layout-aware text reconstruction to improve extraction quality for noisy scans and multi-column layouts. Detailed implementation notes and tuning tips are in `docs/OCR_IMPLEMENTATION.md`.
+- When OCR is enabled (via the `.env` or application settings), extracted text is chunked, embedded, and stored alongside born-digital documents so retrieval and graph construction are uniform across sources.
+
+### Multi-hop Reasoning & Graph Expansion
+
+- The system supports multi-hop reasoning across the knowledge graph to gather broader context for complex queries. This is implemented in `rag/graph_rag.py` and the LangGraph nodes under `rag/nodes/graph_reasoning.py`.
+- Multi-hop expansion follows entity relationships and chunk similarity links up to configurable depths (see the `MAX_EXPANSION_DEPTH` and related environment variables in this README and `config/settings.py`). Details, trade-offs, and examples are documented in `docs/MULTI_HOP_IMPLEMENTATION.md`.
+- Use the "Deep Search" mode in the Streamlit UI to enable deeper graph traversal for investigative queries that need multi-step reasoning across documents and entities.
 
 For detailed information about the hybrid approach, configuration options, and usage patterns, see [HYBRID_APPROACH.md](HYBRID_APPROACH.md).
 
@@ -353,7 +368,10 @@ graphrag/
 ├── requirements.txt            # Python dependencies
 ├── requirements-docker.txt     # Python dependencies (lighter for docker image)
 ├── README.md                   # This file
-├── HYBRID_APPROACH.md          # Detailed hybrid retrieval documentation
+├── docs/                       # Design & implementation docs
+│   ├── OCR_IMPLEMENTATION.md
+│   ├── HYBRID_APPROACH.md
+│   └── MULTI_HOP_IMPLEMENTATION.md
 ├── app.py                      # Streamlit main application
 ├── docker-compose.yml          # Docker services (Neo4 + rag app)
 ├── Dockerfile                  
@@ -362,6 +380,7 @@ graphrag/
 ├── core/
 │   ├── __init__.py
 │   ├── graph_db.py             # Neo4j database operations with entity support
+│   ├── ocr.py                  # OCR and Smart OCR utilities
 │   ├── embeddings.py           # Text embedding utilities
 │   ├── chunking.py             # Document chunking logic
 │   ├── entity_extraction.py    # 🆕 LLM-powered entity extraction
@@ -383,7 +402,7 @@ graphrag/
 │   ├── __init__.py
 │   ├── graph_rag.py            # LangGraph RAG implementation
 │   ├── retriever.py            # Legacy document retrieval logic
-│   ├── enhanced_retriever.py   # 🆕 Multi-mode retrieval (chunk/entity/hybrid)
+│   ├── retriever.py            # 🆕 Multi-mode retrieval (chunk/entity/hybrid)
 │   └── nodes/                  # LangGraph node definitions
 │       ├── __init__.py
 │       ├── query_analysis.py   # Query analysis and classification

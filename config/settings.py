@@ -63,6 +63,17 @@ class Settings(BaseSettings):
         default=True, description="Enable entity extraction"
     )
 
+    # OCR Configuration
+    enable_ocr: bool = Field(
+        default=True, description="Enable OCR processing for scanned documents"
+    )
+    enable_quality_filtering: bool = Field(
+        default=True, description="Enable chunk quality filtering"
+    )
+    ocr_quality_threshold: float = Field(
+        default=0.6, description="Quality threshold for OCR processing"
+    )
+
     # Retrieval Configuration
     min_retrieval_similarity: float = Field(
         default=0.1, description="Minimum similarity for chunk retrieval"
@@ -89,6 +100,20 @@ class Settings(BaseSettings):
     )
     max_expansion_depth: int = Field(
         default=2, description="Maximum depth for graph traversal"
+    )
+
+    # Multi-hop Reasoning Configuration
+    multi_hop_max_hops: int = Field(
+        default=2, description="Maximum number of hops for multi-hop reasoning"
+    )
+    multi_hop_beam_size: int = Field(
+        default=8, description="Beam size for multi-hop path search"
+    )
+    multi_hop_min_edge_strength: float = Field(
+        default=0.0, description="Minimum edge strength for multi-hop traversal"
+    )
+    hybrid_path_weight: float = Field(
+        default=0.6, description="Weight for path-based results in hybrid mode"
     )
 
     # Application Configuration

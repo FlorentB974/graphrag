@@ -41,11 +41,12 @@ def analyze_query(query: str) -> Dict[str, Any]:
 
         # Detect question types
         if any(
-            word in query_lower for word in ["compare", "difference", "vs", "versus"]
+            word in query_lower for word in ["compare", "difference", "vs", "versus", "contrast"]
         ):
             analysis["query_type"] = "comparative"
             analysis["requires_multiple_sources"] = True
-        elif any(word in query_lower for word in ["why", "how", "explain", "reason"]):
+            analysis["requires_reasoning"] = True
+        elif any(word in query_lower for word in ["why", "how", "explain", "reason", "analyze", "relationship", "connection"]):
             analysis["query_type"] = "analytical"
             analysis["requires_reasoning"] = True
         elif any(word in query_lower for word in ["what", "who", "when", "where"]):
@@ -128,8 +129,45 @@ def analyze_query(query: str) -> Dict[str, Any]:
         ]
         analysis["key_concepts"] = key_concepts[:5]  # Limit to top 5 concepts
 
+        # Determine if multi-hop reasoning would be beneficial
+        multi_hop_beneficial = False
+        
+        # Multi-hop is beneficial for:
+        # 1. Comparative queries (need to connect multiple entities)
+        if analysis["query_type"] == "comparative":
+            multi_hop_beneficial = True
+        
+        # 2. Analytical queries that need reasoning (relationships, explanations)
+        elif analysis["query_type"] == "analytical" and analysis["requires_reasoning"]:
+            multi_hop_beneficial = True
+            
+        # 3. Complex queries with multiple concepts
+        elif analysis["complexity"] == "complex" and len(key_concepts) >= 3:
+            multi_hop_beneficial = True
+            
+        # 4. Queries explicitly asking for relationships or connections
+        elif any(word in query_lower for word in ["relationship", "connection", "related", "link", "connect", "between"]):
+            multi_hop_beneficial = True
+            
+        # 5. Queries asking about trends, patterns, or implications
+        elif any(word in query_lower for word in ["trend", "pattern", "impact", "effect", "influence", "implication"]):
+            multi_hop_beneficial = True
+
+        # Multi-hop is NOT beneficial for:
+        # 1. Simple factual lookups (addresses, names, single facts)
+        # 2. Direct "what is X" questions about specific entities
+        # 3. Simple definition requests
+        if (analysis["query_type"] == "factual"
+            and analysis["complexity"] == "simple"
+            and len(key_concepts) <= 2
+            and not analysis["requires_multiple_sources"]):
+            multi_hop_beneficial = False
+
+        analysis["multi_hop_recommended"] = multi_hop_beneficial
+
         logger.info(
-            f"Query analysis completed: {analysis['query_type']}, {len(key_concepts)} concepts"
+            f"Query analysis completed: {analysis['query_type']}, {len(key_concepts)} concepts, "
+            f"multi-hop recommended: {multi_hop_beneficial}"
         )
         return analysis
 

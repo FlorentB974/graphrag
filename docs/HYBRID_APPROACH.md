@@ -18,7 +18,7 @@ This implementation provides a **hybrid approach** that combines both chunk-base
 - **Vector search**: Both chunk embeddings and entity embeddings for similarity search
 - **Graph traversal**: Neighborhood exploration for expanded context
 
-### 3. Multiple Retrieval Modes (`rag/enhanced_retriever.py`)
+### 3. Multiple Retrieval Modes (`rag/retriever.py`)
 - **Chunk-only**: Traditional chunk-based similarity search (backward compatible)
 - **Entity-only**: Entity-centric search like original GraphRAG
 - **Hybrid**: Weighted combination of chunk and entity results
@@ -96,7 +96,7 @@ await processor.process_document("research_paper.pdf")
 
 ### 2. Flexible Retrieval
 ```python
-from rag.enhanced_retriever import EnhancedDocumentRetriever, RetrievalMode
+from rag.retriever import DocumentRetriever, RetrievalMode
 
 retriever = EnhancedDocumentRetriever()
 

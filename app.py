@@ -809,6 +809,7 @@ def get_search_mode_config(search_mode: str):
             "retrieval_mode": (
                 "hybrid" if settings.enable_entity_extraction else "chunk_only"
             ),
+            "use_multi_hop": True,  # Always enabled, conditionally applied based on query analysis
         },
         "normal": {
             "min_retrieval_similarity": 0.1,
@@ -824,6 +825,7 @@ def get_search_mode_config(search_mode: str):
             "retrieval_mode": (
                 "hybrid" if settings.enable_entity_extraction else "chunk_only"
             ),
+            "use_multi_hop": True,  # Always enabled, conditionally applied based on query analysis
         },
         "deep": {
             "min_retrieval_similarity": 0.05,
@@ -839,6 +841,7 @@ def get_search_mode_config(search_mode: str):
             "retrieval_mode": (
                 "hybrid" if settings.enable_entity_extraction else "chunk_only"
             ),
+            "use_multi_hop": True,  # Always enabled, conditionally applied based on query analysis
         },
     }
     return configs.get(search_mode, configs["normal"])
@@ -880,9 +883,9 @@ def get_rag_settings(key_suffix: str = ""):
 
     # Brief explanation of current mode
     mode_explanations = {
-        "quick": "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion.",
-        "normal": "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Best for most queries.",
-        "deep": "🔍 **Deep mode**: Maximum comprehensiveness. Explores more connections and relationships for complex queries.",
+        "quick": "🚀 **Quick mode**: Optimized for speed with focused results. Uses fewer chunks and minimal graph expansion. Multi-hop reasoning automatically applied when beneficial.",
+        "normal": "⚖️ **Normal mode**: Balanced approach providing good coverage without overwhelming context. Multi-hop reasoning automatically applied when beneficial. Best for most queries.",
+        "deep": "🔍 **Deep mode**: Maximum comprehensiveness with extensive graph exploration. Multi-hop reasoning automatically applied when beneficial for complex queries.",
     }
 
     st.info(mode_explanations[search_mode])
@@ -1037,6 +1040,9 @@ def get_rag_settings(key_suffix: str = ""):
                     key=f"expansion_threshold_custom{key_suffix}",
                     help="Minimum similarity for expanding through relationships",
                 )
+
+            # Multi-hop reasoning is now automatically applied based on query analysis
+            # No manual control needed - the system intelligently decides when to use it
 
     return config
 
@@ -1238,6 +1244,9 @@ def main():
                                 ),
                                 graph_expansion=search_config.get(
                                     "enable_graph_expansion", True
+                                ),
+                                use_multi_hop=search_config.get(
+                                    "use_multi_hop", False
                                 ),
                             )
                         full_response = result["response"]

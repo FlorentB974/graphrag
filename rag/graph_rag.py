@@ -78,6 +78,7 @@ class GraphRAG:
             # Pass additional retrieval tuning parameters from state
             chunk_weight = state.get("chunk_weight", 0.5)
             graph_expansion = state.get("graph_expansion", True)
+            use_multi_hop = state.get("use_multi_hop", False)
 
             state["retrieved_chunks"] = retrieve_documents(
                 state.get("query", ""),
@@ -86,6 +87,7 @@ class GraphRAG:
                 state.get("top_k", 5),
                 chunk_weight=chunk_weight,
                 graph_expansion=graph_expansion,
+                use_multi_hop=use_multi_hop,
             )
             return state
         except Exception as e:
@@ -140,6 +142,7 @@ class GraphRAG:
         temperature: float = 0.7,
         chunk_weight: float = 0.5,
         graph_expansion: bool = True,
+        use_multi_hop: bool = False,
     ) -> Dict[str, Any]:
         """
         Process a user query through the RAG pipeline.
@@ -149,6 +152,9 @@ class GraphRAG:
             retrieval_mode: Retrieval strategy ("simple", "graph_enhanced", "hybrid")
             top_k: Number of chunks to retrieve
             temperature: LLM temperature for response generation
+            chunk_weight: Weight for chunk-based results in hybrid mode
+            graph_expansion: Whether to use graph expansion
+            use_multi_hop: Whether to use multi-hop reasoning
 
         Returns:
             Dictionary containing response and metadata
@@ -166,6 +172,7 @@ class GraphRAG:
             # Include hybrid tuning options provided by caller
             state["chunk_weight"] = chunk_weight
             state["graph_expansion"] = graph_expansion
+            state["use_multi_hop"] = use_multi_hop
 
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")

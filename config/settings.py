@@ -102,6 +102,20 @@ class Settings(BaseSettings):
         default=2, description="Maximum depth for graph traversal"
     )
 
+    # Multi-hop Reasoning Configuration
+    multi_hop_max_hops: int = Field(
+        default=2, description="Maximum number of hops for multi-hop reasoning"
+    )
+    multi_hop_beam_size: int = Field(
+        default=8, description="Beam size for multi-hop path search"
+    )
+    multi_hop_min_edge_strength: float = Field(
+        default=0.0, description="Minimum edge strength for multi-hop traversal"
+    )
+    hybrid_path_weight: float = Field(
+        default=0.6, description="Weight for path-based results in hybrid mode"
+    )
+
     # Application Configuration
     log_level: str = Field(default="INFO", description="Logging level")
     max_upload_size: int = Field(

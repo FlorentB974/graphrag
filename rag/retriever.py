@@ -1,5 +1,5 @@
 """
-Enhanced retrieval logic with support for chunk-based, entity-based, and hybrid modes.
+Enhanced retrieval logic with support for chunk-based, entity-based, hybrid modes, and multi-hop reasoning.
 """
 
 import hashlib
@@ -9,7 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from core.embeddings import embedding_manager
-from core.graph_db import graph_db
+from core.graph_db import graph_db, PathResult
+from rag.nodes.query_analysis import analyze_query
 
 logger = logging.getLogger(__name__)
 
@@ -338,28 +339,269 @@ class DocumentRetriever:
             logger.error(f"Entity expansion retrieval failed: {e}")
             return []
 
-    async def hybrid_retrieval(
-        self, query: str, top_k: int = 5, chunk_weight: float = 0.5
+    async def multi_hop_reasoning_retrieval(
+        self,
+        query: str,
+        seed_top_k: int = 5,
+        max_hops: int = 2,
+        beam_size: int = 8,
+        use_hybrid_seeding: bool = True,
     ) -> List[Dict[str, Any]]:
         """
-        Hybrid retrieval combining chunk-based and entity-based approaches.
+        Multi-hop reasoning retrieval using path traversal.
+
+        Args:
+            query: User query
+            seed_top_k: Number of seed entities to start from
+            max_hops: Maximum number of hops to traverse
+            beam_size: Beam size for path search
+            use_hybrid_seeding: Whether to use hybrid seeding (chunks + entities)
+
+        Returns:
+            List of chunks with path-based scoring and provenance
+        """
+        try:
+            # Step 1: Seed entity selection
+            seed_entity_ids = []
+            
+            if use_hybrid_seeding:
+                # Hybrid seeding: get chunks first, then extract entities
+                query_embedding = embedding_manager.get_embedding(query)
+                similar_chunks = graph_db.vector_similarity_search(
+                    query_embedding, seed_top_k * 2
+                )
+                
+                # Extract entities from these chunks
+                chunk_ids = [chunk["chunk_id"] for chunk in similar_chunks]
+                if chunk_ids:
+                    entities_in_chunks = graph_db.get_entities_for_chunks(chunk_ids)
+                    # Sort by importance and take top seed_top_k
+                    entities_in_chunks.sort(
+                        key=lambda e: e.get("importance_score", 0.0), reverse=True
+                    )
+                    seed_entity_ids = [
+                        e["entity_id"] for e in entities_in_chunks[:seed_top_k]
+                    ]
+            else:
+                # Entity-only seeding: find entities by similarity
+                relevant_entities = graph_db.entity_similarity_search(query, seed_top_k)
+                seed_entity_ids = [e["entity_id"] for e in relevant_entities]
+
+            if not seed_entity_ids:
+                logger.info("No seed entities found for multi-hop reasoning")
+                return []
+
+            logger.info(
+                f"Multi-hop reasoning: starting with {len(seed_entity_ids)} seed entities"
+            )
+
+            # Step 2: Find scored paths using beam search
+            paths = graph_db.find_scored_paths(
+                seed_entity_ids=seed_entity_ids,
+                max_hops=max_hops,
+                beam_size=beam_size,
+                min_edge_strength=settings.multi_hop_min_edge_strength,
+            )
+
+            if not paths:
+                logger.info("No paths found in multi-hop reasoning")
+                return []
+
+            # Step 3: Compose path contexts and score
+            query_embedding = embedding_manager.get_embedding(query)
+            path_results = []
+
+            for path in paths:
+                # Gather supporting chunks for all hops
+                all_chunk_ids = []
+                for hop_chunks in path.supporting_chunk_ids:
+                    all_chunk_ids.extend(hop_chunks)
+                
+                # Remove duplicates while preserving order
+                unique_chunk_ids = list(dict.fromkeys(all_chunk_ids))
+                
+                if not unique_chunk_ids:
+                    # Path has no supporting chunks, skip
+                    continue
+
+                # Get chunk data
+                with graph_db.driver.session() as session:  # type: ignore
+                    chunks_data = session.run(
+                        """
+                        MATCH (c:Chunk)
+                        WHERE c.id IN $chunk_ids
+                        OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(c)
+                        RETURN c.id as chunk_id, c.content as content,
+                               c.embedding as embedding,
+                               d.filename as document_name, d.id as document_id
+                        """,
+                        chunk_ids=unique_chunk_ids,
+                    ).data()
+
+                # Calculate path embedding (average of entity embeddings)
+                entity_embeddings = [
+                    e.embedding for e in path.entities if e.embedding is not None
+                ]
+                
+                if entity_embeddings:
+                    # Average entity embeddings for path representation
+                    path_embedding = [
+                        sum(emb[i] for emb in entity_embeddings) / len(entity_embeddings)
+                        for i in range(len(entity_embeddings[0]))
+                    ]
+                    
+                    # Calculate query similarity to path
+                    path_query_similarity = graph_db._calculate_cosine_similarity(
+                        query_embedding, path_embedding
+                    )
+                else:
+                    path_query_similarity = 0.0
+
+                # Calculate max chunk similarity
+                max_chunk_similarity = 0.0
+                for chunk_data in chunks_data:
+                    if chunk_data.get("embedding"):
+                        chunk_sim = graph_db._calculate_cosine_similarity(
+                            query_embedding, chunk_data["embedding"]
+                        )
+                        max_chunk_similarity = max(max_chunk_similarity, chunk_sim)
+
+                # Compute final path score with configurable weights
+                # alpha * path_score_from_edges + beta * query_similarity + gamma * max_chunk_sim
+                alpha, beta, gamma = 0.6, 0.3, 0.1
+                final_score = (
+                    alpha * path.score
+                    + beta * path_query_similarity
+                    + gamma * max_chunk_similarity
+                )
+
+                # Create result entries for each chunk in the path
+                for chunk_data in chunks_data:
+                    path_result = {
+                        "chunk_id": chunk_data["chunk_id"],
+                        "content": chunk_data["content"],
+                        "document_name": chunk_data.get("document_name", "Unknown"),
+                        "document_id": chunk_data.get("document_id", ""),
+                        "similarity": final_score,
+                        "retrieval_mode": "multi_hop_reasoning",
+                        "path_score": path.score,
+                        "path_query_similarity": path_query_similarity,
+                        "max_chunk_similarity": max_chunk_similarity,
+                        "path_entities": [e.name for e in path.entities],
+                        "path_relationships": [
+                            {
+                                "type": r.type,
+                                "description": r.description,
+                                "strength": r.strength,
+                            }
+                            for r in path.relationships
+                        ],
+                        "path_length": len(path.entities),
+                    }
+                    path_results.append(path_result)
+
+            # Sort by similarity and deduplicate by chunk_id
+            seen_chunks = {}
+            for result in path_results:
+                chunk_id = result["chunk_id"]
+                if chunk_id not in seen_chunks or result["similarity"] > seen_chunks[chunk_id]["similarity"]:
+                    seen_chunks[chunk_id] = result
+
+            final_results = list(seen_chunks.values())
+            final_results.sort(key=lambda x: x["similarity"], reverse=True)
+
+            logger.info(
+                f"Multi-hop reasoning: found {len(paths)} paths, "
+                f"generated {len(final_results)} unique chunks"
+            )
+            return final_results
+
+        except Exception as e:
+            logger.error(f"Multi-hop reasoning retrieval failed: {e}")
+            return []
+
+    async def hybrid_retrieval(
+        self, query: str, top_k: int = 5, chunk_weight: float = 0.5, use_multi_hop: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Hybrid retrieval combining chunk-based, entity-based, and optionally multi-hop approaches.
 
         Args:
             query: User query
             top_k: Total number of chunks to retrieve
             chunk_weight: Weight for chunk-based results (0.0-1.0)
+            use_multi_hop: Whether to include multi-hop reasoning
 
         Returns:
-            List of chunks from both approaches, de-duplicated and ranked
+            List of chunks from all approaches, de-duplicated and ranked
         """
         try:
-            # Calculate split for each approach
-            chunk_count = max(1, int(top_k * chunk_weight))
-            entity_count = max(1, top_k - chunk_count)
+            # Analyze query to determine if multi-hop would be beneficial
+            query_analysis = analyze_query(query)
+            multi_hop_recommended = query_analysis.get("multi_hop_recommended", True)
+            query_type = query_analysis.get("query_type", "factual")
+            
+            # Override multi-hop decision based on query analysis
+            effective_use_multi_hop = use_multi_hop and multi_hop_recommended
+            
+            # Adjust path weight based on query type
+            base_path_weight = settings.hybrid_path_weight
+            if query_type == "comparative":
+                # Comparative queries benefit more from multi-hop
+                path_weight = min(0.8, base_path_weight * 1.3)
+            elif query_type == "analytical":
+                # Analytical queries benefit from multi-hop
+                path_weight = min(0.7, base_path_weight * 1.1)
+            else:
+                # Factual queries - reduce multi-hop influence
+                path_weight = max(0.2, base_path_weight * 0.7)
+            
+            logger.info(
+                f"Multi-hop decision: requested={use_multi_hop}, recommended={multi_hop_recommended}, "
+                f"effective={effective_use_multi_hop}, query_type={query_type}, path_weight={path_weight:.2f}"
+            )
 
-            # Get results from both approaches
+            # Calculate split for each approach
+            if effective_use_multi_hop:
+                # With multi-hop: chunk, entity, and path results
+                remaining_weight = 1.0 - path_weight
+                chunk_count = max(1, int(top_k * chunk_weight * remaining_weight))
+                entity_count = max(1, int(top_k * (1 - chunk_weight) * remaining_weight))
+                # Allocate path slots based on adjusted weight and query type
+                if query_type == "comparative":
+                    path_count = max(int(top_k * path_weight), top_k // 2)  # More paths for comparisons
+                elif query_type == "analytical":
+                    path_count = max(int(top_k * path_weight), top_k // 3)  # Moderate paths for analysis
+                else:
+                    path_count = max(1, int(top_k * path_weight))  # Fewer paths for factual queries
+            else:
+                # Without multi-hop: just chunk and entity
+                chunk_count = max(1, int(top_k * chunk_weight))
+                entity_count = max(1, top_k - chunk_count)
+                path_count = 0
+
+            # Get results from different approaches
             chunk_results = await self.chunk_based_retrieval(query, chunk_count)
             entity_results = await self.entity_based_retrieval(query, entity_count)
+            
+            path_results = []
+            if effective_use_multi_hop:
+                path_results = await self.multi_hop_reasoning_retrieval(
+                    query,
+                    seed_top_k=5,
+                    max_hops=settings.multi_hop_max_hops,
+                    beam_size=settings.multi_hop_beam_size,
+                    use_hybrid_seeding=True,
+                )
+                # Limit path results, but be more generous if we have high-quality results
+                if len(path_results) > path_count:
+                    # Sort by similarity to keep the best ones
+                    path_results.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+                    # Keep top path_count, but allow up to 2x if quality is high
+                    high_quality_count = sum(1 for r in path_results if r.get("similarity", 0.0) > 0.5)
+                    keep_count = min(len(path_results), max(path_count, min(high_quality_count, path_count * 2)))
+                    path_results = path_results[:keep_count]
+                    logger.info(f"Multi-hop: keeping {keep_count}/{len(path_results)} path results (path_count={path_count}, high_quality={high_quality_count})")
 
             # Combine and deduplicate results by chunk_id
             combined_results = {}
@@ -398,6 +640,26 @@ class DocumentRetriever:
                         result["hybrid_score"] = result.get("similarity", 0.3)
                         combined_results[chunk_id] = result
 
+            # Add path-based results (merge if duplicate)
+            for result in path_results:
+                chunk_id = result.get("chunk_id")
+                if chunk_id:
+                    if chunk_id in combined_results:
+                        # Merge with existing
+                        existing = combined_results[chunk_id]
+                        existing["retrieval_source"] = "hybrid_with_paths"
+                        existing["path_entities"] = result.get("path_entities", [])
+                        existing["path_relationships"] = result.get("path_relationships", [])
+                        existing["path_length"] = result.get("path_length", 0)
+                        # Boost score for chunks found by multiple methods
+                        current_score = existing.get("hybrid_score", existing.get("chunk_score", 0.0))
+                        path_score = result.get("similarity", 0.3)
+                        existing["hybrid_score"] = min(1.0, (current_score + path_score) * 0.7)
+                    else:
+                        result["retrieval_source"] = "path_based"
+                        result["hybrid_score"] = result.get("similarity", 0.3)
+                        combined_results[chunk_id] = result
+
             # Sort by hybrid score and return top_k
             final_results = list(combined_results.values())
             final_results.sort(key=lambda x: x.get("hybrid_score", 0.0), reverse=True)
@@ -409,13 +671,20 @@ class DocumentRetriever:
             entity_only_count = sum(
                 1 for r in final_results if r.get("retrieval_source") == "entity_based"
             )
+            path_only_count = sum(
+                1 for r in final_results if r.get("retrieval_source") == "path_based"
+            )
             hybrid_count = sum(
-                1 for r in final_results if r.get("retrieval_source") == "hybrid"
+                1 for r in final_results if r.get("retrieval_source") in ["hybrid", "hybrid_with_paths"]
             )
 
             logger.info(
-                f"Hybrid retrieval: {len(chunk_results)} chunk + {len(entity_results)} entity → "
-                f"{len(final_results)} total ({chunk_only_count} chunk-only, {entity_only_count} entity-only, {hybrid_count} overlapping)"
+                f"Hybrid retrieval: {len(chunk_results)} chunk + {len(entity_results)} entity"
+                + (f" + {len(path_results)} path" if effective_use_multi_hop else "")
+                + f" → {len(final_results)} total "
+                f"({chunk_only_count} chunk-only, {entity_only_count} entity-only"
+                + (f", {path_only_count} path-only" if effective_use_multi_hop else "")
+                + f", {hybrid_count} overlapping)"
             )
 
             return final_results[:top_k]
@@ -429,6 +698,7 @@ class DocumentRetriever:
         query: str,
         mode: RetrievalMode = RetrievalMode.HYBRID,
         top_k: int = 5,
+        use_multi_hop: bool = False,
         **kwargs,
     ) -> List[Dict[str, Any]]:
         """
@@ -438,12 +708,13 @@ class DocumentRetriever:
             query: User query
             mode: Retrieval mode to use
             top_k: Number of results to return
+            use_multi_hop: Whether to use multi-hop reasoning (for hybrid mode)
             **kwargs: Additional parameters for specific retrieval modes
 
         Returns:
             List of relevant chunks with metadata
         """
-        logger.info(f"Starting retrieval with mode: {mode.value}, top_k: {top_k}")
+        logger.info(f"Starting retrieval with mode: {mode.value}, top_k: {top_k}, multi_hop: {use_multi_hop}")
 
         if mode == RetrievalMode.CHUNK_ONLY:
             return await self.chunk_based_retrieval(query, top_k)
@@ -451,7 +722,7 @@ class DocumentRetriever:
             return await self.entity_based_retrieval(query, top_k)
         elif mode == RetrievalMode.HYBRID:
             chunk_weight = kwargs.get("chunk_weight", 0.5)
-            return await self.hybrid_retrieval(query, top_k, chunk_weight)
+            return await self.hybrid_retrieval(query, top_k, chunk_weight, use_multi_hop)
         else:
             logger.error(f"Unknown retrieval mode: {mode}")
             return []
@@ -462,6 +733,7 @@ class DocumentRetriever:
         mode: RetrievalMode = RetrievalMode.HYBRID,
         top_k: int = 3,
         expand_depth: int = 2,
+        use_multi_hop: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve chunks and expand using graph relationships.
@@ -471,13 +743,14 @@ class DocumentRetriever:
             mode: Initial retrieval mode
             top_k: Number of initial chunks to retrieve
             expand_depth: Depth of graph expansion
+            use_multi_hop: Whether to use multi-hop reasoning
 
         Returns:
             List of chunks including expanded context
         """
         try:
             # Get initial results
-            initial_chunks = await self.retrieve(query, mode, top_k)
+            initial_chunks = await self.retrieve(query, mode, top_k, use_multi_hop=use_multi_hop)
 
             if not initial_chunks:
                 return []

@@ -291,20 +291,20 @@ class OCRProcessor:
             content_types = []
             confidence_scores = {}
             
-            # Text content detection
-            if text_component_ratio > 0.1 or edge_pixel_ratio < 0.05:
+            # Text content detection (improved sensitivity)
+            if text_component_ratio > 0.05 or edge_pixel_ratio < 0.05:
                 content_types.append("text")
-                confidence_scores["text"] = min(text_component_ratio * 2, 1.0)
+                confidence_scores["text"] = min(text_component_ratio * 3, 1.0)
             
             # Diagram/structural content detection
             if edge_pixel_ratio > 0.1 and brightness_std > 30:
                 content_types.append("diagram")
                 confidence_scores["diagram"] = min(edge_pixel_ratio * 2, 1.0)
             
-            # Scanned page detection (high contrast, structured layout)
-            if brightness_std > 40 and text_component_ratio > 0.05:
+            # Scanned page detection (improved sensitivity for low-quality scans)
+            if brightness_std > 20 and text_component_ratio > 0.001:  # Much more sensitive
                 content_types.append("scanned_page")
-                confidence_scores["scanned_page"] = min((brightness_std / 100) * text_component_ratio, 1.0)
+                confidence_scores["scanned_page"] = min((brightness_std / 80) * (text_component_ratio * 50), 1.0)
             
             # Image/photo detection (low text components, varied brightness)
             if text_component_ratio < 0.02 and brightness_std > 20:
@@ -319,11 +319,21 @@ class OCRProcessor:
             # Select primary content type
             primary_type = max(content_types, key=lambda t: confidence_scores.get(t, 0))
             
+            # Determine if OCR is needed with improved logic
+            needs_ocr = (
+                primary_type in ["text", "diagram", "scanned_page"]
+                # Also apply OCR if image has potential text characteristics
+                or (primary_type == "image"
+                    and (brightness_std > 25  # Good contrast suggesting text
+                         or text_component_ratio > 0.001  # Some structured content
+                         or edge_pixel_ratio > 0.03))  # Some structured edges
+            )
+            
             return {
                 "primary_type": primary_type,
                 "content_types": content_types,
                 "confidence_scores": confidence_scores,
-                "needs_ocr": primary_type in ["text", "diagram", "scanned_page"],
+                "needs_ocr": needs_ocr,
                 "metrics": {
                     "edge_pixel_ratio": edge_pixel_ratio,
                     "text_component_ratio": text_component_ratio,

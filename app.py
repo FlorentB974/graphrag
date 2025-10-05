@@ -1119,6 +1119,80 @@ def main():
                     with tab1:
                         # Display sources in sidebar
                         if "sources" in latest_message:
+                            # Display quality score at the top
+                            if "quality_score" in latest_message and latest_message["quality_score"]:
+                                score_data = latest_message["quality_score"]
+                                total_score = score_data.get("total", 0)
+                                breakdown = score_data.get("breakdown", {})
+                                confidence = score_data.get("confidence", "medium")
+                                
+                                # Color coding
+                                if total_score >= 80:
+                                    color_emoji = "🟢"
+                                    quality_label = "High Quality"
+                                elif total_score >= 60:
+                                    color_emoji = "🟡"
+                                    quality_label = "Medium Quality"
+                                else:
+                                    color_emoji = "🔴"
+                                    quality_label = "Needs Improvement"
+                                
+                                # Display score with visual emphasis
+                                st.markdown(f"### {color_emoji} Answer Quality Score")
+                                
+                                # Large percentage display
+                                col1, col2 = st.columns([1, 2])
+                                with col1:
+                                    st.metric(
+                                        label="Score",
+                                        value=f"{total_score:.1f}%",
+                                        help="Overall quality score based on multiple factors"
+                                    )
+                                with col2:
+                                    st.write(f"**{quality_label}**")
+                                    st.caption(f"Confidence: {confidence.title()}")
+                                
+                                # Progress bar visualization
+                                st.progress(total_score / 100)
+                                
+                                # Expandable breakdown
+                                with st.expander("📊 View Score Breakdown", expanded=False):
+                                    st.markdown("**Quality Components:**")
+                                    
+                                    for component, score in breakdown.items():
+                                        # Format component name
+                                        component_name = component.replace("_", " ").title()
+                                        
+                                        # Color code individual scores
+                                        if score >= 80:
+                                            icon = "🟢"
+                                        elif score >= 60:
+                                            icon = "🟡"
+                                        else:
+                                            icon = "🔴"
+                                        
+                                        col1, col2 = st.columns([3, 1])
+                                        with col1:
+                                            st.write(f"{icon} **{component_name}**")
+                                        with col2:
+                                            st.write(f"{score:.1f}%")
+                                        
+                                        # Progress bar for each component
+                                        st.progress(score / 100)
+                                    
+                                    # Explanation of components
+                                    st.markdown("---")
+                                    st.caption("""
+                                    **Score Components Explained:**
+                                    - **Context Relevance**: How well the answer uses provided context
+                                    - **Answer Completeness**: Whether all parts of the query are addressed
+                                    - **Factual Grounding**: Degree of grounding in source material
+                                    - **Coherence**: Logical flow and readability
+                                    - **Citation Quality**: Proper use and attribution of sources
+                                    """)
+                                
+                                st.markdown("---")
+                            
                             display_sources_detailed(latest_message["sources"])
 
                             # Small clear chat button placed next to the title
@@ -1260,6 +1334,7 @@ def main():
                             "content": full_response,
                             "query_analysis": result.get("query_analysis"),
                             "sources": result.get("sources"),
+                            "quality_score": result.get("quality_score"),
                         }
 
                         # Always add contextual graph visualization for the answer

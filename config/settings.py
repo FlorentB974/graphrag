@@ -122,6 +122,24 @@ class Settings(BaseSettings):
         default=100 * 1024 * 1024, description="Max upload size"
     )  # 100MB
 
+    # Quality Scoring Configuration
+    enable_quality_scoring: bool = Field(
+        default=True, description="Enable quality scoring for LLM answers"
+    )
+    quality_score_weights: dict = Field(
+        default={
+            "context_relevance": 0.30,
+            "answer_completeness": 0.25,
+            "factual_grounding": 0.25,
+            "coherence": 0.10,
+            "citation_quality": 0.10
+        },
+        description="Weights for different quality score components"
+    )
+    quality_score_cache_enabled: bool = Field(
+        default=True, description="Enable caching of quality scores"
+    )
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

@@ -37,6 +37,7 @@ def generate_response(
                     "chunks_used": 0,
                     "query_type": query_analysis.get("query_type", "unknown"),
                 },
+                "quality_score": None,
             }
 
         # Filter out chunks with 0.000 similarity before processing sources
@@ -132,10 +133,24 @@ def generate_response(
             )
         logger.info(f"Generated response using {len(relevant_chunks)} relevant chunks")
 
+        # Calculate quality score for the response
+        quality_score = None
+        try:
+            from core.quality_scorer import quality_scorer
+            quality_score = quality_scorer.calculate_quality_score(
+                answer=response_data.get("answer", ""),
+                query=query,
+                context_chunks=relevant_chunks,
+                sources=sources
+            )
+        except Exception as e:
+            logger.warning(f"Quality scoring failed: {e}")
+
         return {
             "response": response_data.get("answer", ""),
             "sources": sources,
             "metadata": metadata,
+            "quality_score": quality_score,
         }
 
     except Exception as e:
@@ -147,4 +162,5 @@ def generate_response(
                 "error": str(e),
                 "chunks_used": len(context_chunks) if context_chunks else 0,
             },
+            "quality_score": None,
         }

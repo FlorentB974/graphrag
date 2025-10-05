@@ -4,8 +4,8 @@ Quality scoring system for evaluating LLM-generated answers.
 
 import logging
 from typing import Any, Dict, List, Optional
-from functools import lru_cache
-import hashlib
+import json
+import re
 
 from core.llm import llm_manager
 from config.settings import settings
@@ -26,8 +26,6 @@ class QualityScorer:
             'coherence': 0.10,
             'citation_quality': 0.10
         })
-        self.cache_enabled = getattr(settings, 'quality_score_cache_enabled', True)
-        self._score_cache = {}
     
     def calculate_quality_score(
         self,
@@ -52,26 +50,25 @@ class QualityScorer:
             return None
         
         try:
-            # Check cache first
-            if self.cache_enabled:
-                cache_key = self._generate_cache_key(answer, query)
-                cached_score = self._get_cached_score(cache_key)
-                if cached_score:
-                    logger.info("Using cached quality score")
-                    return cached_score
+            # Try a single LLM call to get all component scores at once
+            scores = self._score_with_single_llm(answer, query, context_chunks, sources)
             
-            # Calculate individual component scores
-            scores = {}
-            scores['context_relevance'] = self._score_context_relevance(
-                answer, context_chunks
-            )
-            scores['answer_completeness'] = self._score_answer_completeness(
-                answer, query
-            )
-            scores['factual_grounding'] = self._score_factual_grounding(
-                answer, context_chunks
-            )
-            scores['coherence'] = self._score_coherence(answer)
+            # If single-LLM parsing failed, fall back to heuristic functions
+            if not scores:
+                logger.info("Single LLM call failed, falling back to heuristic scoring")
+                scores = {}
+                scores['context_relevance'] = self._heuristic_context_relevance(
+                    answer, context_chunks
+                )
+                scores['answer_completeness'] = self._heuristic_completeness(
+                    answer, query
+                )
+                scores['factual_grounding'] = self._heuristic_context_relevance(
+                    answer, context_chunks  # Use same heuristic as context relevance
+                )
+                scores['coherence'] = self._heuristic_coherence(answer)
+            
+            # Always calculate citation quality (already heuristic-based)
             scores['citation_quality'] = self._score_citation_quality(
                 answer, sources
             )
@@ -91,10 +88,6 @@ class QualityScorer:
                 'confidence': confidence
             }
             
-            # Cache the result
-            if self.cache_enabled:
-                self._cache_score(cache_key, result)
-            
             logger.info(f"Quality score calculated: {total_score:.1f}%")
             return result
             
@@ -102,59 +95,87 @@ class QualityScorer:
             logger.error(f"Quality scoring failed: {e}")
             return None
     
-    def _score_context_relevance(
+    def _score_with_single_llm(
         self,
         answer: str,
-        context_chunks: List[Dict[str, Any]]
-    ) -> float:
+        query: str,
+        context_chunks: List[Dict[str, Any]],
+        sources: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, float]]:
         """
-        Score how well the answer uses the provided context.
-        Returns score 0-100.
+        Try to get all metric scores in one LLM call.
+        Expects the LLM to return JSON with keys:
+          context_relevance, answer_completeness, factual_grounding, coherence, citation_quality
+        Each value should be a number 0-10 (preferred) or 0-100.
+        Returns None on failure (caller will fall back).
         """
-        if not context_chunks:
-            return 50.0  # Neutral score if no context
-        
         try:
-            # LLM-based evaluation
-            context_text = "\n\n".join([
-                # chunk.get('content', '')[:500]  # Limit context length
-                chunk.get('content', '')  # Limit context length
-                # for chunk in context_chunks[:5]  # Use top 5 chunks
-                for chunk in context_chunks  # Use top 5 chunks
-            ])
+            # Build a compact context (limit size to avoid huge prompts)
+            max_chunks = 1000
+            context_text = "\n\n".join(
+                chunk.get('content', '') for chunk in (context_chunks or [])[:max_chunks]
+            )
+            sources_text = "\n".join(
+                f"- {s.get('title', '')}: {s.get('id', '')}" for s in (sources or [])
+            )
             
-            prompt = f"""Evaluate how well this answer uses the provided context.
-Score from 0-10 where:
-- 10: Perfect use of context, all claims directly supported
-- 7-9: Good use of context, mostly grounded
-- 4-6: Moderate use, some unsupported claims
-- 1-3: Poor use, mostly ignores context
-- 0: Completely ungrounded or contradicts context
+            prompt = f"""You will evaluate the QUALITY of an answer on four dimensions.
+Return a single JSON object with the following keys and numeric values:
+  context_relevance: Evaluate how well this answer uses the provided context,
+  answer_completeness: Evaluate if this answer fully addresses the question,
+  factual_grounding: Evaluate how well the answer's claims are supported by the context,
+  coherence: Evaluate the coherence and clarity of this answer,
+Each value must be a number between 0 and 10 (decimals allowed). Do NOT include any text outside the JSON.
 
-Context:
-{context_text}
+Question:
+{query}
 
 Answer:
 {answer}
 
-Respond with ONLY a number from 0-10."""
+Context (top {max_chunks} chunks):
+{context_text}
 
-            response = llm_manager.generate_response(
-                prompt=prompt,
-                temperature=0.0
-                # max_tokens=10
-            )
-            # Parse score
+Sources:
+{sources_text}
+
+Respond with only JSON, e.g. {{"context_relevance": 8.5, "answer_completeness": 9, ...}}.
+"""
+            response = llm_manager.generate_response(prompt=prompt, temperature=0.0)
+            text = response.strip()
+            
+            # Try to extract JSON directly
+            json_text = text
+            # If the model added surrounding text, try to extract {...}
+            if not (text.startswith("{") and text.endswith("}")):
+                m = re.search(r"\{.*\}", text, re.S)
+                if m:
+                    json_text = m.group(0)
+            
             try:
-                score = float(response.strip()) * 10  # Convert 0-10 to 0-100
-                return min(max(score, 0), 100)  # Clamp to 0-100
-            except ValueError:
-                logger.warning(f"Could not parse LLM score response: {response}")
-                return self._heuristic_context_relevance(answer, context_chunks)
+                parsed = json.loads(json_text)
+                normalized = {}
+                for k in ('context_relevance', 'answer_completeness', 'factual_grounding', 'coherence'):
+                    v = parsed.get(k)
+                    if v is None:
+                        # If any key missing, consider this a failure to trigger fallback
+                        logger.warning(f"Single-LLM result missing key: {k}")
+                        return None
+                    # Accept 0-10 or 0-100; normalize to 0-100
+                    v = float(v)
+                    if 0 <= v <= 10:
+                        v = v * 10.0
+                    normalized[k] = min(max(v, 0.0), 100.0)
+                
+                logger.info("Successfully used single LLM call for quality scoring")
+                return normalized
+            except Exception as e:
+                logger.warning(f"Failed parsing single-LLM JSON: {e} -- response: {text}")
+                return None
             
         except Exception as e:
-            logger.warning(f"Context relevance scoring failed, using heuristic: {e}")
-            return self._heuristic_context_relevance(answer, context_chunks)
+            logger.warning(f"Single-LLM scoring failed: {e}")
+            return None
     
     def _heuristic_context_relevance(
         self,
@@ -177,45 +198,6 @@ Respond with ONLY a number from 0-10."""
         # Scale to 0-100, boost score since word overlap is a rough metric
         return min(overlap * 150, 100)
     
-    def _score_answer_completeness(self, answer: str, query: str) -> float:
-        """
-        Score whether the answer fully addresses the query.
-        Returns score 0-100.
-        """
-        try:
-            prompt = f"""Evaluate if this answer fully addresses the question.
-Score from 0-10 where:
-- 10: Completely answers all aspects of the question
-- 7-9: Addresses main points, minor gaps
-- 4-6: Partially answers, significant gaps
-- 1-3: Barely addresses the question
-- 0: Does not answer the question
-
-Question:
-{query}
-
-Answer:
-{answer}
-
-Respond with ONLY a number from 0-10."""
-
-            response = llm_manager.generate_response(
-                prompt=prompt,
-                temperature=0.0
-                # max_tokens=10
-            )
-            
-            try:
-                score = float(response.strip()) * 10
-                return min(max(score, 0), 100)
-            except ValueError:
-                logger.warning(f"Could not parse completeness score: {response}")
-                return self._heuristic_completeness(answer, query)
-            
-        except Exception as e:
-            logger.warning(f"Completeness scoring failed, using heuristic: {e}")
-            return self._heuristic_completeness(answer, query)
-    
     def _heuristic_completeness(self, answer: str, query: str) -> float:
         """Fallback heuristic for completeness scoring."""
         # Check if answer is reasonably long and contains query terms
@@ -230,92 +212,6 @@ Respond with ONLY a number from 0-10."""
         
         # Combined score
         return ((coverage * 0.6) + (length_score * 0.4)) * 100
-    
-    def _score_factual_grounding(
-        self,
-        answer: str,
-        context_chunks: List[Dict[str, Any]]
-    ) -> float:
-        """
-        Score how well claims are grounded in the source material.
-        Returns score 0-100.
-        """
-        if not context_chunks:
-            return 50.0
-        
-        try:
-            context_text = "\n\n".join([
-                chunk.get('content', '')
-                for chunk in context_chunks
-            ])
-            
-            prompt = f"""Evaluate how well the answer's claims are supported by the context.
-Score from 0-10 where:
-- 10: Every claim is directly supported by context
-- 7-9: Most claims supported, minor unsupported details
-- 4-6: Some claims supported, some speculation
-- 1-3: Few claims supported, mostly unsupported
-- 0: Claims contradict or ignore context
-
-Context:
-{context_text}
-
-Answer:
-{answer}
-
-Respond with ONLY a number from 0-10."""
-
-            response = llm_manager.generate_response(
-                prompt=prompt,
-                temperature=0.0
-                # max_tokens=10
-            )
-            
-            try:
-                score = float(response.strip()) * 10
-                return min(max(score, 0), 100)
-            except ValueError:
-                return self._heuristic_context_relevance(answer, context_chunks)
-            
-        except Exception as e:
-            logger.warning(f"Factual grounding scoring failed: {e}")
-            # Use context relevance as fallback
-            return self._heuristic_context_relevance(answer, context_chunks)
-    
-    def _score_coherence(self, answer: str) -> float:
-        """
-        Score the logical flow and readability of the answer.
-        Returns score 0-100.
-        """
-        try:
-            prompt = f"""Evaluate the coherence and clarity of this answer.
-Score from 0-10 where:
-- 10: Exceptionally clear, logical, well-structured
-- 7-9: Clear and coherent
-- 4-6: Somewhat clear, minor issues
-- 1-3: Confusing or poorly structured
-- 0: Incoherent
-
-Answer:
-{answer}
-
-Respond with ONLY a number from 0-10."""
-
-            response = llm_manager.generate_response(
-                prompt=prompt,
-                temperature=0.0
-                # max_tokens=10
-            )
-            
-            try:
-                score = float(response.strip()) * 10
-                return min(max(score, 0), 100)
-            except ValueError:
-                return self._heuristic_coherence(answer)
-            
-        except Exception as e:
-            logger.warning(f"Coherence scoring failed, using heuristic: {e}")
-            return self._heuristic_coherence(answer)
     
     def _heuristic_coherence(self, answer: str) -> float:
         """Fallback heuristic for coherence scoring."""
@@ -386,26 +282,6 @@ Respond with ONLY a number from 0-10."""
             return 'medium'
         else:  # High variance - inconsistent scores
             return 'low'
-    
-    def _generate_cache_key(self, answer: str, query: str) -> str:
-        """Generate cache key for answer-query pair."""
-        content = f"{query}:::{answer}"
-        return hashlib.md5(content.encode()).hexdigest()
-    
-    def _get_cached_score(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """Get cached score if available."""
-        return self._score_cache.get(cache_key)
-    
-    def _cache_score(self, cache_key: str, score: Dict[str, Any]) -> None:
-        """Cache a quality score."""
-        # Simple in-memory cache with size limit
-        if len(self._score_cache) > 100:
-            # Remove oldest entries (simple FIFO)
-            oldest_keys = list(self._score_cache.keys())[:20]
-            for key in oldest_keys:
-                del self._score_cache[key]
-        
-        self._score_cache[cache_key] = score
 
 
 # Global instance

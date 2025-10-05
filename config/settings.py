@@ -136,9 +136,6 @@ class Settings(BaseSettings):
         },
         description="Weights for different quality score components"
     )
-    quality_score_cache_enabled: bool = Field(
-        default=True, description="Enable caching of quality scores"
-    )
 
     model_config = {
         "env_file": ".env",

@@ -16,7 +16,8 @@ A comprehensive RAG (Retrieval-Augmented Generation) pipeline built with LangGra
 - 🧮 **Token-aware Request Management**: Avoid overwhelming LLM with intelligent token management and request splitting
 - 🖨️ **OCR / Smart OCR Support**: Robust OCR pipeline for scanned documents and images (see `docs/OCR_IMPLEMENTATION.md`)
 - 🔗 **Multi-hop Search / Graph Expansion**: Deep graph traversal for multi-step reasoning and investigative queries (see `docs/MULTI_HOP_IMPLEMENTATION.md`)
-
+ - 🤖 **Follow-up Questions Support**: Conversation-aware follow-up detection and contextualized query rewriting for multi-turn chats
+ 
 ### 🆕 **Hybrid Entity-Chunk Retrieval**
 
 - 🧠 **Entity Extraction**: LLM-powered extraction of entities and relationships from documents

@@ -15,6 +15,7 @@ def generate_response(
     context_chunks: List[Dict[str, Any]],
     query_analysis: Dict[str, Any],
     temperature: float = 0.7,
+    chat_history: List[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Generate response using retrieved context and query analysis.
@@ -24,6 +25,7 @@ def generate_response(
         context_chunks: Retrieved document chunks
         query_analysis: Query analysis results
         temperature: LLM temperature for response generation
+        chat_history: Optional conversation history for follow-up questions
 
     Returns:
         Dictionary containing response and metadata
@@ -48,11 +50,13 @@ def generate_response(
         ]
 
         # Generate response using LLM with only relevant chunks
+        # Include chat history if this is a follow-up question
         response_data = llm_manager.generate_rag_response(
             query=query,
             context_chunks=relevant_chunks,
             include_sources=True,
             temperature=temperature,
+            chat_history=chat_history if query_analysis.get("is_follow_up") else None,
         )
 
         # Prepare sources information with entity support

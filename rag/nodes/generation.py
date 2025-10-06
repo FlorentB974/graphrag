@@ -137,24 +137,13 @@ def generate_response(
             )
         logger.info(f"Generated response using {len(relevant_chunks)} relevant chunks")
 
-        # Calculate quality score for the response
-        quality_score = None
-        try:
-            from core.quality_scorer import quality_scorer
-            quality_score = quality_scorer.calculate_quality_score(
-                answer=response_data.get("answer", ""),
-                query=query,
-                context_chunks=relevant_chunks,
-                sources=sources
-            )
-        except Exception as e:
-            logger.warning(f"Quality scoring failed: {e}")
-
+        # Don't calculate quality score here - let it be done asynchronously
+        # during response streaming to reduce wait time for users
         return {
             "response": response_data.get("answer", ""),
             "sources": sources,
             "metadata": metadata,
-            "quality_score": quality_score,
+            "quality_score": None,  # Will be calculated asynchronously
         }
 
     except Exception as e:

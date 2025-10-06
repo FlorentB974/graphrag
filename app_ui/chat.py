@@ -61,14 +61,59 @@ def process_latest_user_message(main_col) -> None:
                     )
 
                 full_response = result["response"]
+                
+                # Start quality scoring in background while streaming response
+                import threading
+                quality_score = None
+                quality_score_lock = threading.Lock()
+                
+                def calculate_quality_async():
+                    nonlocal quality_score
+                    try:
+                        from core.quality_scorer import quality_scorer
+                        # Get relevant chunks for scoring
+                        context_chunks = result.get("graph_context", [])
+                        if not context_chunks:
+                            context_chunks = result.get("retrieved_chunks", [])
+                        
+                        # Filter out chunks with 0.000 similarity
+                        relevant_chunks = [
+                            chunk for chunk in context_chunks
+                            if chunk.get("similarity", chunk.get("hybrid_score", 0.0)) > 0.0
+                        ]
+                        
+                        score = quality_scorer.calculate_quality_score(
+                            answer=full_response,
+                            query=user_query,
+                            context_chunks=relevant_chunks,
+                            sources=result.get("sources", [])
+                        )
+                        with quality_score_lock:
+                            quality_score = score
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Async quality scoring failed: {e}")
+                
+                # Start scoring thread
+                scoring_thread = threading.Thread(target=calculate_quality_async, daemon=True)
+                scoring_thread.start()
+                
+                # Stream response to user (this happens concurrently with scoring)
                 st.write_stream(stream_response(full_response, 0.02))
+                
+                # Wait for scoring to complete (should be done by now, or very close)
+                scoring_thread.join(timeout=5.0)  # Max 5 seconds wait
+                
+                # Get final quality score
+                with quality_score_lock:
+                    final_quality_score = quality_score
 
                 message_data = {
                     "role": "assistant",
                     "content": full_response,
                     "query_analysis": result.get("query_analysis"),
                     "sources": result.get("sources"),
-                    "quality_score": result.get("quality_score"),
+                    "quality_score": final_quality_score,
                 }
 
                 try:

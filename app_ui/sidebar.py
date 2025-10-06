@@ -59,7 +59,7 @@ def render_sidebar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
                             st.metric(
                                 label="Score",
                                 value=f"{total_score:.1f}%",
-                                help="Overall quality score based on multiple factors",
+                                help="LLM evaluation based on multiple factors",
                             )
                         with col2:
                             st.write(f"**{quality_label}**")

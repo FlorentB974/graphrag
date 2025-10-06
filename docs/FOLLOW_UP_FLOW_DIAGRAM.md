@@ -129,25 +129,25 @@
 │ Turn 1: Initial Question (Not a follow-up)                          │
 └─────────────────────────────────────────────────────────────────────┘
 
-User Input: "Who is Florent Baillif?"
+User Input: "Who is Florent?"
 
 Query Analysis:
   ├─ is_follow_up: False
   ├─ needs_context: False
-  ├─ original_query: "Who is Florent Baillif?"
-  └─ contextualized_query: "Who is Florent Baillif?"
+  ├─ original_query: "Who is Florent?"
+  └─ contextualized_query: "Who is Florent?"
 
 Retrieval:
-  └─ Search for: "Who is Florent Baillif?"
+  └─ Search for: "Who is Florent?"
 
 Generation:
   ├─ No chat history included in prompt
-  └─ Response: "Florent Baillif is a software engineer..."
+  └─ Response: "Florent is a software engineer..."
 
 Chat History Updated:
   [
-    {"role": "user", "content": "Who is Florent Baillif?"},
-    {"role": "assistant", "content": "Florent Baillif is a software engineer..."}
+    {"role": "user", "content": "Who is Florent?"},
+    {"role": "assistant", "content": "Florent is a software engineer..."}
   ]
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -160,24 +160,24 @@ Query Analysis:
   ├─ is_follow_up: True ✓
   ├─ needs_context: True ✓
   ├─ original_query: "Tell me more about his work experience"
-  └─ contextualized_query: "Tell me more about Florent Baillif's work experience"
+  └─ contextualized_query: "Tell me more about Florent's work experience"
 
 Retrieval:
-  └─ Search for: "Tell me more about Florent Baillif's work experience"
+  └─ Search for: "Tell me more about Florent's work experience"
 
 Generation:
   ├─ Chat history included in prompt:
   │   "Previous conversation:
-  │    User: Who is Florent Baillif?
-  │    Assistant: Florent Baillif is a software engineer..."
-  └─ Response: "Florent Baillif's work experience includes..."
+  │    User: Who is Florent?
+  │    Assistant: Florent is a software engineer..."
+  └─ Response: "Florent's work experience includes..."
 
 Chat History Updated:
   [
-    {"role": "user", "content": "Who is Florent Baillif?"},
-    {"role": "assistant", "content": "Florent Baillif is a software engineer..."},
+    {"role": "user", "content": "Who is Florent?"},
+    {"role": "assistant", "content": "Florent is a software engineer..."},
     {"role": "user", "content": "Tell me more about his work experience"},
-    {"role": "assistant", "content": "Florent Baillif's work experience includes..."}
+    {"role": "assistant", "content": "Florent's work experience includes..."}
   ]
 
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -190,14 +190,14 @@ Query Analysis:
   ├─ is_follow_up: True ✓
   ├─ needs_context: True ✓
   ├─ original_query: "What about his education?"
-  └─ contextualized_query: "What about Florent Baillif's education?"
+  └─ contextualized_query: "What about Florent's education?"
 
 Retrieval:
-  └─ Search for: "What about Florent Baillif's education?"
+  └─ Search for: "What about Florent's education?"
 
 Generation:
   ├─ Chat history included (last 4 messages)
-  └─ Response: "Florent Baillif's education includes..."
+  └─ Response: "Florent's education includes..."
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Turn 4: New Topic (Not a follow-up)                                 │
@@ -300,7 +300,7 @@ Original Query: "Tell me more about his work"
          └──────────┬───────────────┘
                     │
                     ▼
-Contextualized: "Tell me more about Florent Baillif's work"
+Contextualized: "Tell me more about Florent's work"
                         │
                         ▼
          ┌──────────────────────────┐

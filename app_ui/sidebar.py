@@ -9,7 +9,7 @@ import streamlit as st
 
 from .database import display_document_list, display_stats
 from .search import get_rag_settings
-from .sources import display_query_analysis_detailed, display_sources_detailed
+from .sources import display_sources_detailed
 from .upload import display_document_upload
 
 
@@ -103,7 +103,6 @@ def render_sidebar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
                         st.markdown("---")
 
                     display_sources_detailed(latest_message.get("sources", []))
-                    display_query_analysis_detailed(latest_message.get("query_analysis") or {})
 
                     if st.button(
                         "🧹 Clear chat",

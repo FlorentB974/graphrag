@@ -210,22 +210,3 @@ def display_sources_detailed(sources: List[Dict[str, Any]]) -> None:
             )
         st.caption(count_text)
 
-
-def display_query_analysis_detailed(analysis: Dict[str, Any]) -> None:
-    """Display detailed query analysis in the sidebar."""
-    if not analysis:
-        return
-
-    with st.expander("Analysis Details", expanded=True):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write(f"**Type:** {analysis.get('query_type', 'Unknown')}")
-            st.write(f"**Complexity:** {analysis.get('complexity', 'Unknown')}")
-
-        with col2:
-            key_concepts = analysis.get("key_concepts", [])
-            if key_concepts:
-                st.write("**Key Concepts:**")
-                for concept in key_concepts[:5]:  # Limit to top 5
-                    st.write(f"• {concept}")

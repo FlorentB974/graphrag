@@ -11,6 +11,8 @@ from rag.graph_rag import graph_rag
 from .search import get_search_mode_config
 from .streaming import stream_response
 
+import threading
+
 
 def render_chat_messages(main_col, messages: List[Dict[str, Any]]) -> None:
     """Render existing chat messages inside the main column."""
@@ -61,9 +63,6 @@ def process_latest_user_message(main_col) -> None:
                     )
 
                 full_response = result["response"]
-                
-                # Start quality scoring in background while streaming response
-                import threading
                 quality_score = None
                 quality_score_lock = threading.Lock()
                 

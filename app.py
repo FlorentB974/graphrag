@@ -1231,6 +1231,15 @@ def main():
                                     get_search_mode_config("normal"),
                                 ),
                             )
+                            
+                            # Prepare chat history for follow-up detection
+                            # Only include recent messages (exclude the current user query)
+                            chat_history = []
+                            for msg in st.session_state.messages[:-1]:  # Exclude current query
+                                chat_history.append({
+                                    "role": msg["role"],
+                                    "content": msg["content"]
+                                })
 
                             result = graph_rag.query(
                                 user_query,
@@ -1248,6 +1257,7 @@ def main():
                                 use_multi_hop=search_config.get(
                                     "use_multi_hop", False
                                 ),
+                                chat_history=chat_history,
                             )
                         full_response = result["response"]
                         st.write_stream(

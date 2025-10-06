@@ -28,7 +28,7 @@ async def retrieve_documents_async(
     Retrieve relevant documents based on query and analysis using enhanced retriever.
 
     Args:
-        query: User query string
+        query: User query string (will use contextualized_query if available in analysis)
         query_analysis: Query analysis results
         retrieval_mode: Retrieval strategy ("chunk_only", "entity_only", "hybrid", "auto")
         top_k: Number of chunks to retrieve
@@ -40,6 +40,11 @@ async def retrieve_documents_async(
         List of relevant document chunks
     """
     try:
+        # Use contextualized query if this is a follow-up question
+        search_query = query_analysis.get("contextualized_query", query)
+        if search_query != query:
+            logger.info(f"Using contextualized query for retrieval: {search_query}")
+        
         # Determine retrieval strategy based on query analysis and mode
         complexity = query_analysis.get("complexity", "simple")
         requires_multiple = query_analysis.get("requires_multiple_sources", False)
@@ -87,7 +92,7 @@ async def retrieve_documents_async(
         # Use enhanced retriever. Prefer graph expansion when configured
         if (complexity == "complex" or query_type == "comparative") and graph_expansion:
             chunks = await document_retriever.retrieve_with_graph_expansion(
-                query=query,
+                query=search_query,
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,
                 use_multi_hop=use_multi_hop,
@@ -95,7 +100,7 @@ async def retrieve_documents_async(
         else:
             # Pass chunk_weight and multi_hop through to hybrid retriever if present
             chunks = await document_retriever.retrieve(
-                query=query,
+                query=search_query,
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,
                 chunk_weight=chunk_weight,

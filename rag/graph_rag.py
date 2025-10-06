@@ -63,8 +63,9 @@ class GraphRAG:
         """Analyze the user query (dict-based state for LangGraph)."""
         try:
             query = state.get("query", "")
+            chat_history = state.get("chat_history", [])
             logger.info(f"Analyzing query: {query}")
-            state["query_analysis"] = analyze_query(query)
+            state["query_analysis"] = analyze_query(query, chat_history)
             return state
         except Exception as e:
             logger.error(f"Query analysis failed: {e}")
@@ -120,6 +121,7 @@ class GraphRAG:
                 state.get("graph_context", []),
                 state.get("query_analysis", {}),
                 state.get("temperature", 0.7),
+                state.get("chat_history", []),
             )
 
             state["response"] = response_data.get("response", "")
@@ -143,6 +145,7 @@ class GraphRAG:
         chunk_weight: float = 0.5,
         graph_expansion: bool = True,
         use_multi_hop: bool = False,
+        chat_history: list = None,
     ) -> Dict[str, Any]:
         """
         Process a user query through the RAG pipeline.
@@ -155,6 +158,7 @@ class GraphRAG:
             chunk_weight: Weight for chunk-based results in hybrid mode
             graph_expansion: Whether to use graph expansion
             use_multi_hop: Whether to use multi-hop reasoning
+            chat_history: Optional conversation history for follow-up questions
 
         Returns:
             Dictionary containing response and metadata
@@ -173,6 +177,8 @@ class GraphRAG:
             state["chunk_weight"] = chunk_weight
             state["graph_expansion"] = graph_expansion
             state["use_multi_hop"] = use_multi_hop
+            # Add chat history for follow-up questions
+            state["chat_history"] = chat_history or []
 
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")

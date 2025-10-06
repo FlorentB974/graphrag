@@ -163,6 +163,7 @@ class LLMManager:
         context_chunks: list,
         include_sources: bool = True,
         temperature: float = 0.3,
+        chat_history: list = None,
     ) -> Dict[str, Any]:
         """
         Generate a RAG response using retrieved context chunks.
@@ -173,6 +174,7 @@ class LLMManager:
             context_chunks: List of relevant document chunks
             include_sources: Whether to include source information
             temperature: LLM temperature for response generation
+            chat_history: Optional conversation history for follow-up questions
 
         Returns:
             Dictionary containing response and metadata
@@ -197,11 +199,11 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
                     "Request exceeds token limit, splitting into multiple requests"
                 )
                 return self._generate_rag_response_split(
-                    query, context_chunks, system_message, include_sources, temperature
+                    query, context_chunks, system_message, include_sources, temperature, chat_history
                 )
             else:
                 return self._generate_rag_response_single(
-                    query, context_chunks, system_message, include_sources, temperature
+                    query, context_chunks, system_message, include_sources, temperature, chat_history
                 )
 
         except Exception as e:
@@ -215,6 +217,7 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
         system_message: str,
         include_sources: bool,
         temperature: float,
+        chat_history: list = None,
     ) -> Dict[str, Any]:
         """Generate RAG response for a single request that fits within token limits."""
         try:
@@ -225,8 +228,29 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
                     for i, chunk in enumerate(context_chunks)
                 ]
             )
+            
+            # Build conversation history context if provided
+            history_context = ""
+            if chat_history and len(chat_history) > 0:
+                # Limit to recent history to avoid token overflow
+                recent_history = chat_history[-4:] if len(chat_history) > 4 else chat_history
+                history_entries = []
+                for msg in recent_history:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    # Truncate very long messages
+                    if len(content) > 500:
+                        content = content[:500] + "..."
+                    history_entries.append(f"{role.title()}: {content}")
+                
+                if history_entries:
+                    history_context = f"""
+Previous conversation:
+{chr(10).join(history_entries)}
 
-            prompt = f"""Context:
+"""
+
+            prompt = f"""{history_context}Context:
 {context}
 
 Question: {query}
@@ -275,6 +299,7 @@ Please provide a comprehensive answer based on the context provided above."""
         system_message: str,
         include_sources: bool,
         temperature: float,
+        chat_history: list = None,
     ) -> Dict[str, Any]:
         """Generate RAG response by splitting the request into multiple parts."""
         try:
@@ -288,6 +313,25 @@ Please provide a comprehensive answer based on the context provided above."""
 
             responses = []
             total_chunks_used = 0
+            
+            # Build conversation history context if provided
+            history_context = ""
+            if chat_history and len(chat_history) > 0:
+                recent_history = chat_history[-4:] if len(chat_history) > 4 else chat_history
+                history_entries = []
+                for msg in recent_history:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    if len(content) > 500:
+                        content = content[:500] + "..."
+                    history_entries.append(f"{role.title()}: {content}")
+                
+                if history_entries:
+                    history_context = f"""
+Previous conversation:
+{chr(10).join(history_entries)}
+
+"""
 
             for i, (batch_query, batch_chunks, estimated_tokens) in enumerate(batches):
                 logger.info(
@@ -306,7 +350,7 @@ Please provide a comprehensive answer based on the context provided above."""
                     ]
                 )
 
-                batch_prompt = f"""Context:
+                batch_prompt = f"""{history_context}Context:
 {context}
 
 Question: {batch_query}

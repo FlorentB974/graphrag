@@ -384,8 +384,21 @@ graphrag/
 ├── app.py                      # Streamlit main application
 ├── docker-compose.yml          # Docker services (Neo4 + rag app)
 ├── Dockerfile                  
+├── LICENSE.md                  # Project license
+├── RELEASES/                   # Release notes and changelogs
 ├── config/
 │   └── settings.py             # Configuration management with hybrid settings
+├── app_ui/                     # Streamlit UI helper package (modularized from app.py)
+│   ├── __init__.py             # Public API for UI helpers
+│   ├── state.py                # Session state initialization/helpers
+│   ├── chat.py                 # Chat rendering and message processing
+│   ├── sidebar.py              # Sidebar layout and tab orchestration
+│   ├── upload.py               # File upload UI and processing orchestration
+│   ├── file_processing.py      # Background file processing helpers
+│   ├── database.py             # Database view helpers for the sidebar
+│   ├── sources.py              # Source and query-analysis display helpers
+│   └── streaming.py            # Streaming response utilities for progressive output
+
 ├── core/
 │   ├── __init__.py
 │   ├── graph_db.py             # Neo4j database operations with entity support
@@ -395,6 +408,7 @@ graphrag/
 │   ├── entity_extraction.py    # 🆕 LLM-powered entity extraction
 │   ├── graph_viz.py            # Graph visualization utilities
 │   ├── llm.py                  # OpenAI/Ollama API integration
+│   ├── quality_scorer.py       # Answer quality scoring utilities
 │   └── token_manager.py        # Token counting and management
 ├── ingestion/
 │   ├── __init__.py
@@ -410,7 +424,6 @@ graphrag/
 ├── rag/
 │   ├── __init__.py
 │   ├── graph_rag.py            # LangGraph RAG implementation
-│   ├── retriever.py            # Legacy document retrieval logic
 │   ├── retriever.py            # 🆕 Multi-mode retrieval (chunk/entity/hybrid)
 │   └── nodes/                  # LangGraph node definitions
 │       ├── __init__.py

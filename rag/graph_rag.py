@@ -3,7 +3,7 @@ LangGraph-based RAG pipeline implementation.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
 
@@ -27,6 +27,7 @@ class RAGState:
         self.response: str = ""
         self.sources: List[Dict[str, Any]] = []
         self.metadata: Dict[str, Any] = {}
+        self.quality_score: Optional[Dict[str, Any]] = None
 
 
 class GraphRAG:
@@ -127,6 +128,8 @@ class GraphRAG:
             state["response"] = response_data.get("response", "")
             state["sources"] = response_data.get("sources", [])
             state["metadata"] = response_data.get("metadata", {})
+            # Capture quality score computed during generation (if available)
+            state["quality_score"] = response_data.get("quality_score", None)
 
             return state
         except Exception as e:
@@ -198,6 +201,7 @@ class GraphRAG:
                 "graph_context": getattr(final_state, "graph_context", []),
                 "query_analysis": getattr(final_state, "query_analysis", {}),
                 "metadata": getattr(final_state, "metadata", {}),
+                "quality_score": getattr(final_state, "quality_score", None),
             }
 
         except Exception as e:
@@ -210,6 +214,7 @@ class GraphRAG:
                 "graph_context": [],
                 "query_analysis": {},
                 "metadata": {"error": str(e)},
+                "quality_score": None,
             }
 
     async def aquery(self, user_query: str) -> Dict[str, Any]:

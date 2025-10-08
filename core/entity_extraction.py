@@ -453,7 +453,10 @@ RELATIONSHIPS:
         @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
         def _generate_response_with_retry(prompt):
             return llm_manager.generate_response(
-                prompt=prompt, max_tokens=4000, temperature=0.1
+                prompt=prompt,
+                max_tokens=4000,
+                temperature=0.1,
+                operation="entity_extraction",
             )
 
         try:

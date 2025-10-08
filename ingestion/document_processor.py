@@ -3,6 +3,7 @@ Multi-format document processor for the RAG pipeline.
 """
 
 import asyncio
+import contextvars
 import hashlib
 import logging
 import random
@@ -250,7 +251,9 @@ class DocumentProcessor:
                 try:
                     # Add small delay to prevent API flooding
                     await asyncio.sleep(random.uniform(0.1, 0.3))
-                    embedding = await embedding_manager.aget_embedding(content)
+                    embedding = await embedding_manager.aget_embedding(
+                        content, operation="upload_embedding"
+                    )
                 except Exception as e:
                     logger.error(f"Async embedding failed for {chunk_id}: {e}")
                     embedding = []
@@ -654,9 +657,12 @@ class DocumentProcessor:
                             pass
 
                 # Start thread and track it so the UI can detect background work
+                ctx = contextvars.copy_context()
+
                 t = threading.Thread(
-                    target=_background_entity_worker,
-                    args=(doc_id, chunks_for_extraction),
+                    target=lambda: ctx.run(
+                        _background_entity_worker, doc_id, chunks_for_extraction
+                    ),
                     daemon=True,
                 )
                 with self._bg_lock:
@@ -1270,8 +1276,10 @@ class DocumentProcessor:
                         pass
 
         # Start thread and track it so the UI can detect background work
+        ctx = contextvars.copy_context()
         t = threading.Thread(
-            target=_batch_entity_worker, args=(processed_documents,), daemon=True
+            target=lambda: ctx.run(_batch_entity_worker, processed_documents),
+            daemon=True,
         )
         with self._bg_lock:
             self._bg_entity_threads.append(t)
@@ -1593,8 +1601,12 @@ class DocumentProcessor:
                         pass
 
             # Start thread and track it so the UI can detect background work
+            ctx = contextvars.copy_context()
             t = threading.Thread(
-                target=_global_entity_worker, args=(documents_to_process,), daemon=True
+                target=lambda: ctx.run(
+                    _global_entity_worker, documents_to_process
+                ),
+                daemon=True,
             )
             with self._bg_lock:
                 self._bg_entity_threads.append(t)

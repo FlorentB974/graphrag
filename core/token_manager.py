@@ -194,7 +194,10 @@ class TokenManager:
 
             # Use a very simple request to avoid token issues
             response = llm_manager.generate_response(
-                prompt=query, temperature=0.0, max_tokens=50
+                prompt=query,
+                temperature=0.0,
+                max_tokens=50,
+                operation="model_introspection",
             )
 
             # Extract number from response
@@ -430,6 +433,7 @@ Provide your merged response below (no explanations, just the final answer):"""
                 system_message=system_message,
                 temperature=0.2,  # Low temperature for consistency
                 max_tokens=2000,  # Generous limit for merged response
+                operation="llm_merge",
             )
 
             return merged_response.strip()

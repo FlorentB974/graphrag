@@ -6,12 +6,19 @@ import time
 
 import streamlit as st
 
+from core.stats import merge_request_into_session, stats_tracker
+
 from .file_processing import process_files_background
+from .stats import build_stats_markdown
 
 
 def display_document_upload() -> None:
     """Encapsulated document upload UI and processing logic."""
     st.markdown("### 📁 Document Upload")
+
+    previous_upload_stats = st.session_state.get("upload_stats_info")
+    if previous_upload_stats:
+        st.info(previous_upload_stats)
 
     # Add checkbox for entity extraction option
     extract_entities = st.checkbox(
@@ -52,9 +59,22 @@ def display_document_upload() -> None:
 
                 # Process files (chunks only). Entity extraction runs in background if enabled.
                 extract_entities = st.session_state.get("extract_entities_checkbox", True)
-                results = process_files_background(
-                    uploaded_files, progress_container, extract_entities
-                )
+                with stats_tracker.track_request("upload") as request_stats:
+                    results = process_files_background(
+                        uploaded_files, progress_container, extract_entities
+                    )
+
+                    request_stats.finish()
+                    request_summary = request_stats.to_dict()
+                    session_stats = merge_request_into_session(
+                        st.session_state.session_stats,
+                        request_stats,
+                    )
+                    st.session_state.session_stats = session_stats
+                    st.session_state.latest_request_stats = request_summary
+                    stats_info = build_stats_markdown(request_summary, session_stats)
+                    st.info(stats_info)
+                    st.session_state["upload_stats_info"] = stats_info
 
                 # Display results
                 if results["processed_files"]:

@@ -6,13 +6,14 @@ import asyncio
 import logging
 import random
 import time
-from typing import List
+from typing import List, Optional
 
 import httpx
 import openai
 import requests
 
 from config.settings import settings
+from core.stats import stats_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -157,37 +158,54 @@ class EmbeddingManager:
             self.ollama_base_url = getattr(settings, "ollama_base_url")
 
     @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
-    def get_embedding(self, text: str) -> List[float]:
+    def get_embedding(self, text: str, operation: Optional[str] = None) -> List[float]:
         """Generate embedding for a single text with retry logic."""
         try:
             if self.provider == "ollama":
-                return self._get_ollama_embedding(text)
+                return self._get_ollama_embedding(text, operation)
             else:
+                start_time = time.time()
                 response = openai.embeddings.create(input=text, model=self.model)
+                end_time = time.time()
+                stats_tracker.record_event(
+                    operation or "embedding",
+                    start_time=start_time,
+                    end_time=end_time,
+                    usage=getattr(response, "usage", None),
+                    model=getattr(response, "model", self.model),
+                )
                 return response.data[0].embedding
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             raise
 
     @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
-    def _get_ollama_embedding(self, text: str) -> List[float]:
+    def _get_ollama_embedding(self, text: str, operation: Optional[str] = None) -> List[float]:
         """Generate embedding using Ollama with retry logic."""
+        start_time = time.time()
         response = requests.post(
             f"{self.ollama_base_url}/api/embeddings",
             json={"model": self.model, "prompt": text},
             timeout=120,
         )
         response.raise_for_status()
+        end_time = time.time()
+        stats_tracker.record_event(
+            operation or "embedding",
+            start_time=start_time,
+            end_time=end_time,
+            model=self.model,
+        )
         return response.json().get("embedding", [])
 
-    async def aget_embedding(self, text: str) -> List[float]:
+    async def aget_embedding(self, text: str, operation: Optional[str] = None) -> List[float]:
         """Asynchronously generate embedding for a single text using httpx.AsyncClient with retry logic."""
         # Reuse the synchronous get_embedding (which already has retry logic)
         # by running it in a thread so callers can `await` it without performing
         # manual HTTP calls here. This keeps all OpenAI interactions using the
         # `openai` client and preserves existing retry behavior.
         try:
-            return await asyncio.to_thread(self.get_embedding, text)
+            return await asyncio.to_thread(self.get_embedding, text, operation)
         except Exception as e:
             logger.error(f"Failed to generate async embedding: {e}")
             raise

@@ -139,9 +139,13 @@ Context (top {max_chunks} chunks):
 Sources:
 {sources_text}
 
-Respond with only JSON, e.g. {{"context_relevance": 8.5, "answer_completeness": 9, ...}}.
+Respond with only JSON, e.g. {{"context_relevance": x.x, "answer_completeness": y, ...}}.
 """
-            response = llm_manager.generate_response(prompt=prompt, temperature=0.0)
+            response = llm_manager.generate_response(
+                prompt=prompt,
+                temperature=0.0,
+                operation="quality_score",
+            )
             text = response.strip()
             
             # Try to extract JSON directly

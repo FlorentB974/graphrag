@@ -4,13 +4,14 @@ OpenAI LLM integration for the RAG pipeline.
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 import openai
 import requests
 
 from config.settings import settings
+from core.stats import stats_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class LLMManager:
         system_message: Optional[str] = None,
         temperature: float = 0.1,
         max_tokens: int = 1000,
+        operation: Optional[str] = None,
     ) -> str:
         """
         Generate a response using the configured LLM.
@@ -57,11 +59,11 @@ class LLMManager:
         try:
             if self.provider == "ollama":
                 return self._generate_ollama_response(
-                    prompt, system_message, temperature, max_tokens
+                    prompt, system_message, temperature, max_tokens, operation
                 )
             else:
                 return self._generate_openai_response(
-                    prompt, system_message, temperature, max_tokens
+                    prompt, system_message, temperature, max_tokens, operation
                 )
 
         except Exception as e:
@@ -74,6 +76,7 @@ class LLMManager:
         system_message: Optional[str],
         temperature: float,
         max_tokens: int,
+        operation: Optional[str] = None,
     ) -> str:
         """Generate response using OpenAI with retry logic."""
         messages = []
@@ -86,11 +89,20 @@ class LLMManager:
 
         for attempt in range(max_retries):
             try:
+                start_time = time.time()
                 response = openai.chat.completions.create(
                     model=str(self.model),
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                )
+                end_time = time.time()
+                stats_tracker.record_event(
+                    operation or "llm_call",
+                    start_time=start_time,
+                    end_time=end_time,
+                    usage=response.usage,
+                    model=response.model,
                 )
                 return response.choices[0].message.content or ""
             except openai.RateLimitError:
@@ -137,6 +149,7 @@ class LLMManager:
         system_message: Optional[str],
         temperature: float,
         max_tokens: int,
+        operation: Optional[str] = None,
     ) -> str:
         """Generate response using Ollama."""
         full_prompt = ""
@@ -144,6 +157,7 @@ class LLMManager:
             full_prompt += f"System: {system_message}\n\n"
         full_prompt += f"Human: {prompt}\n\nAssistant:"
 
+        start_time = time.time()
         response = requests.post(
             f"{self.ollama_base_url}/api/generate",
             json={
@@ -155,6 +169,13 @@ class LLMManager:
             timeout=120,
         )
         response.raise_for_status()
+        end_time = time.time()
+        stats_tracker.record_event(
+            operation or "llm_call",
+            start_time=start_time,
+            end_time=end_time,
+            model=self.model,
+        )
         return response.json().get("response", "")
 
     def generate_rag_response(
@@ -163,7 +184,7 @@ class LLMManager:
         context_chunks: list,
         include_sources: bool = True,
         temperature: float = 0.3,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Generate a RAG response using retrieved context chunks.
@@ -217,7 +238,7 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
         system_message: str,
         include_sources: bool,
         temperature: float,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Generate RAG response for a single request that fits within token limits."""
         try:
@@ -270,6 +291,7 @@ Please provide a comprehensive answer based on the context provided above."""
                 system_message=system_message,
                 temperature=temperature,
                 max_tokens=max_out,
+                operation="llm_answer",
             )
 
             # If response looks truncated, try a short continuation
@@ -299,7 +321,7 @@ Please provide a comprehensive answer based on the context provided above."""
         system_message: str,
         include_sources: bool,
         temperature: float,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Generate RAG response by splitting the request into multiple parts."""
         try:
@@ -372,6 +394,7 @@ Please provide a comprehensive answer based on the context provided above."""
                     system_message=system_message,
                     temperature=temperature,
                     max_tokens=max_out,
+                    operation="llm_answer",
                 )
 
                 # Attempt to continue if truncated
@@ -495,6 +518,7 @@ Please provide a comprehensive answer based on the context provided above."""
                 system_message=system_message,
                 temperature=0.1,
                 max_tokens=cont_max,
+                operation="llm_continue",
             )
 
             if not continuation:
@@ -544,6 +568,7 @@ Return your analysis in a structured format."""
                 prompt=prompt,
                 system_message=system_message,
                 temperature=0.1,  # Very low temperature for consistent analysis
+                operation="query_analysis",
             )
 
             return {

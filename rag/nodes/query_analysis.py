@@ -177,10 +177,12 @@ def analyze_query(query: str, chat_history: Optional[List[Dict[str, str]]] = Non
         # 1. Simple factual lookups (addresses, names, single facts)
         # 2. Direct "what is X" questions about specific entities
         # 3. Simple definition requests
-        if (analysis["query_type"] == "factual"
+        if (
+            analysis["query_type"] == "factual"
             and analysis["complexity"] == "simple"
             and len(key_concepts) <= 2
-            and not analysis["requires_multiple_sources"]):
+            and not analysis["requires_multiple_sources"]
+        ):
             multi_hop_beneficial = False
 
         analysis["multi_hop_recommended"] = multi_hop_beneficial
@@ -290,7 +292,8 @@ Answer with JSON format:
             prompt=detection_prompt,
             system_message=system_message,
             temperature=0.1,
-            max_tokens=150
+            max_tokens=150,
+            operation="query_analysis_follow_up",
         )
         
         # Parse the response
@@ -364,7 +367,8 @@ Rewritten question:"""
             prompt=contextualization_prompt,
             system_message=system_message,
             temperature=0.1,
-            max_tokens=200
+            max_tokens=200,
+            operation="query_analysis_contextualize",
         )
         
         # Clean up the response

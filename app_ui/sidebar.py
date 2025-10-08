@@ -11,6 +11,7 @@ from .database import display_document_list, display_stats
 from .search import get_rag_settings
 from .sources import display_sources_detailed
 from .upload import display_document_upload
+from .stats import render_stats_panel
 
 
 def _find_latest_assistant_message(messages: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -27,14 +28,21 @@ def render_sidebar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     with container:
         st.markdown('<div class="floating">', unsafe_allow_html=True)
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(
-            ["📚 Sources", "🕸️ Context Graph", "📊 Database", "📁 Upload File", "⚙️"]
+        tab_sources, tab_graph, tab_stats, tab_db, tab_upload, tab_settings = st.tabs(
+            [
+                "📚 Sources",
+                "🕸️ Context Graph",
+                "📈 Stats",
+                "📊 Database",
+                "📁 Upload File",
+                "⚙️",
+            ]
         )
 
         latest_message = _find_latest_assistant_message(messages)
 
         if latest_message:
-            with tab1:
+            with tab_sources:
                 if "sources" in latest_message:
                     # Display quality score at the top
                     if latest_message.get("quality_score"):
@@ -120,40 +128,53 @@ def render_sidebar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
                             st.session_state.pop(f"search_config{suffix}", None)
                         st.rerun()
 
-            with tab2:
-                if latest_message.get("graph_fig") is not None:
-                    st.plotly_chart(latest_message["graph_fig"], use_container_width=True)
-                else:
-                    st.info("No graph available yet. Ask a question to generate one!")
+                request_stats = latest_message.get("stats") or st.session_state.get(
+                    "latest_request_stats"
+                )
 
-            with tab3:
-                display_stats()
-                display_document_list()
+                with tab_graph:
+                    if latest_message.get("graph_fig") is not None:
+                        st.plotly_chart(latest_message["graph_fig"], use_container_width=True)
+                    else:
+                        st.info("No graph available yet. Ask a question to generate one!")
 
-            with tab4:
-                display_document_upload()
+                with tab_stats:
+                    render_stats_panel(request_stats, st.session_state.get("session_stats"))
 
-            with tab5:
-                search_config = get_rag_settings(key_suffix="_latest")
-                st.session_state["search_config_latest"] = search_config
+                with tab_db:
+                    display_stats()
+                    display_document_list()
+
+                with tab_upload:
+                    display_document_upload()
+
+                with tab_settings:
+                    search_config = get_rag_settings(key_suffix="_latest")
+                    st.session_state["search_config_latest"] = search_config
         else:
-            with tab1:
+            with tab_sources:
                 st.info("💡 Start a conversation to see context information here!")
 
-            with tab2:
+            with tab_stats:
+                render_stats_panel(
+                    st.session_state.get("latest_request_stats"),
+                    st.session_state.get("session_stats"),
+                )
+
+            with tab_graph:
                 st.info("💡 Start a conversation to see context information here!")
 
-            with tab3:
+            with tab_db:
                 display_stats()
                 display_document_list()
 
-            with tab4:
+            with tab_upload:
                 display_document_upload()
 
-            with tab5:
+            with tab_settings:
                 search_config = get_rag_settings(key_suffix="_default")
                 st.session_state["search_config_default"] = search_config
 
         st.markdown("</div>", unsafe_allow_html=True)
-
+    
     return search_config

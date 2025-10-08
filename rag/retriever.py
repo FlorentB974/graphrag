@@ -4,12 +4,14 @@ Enhanced retrieval logic with support for chunk-based, entity-based, hybrid mode
 
 import hashlib
 import logging
+import time
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from core.embeddings import embedding_manager
-from core.graph_db import graph_db, PathResult
+from core.graph_db import graph_db
+from core.stats import stats_tracker
 from rag.nodes.query_analysis import analyze_query
 
 logger = logging.getLogger(__name__)
@@ -360,6 +362,8 @@ class DocumentRetriever:
         Returns:
             List of chunks with path-based scoring and provenance
         """
+        start_time = time.time()
+        metadata: Dict[str, Any] = {}
         try:
             # Step 1: Seed entity selection
             seed_entity_ids = []
@@ -514,11 +518,23 @@ class DocumentRetriever:
                 f"Multi-hop reasoning: found {len(paths)} paths, "
                 f"generated {len(final_results)} unique chunks"
             )
+            metadata = {
+                "paths": len(paths),
+                "chunks": len(final_results),
+            }
             return final_results
 
         except Exception as e:
             logger.error(f"Multi-hop reasoning retrieval failed: {e}")
             return []
+        finally:
+            end_time = time.time()
+            stats_tracker.record_event(
+                "multi_hop",
+                start_time=start_time,
+                end_time=end_time,
+                metadata=metadata or None,
+            )
 
     async def hybrid_retrieval(
         self, query: str, top_k: int = 5, chunk_weight: float = 0.5, use_multi_hop: bool = False

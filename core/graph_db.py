@@ -1716,6 +1716,72 @@ class GraphDB:
             logger.error(f"Path finding failed: {e}")
             return []
 
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get comprehensive database statistics for the API."""
+        with self.driver.session() as session:  # type: ignore
+            # Get basic stats
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WITH count(d) AS total_documents
+                OPTIONAL MATCH (c:Chunk)
+                WITH total_documents, count(c) AS total_chunks
+                OPTIONAL MATCH (e:Entity)
+                WITH total_documents, total_chunks, count(e) AS total_entities
+                OPTIONAL MATCH ()-[r]->()
+                RETURN total_documents, total_chunks, total_entities, count(r) AS total_relationships
+                """
+            )
+            record = result.single()
+            stats = record.data() if record else {}
+
+            # Get document list
+            doc_result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       d.created_at as created_at,
+                       chunk_count
+                ORDER BY d.created_at DESC
+                """
+            )
+            documents = [record.data() for record in doc_result]
+
+            return {
+                "total_documents": stats.get("total_documents", 0),
+                "total_chunks": stats.get("total_chunks", 0),
+                "total_entities": stats.get("total_entities", 0),
+                "total_relationships": stats.get("total_relationships", 0),
+                "documents": documents,
+            }
+
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """List all documents in the database."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       d.created_at as created_at,
+                       chunk_count
+                ORDER BY d.created_at DESC
+                """
+            )
+            return [record.data() for record in result]
+
+    def clear_database(self) -> None:
+        """Clear all data from the database."""
+        with self.driver.session() as session:  # type: ignore
+            # Delete all nodes and relationships
+            session.run("MATCH (n) DETACH DELETE n")
+            logger.info("Database cleared")
+
 
 # Global database instance
 graph_db = GraphDB()

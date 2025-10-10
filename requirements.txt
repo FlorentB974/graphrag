@@ -1,10 +1,13 @@
 # Core dependencies
 langchain>=0.1.0
 langgraph>=0.0.40
-streamlit>=1.28.0
 openai>=1.3.0
 neo4j>=5.0.0
 tiktoken>=0.5.0
+
+# FastAPI and API dependencies
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
 
 # Document processing
 pypdf>=3.17.0
@@ -28,9 +31,7 @@ pydantic>=2.0.0
 pydantic-settings>=1.0.0
 python-dotenv>=1.0.0
 
-# Web framework (optional API)
-fastapi>=0.100.0
-uvicorn[standard]>=0.23.0
+
 
 # Utilities
 numpy>=1.24.0
@@ -38,10 +39,9 @@ pandas>=2.0.0
 requests>=2.31.0
 aiofiles>=23.0.0
 
-# Graph visualization
+# Graph visualization (optional - not used in new UI)
 plotly>=5.17.0
 networkx>=3.2.0
-streamlit-plotly-events>=0.0.6
 
 # Logging and monitoring
 loguru>=0.7.0

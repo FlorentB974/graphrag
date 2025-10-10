@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Entity:
     """Entity node in the graph."""
+
     id: str
     name: str
     type: str
@@ -30,6 +31,7 @@ class Entity:
 @dataclass
 class Relationship:
     """Relationship between entities."""
+
     source_entity_id: str
     target_entity_id: str
     type: str
@@ -41,6 +43,7 @@ class Relationship:
 @dataclass
 class PathResult:
     """Result of a multi-hop path traversal."""
+
     entities: List[Entity]
     relationships: List[Relationship]
     score: float
@@ -758,7 +761,13 @@ class GraphDB:
         embedding = embedding_manager.get_embedding(entity_text)
 
         self._create_entity_node_sync(
-            entity_id, name, entity_type, description, importance_score, source_chunks, embedding
+            entity_id,
+            name,
+            entity_type,
+            description,
+            importance_score,
+            source_chunks,
+            embedding,
         )
 
     async def aupdate_entities_with_embeddings(self) -> int:
@@ -799,7 +808,9 @@ class GraphDB:
                         entity_text = f"{name}: {description}" if description else name
                         embedding = await embedding_manager.aget_embedding(entity_text)
                     except Exception as e:
-                        logger.error(f"Async embedding failed for entity {entity_id}: {e}")
+                        logger.error(
+                            f"Async embedding failed for entity {entity_id}: {e}"
+                        )
                         return None
 
                 # Persist to DB in a thread to avoid blocking the event loop
@@ -819,10 +830,15 @@ class GraphDB:
                         )
                     return entity_id
                 except Exception as e:
-                    logger.error(f"Failed to update entity {entity_id} with embedding: {e}")
+                    logger.error(
+                        f"Failed to update entity {entity_id} with embedding: {e}"
+                    )
                     return None
 
-            tasks = [asyncio.create_task(_embed_and_update_entity(entity)) for entity in entities_to_update]
+            tasks = [
+                asyncio.create_task(_embed_and_update_entity(entity))
+                for entity in entities_to_update
+            ]
 
             for coro in asyncio.as_completed(tasks):
                 try:
@@ -830,10 +846,14 @@ class GraphDB:
                 except Exception as e:
                     logger.error(f"Error in entity update task: {e}")
 
-            logger.info(f"Successfully updated {updated_count} entities with embeddings")
+            logger.info(
+                f"Successfully updated {updated_count} entities with embeddings"
+            )
             return updated_count
 
-    def _update_entity_embedding_sync(self, entity_id: str, embedding: List[float]) -> None:
+    def _update_entity_embedding_sync(
+        self, entity_id: str, embedding: List[float]
+    ) -> None:
         """Synchronous helper for updating entity embedding in database."""
         with self.driver.session() as session:  # type: ignore
             session.run(
@@ -1312,13 +1332,13 @@ class GraphDB:
                             self._get_chunk_content_sync,
                             chunk_id,
                         )
-                        
+
                         if content:
                             # Add small delay to prevent API flooding
                             await asyncio.sleep(0.1)
                             # Generate new embedding
                             embedding = await embedding_manager.aget_embedding(content)
-                            
+
                             # Update chunk with new embedding in executor
                             await loop.run_in_executor(
                                 None,
@@ -1337,8 +1357,11 @@ class GraphDB:
                 return False
 
             if chunk_ids:
-                tasks = [asyncio.create_task(_fix_chunk_embedding(chunk_id)) for chunk_id in chunk_ids]
-                
+                tasks = [
+                    asyncio.create_task(_fix_chunk_embedding(chunk_id))
+                    for chunk_id in chunk_ids
+                ]
+
                 for coro in asyncio.as_completed(tasks):
                     try:
                         await coro
@@ -1360,15 +1383,17 @@ class GraphDB:
                             self._get_entity_data_sync,
                             entity_id,
                         )
-                        
+
                         if entity_data:
                             # Add small delay to prevent API flooding
                             await asyncio.sleep(0.1)
                             # Use entity name + description for embedding
-                            text = f"{entity_data['name']}: {entity_data['description']}"
+                            text = (
+                                f"{entity_data['name']}: {entity_data['description']}"
+                            )
                             # Generate new embedding
                             embedding = await embedding_manager.aget_embedding(text)
-                            
+
                             # Update entity with new embedding in executor
                             await loop.run_in_executor(
                                 None,
@@ -1380,15 +1405,20 @@ class GraphDB:
                             logger.info(f"Fixed embedding for entity {entity_id}")
                             return True
                     except Exception as e:
-                        error_msg = f"Failed to fix embedding for entity {entity_id}: {e}"
+                        error_msg = (
+                            f"Failed to fix embedding for entity {entity_id}: {e}"
+                        )
                         results["errors"].append(error_msg)
                         logger.error(error_msg)
                         return False
                 return False
 
             if entity_ids:
-                tasks = [asyncio.create_task(_fix_entity_embedding(entity_id)) for entity_id in entity_ids]
-                
+                tasks = [
+                    asyncio.create_task(_fix_entity_embedding(entity_id))
+                    for entity_id in entity_ids
+                ]
+
                 for coro in asyncio.as_completed(tasks):
                     try:
                         await coro
@@ -1407,7 +1437,9 @@ class GraphDB:
             record = result.single()
             return record["content"] if record else None
 
-    def _update_chunk_embedding_sync(self, chunk_id: str, embedding: List[float]) -> None:
+    def _update_chunk_embedding_sync(
+        self, chunk_id: str, embedding: List[float]
+    ) -> None:
         """Synchronous helper for updating chunk embedding."""
         with self.driver.session() as session:  # type: ignore
             session.run(
@@ -1424,7 +1456,11 @@ class GraphDB:
                 entity_id=entity_id,
             )
             record = result.single()
-            return {"name": record["name"], "description": record["description"]} if record else None
+            return (
+                {"name": record["name"], "description": record["description"]}
+                if record
+                else None
+            )
 
     def fix_invalid_embeddings(
         self,
@@ -1558,11 +1594,11 @@ class GraphDB:
                         importance_score=entity_data.get("importance_score", 0.5),
                         embedding=entity_data.get("embedding"),
                     )
-                    
+
                     # Apply node filter if provided
                     if node_filter and not node_filter(entity):
                         continue
-                    
+
                     # Start with single-entity paths
                     path = PathResult(
                         entities=[entity],
@@ -1580,7 +1616,7 @@ class GraphDB:
                     for path in current_paths:
                         # Get the last entity in the path
                         last_entity = path.entities[-1]
-                        
+
                         # Skip if we've already expanded from this entity in this hop
                         path_key = (tuple(e.id for e in path.entities), hop)
                         if path_key in visited_in_hop:

@@ -114,7 +114,9 @@ def get_rag_settings(key_suffix: str = ""):
         col1, col2 = st.columns(2)
 
         with col1:
-            retrieval_mode = str(config.get("retrieval_mode", "")).replace("_", " ").title()
+            retrieval_mode = (
+                str(config.get("retrieval_mode", "")).replace("_", " ").title()
+            )
             st.write(f"**Retrieval Mode:** {retrieval_mode}")
             st.write(f"**Chunks Retrieved:** {int(config['top_k'])}")
             st.write(f"**Temperature:** {float(config['temperature'])}")
@@ -162,7 +164,9 @@ def get_rag_settings(key_suffix: str = ""):
                 "Retrieval Strategy",
                 mode_options,
                 format_func=lambda mode: (
-                    mode_labels[mode_options.index(mode)] if mode in mode_options else mode
+                    mode_labels[mode_options.index(mode)]
+                    if mode in mode_options
+                    else mode
                 ),
                 index=current_mode_index,
                 key=f"retrieval_mode_custom{key_suffix}",

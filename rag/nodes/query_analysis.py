@@ -10,7 +10,9 @@ from core.llm import llm_manager
 logger = logging.getLogger(__name__)
 
 
-def analyze_query(query: str, chat_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+def analyze_query(
+    query: str, chat_history: Optional[List[Dict[str, str]]] = None
+) -> Dict[str, Any]:
     """
     Analyze user query to extract intent and key concepts.
 
@@ -26,18 +28,20 @@ def analyze_query(query: str, chat_history: Optional[List[Dict[str, str]]] = Non
         is_follow_up = False
         needs_context = False
         context_query = query  # The enriched query with context if needed
-        
+
         if chat_history and len(chat_history) >= 2:
             # Detect follow-up questions using LLM
             follow_up_detection = _detect_follow_up_question(query, chat_history)
             is_follow_up = follow_up_detection.get("is_follow_up", False)
             needs_context = follow_up_detection.get("needs_context", False)
-            
+
             if is_follow_up and needs_context:
                 # Create a contextualized version of the query
                 context_query = _create_contextualized_query(query, chat_history)
-                logger.info(f"Follow-up question detected. Original: '{query}' -> Contextualized: '{context_query}'")
-        
+                logger.info(
+                    f"Follow-up question detected. Original: '{query}' -> Contextualized: '{context_query}'"
+                )
+
         # Use LLM to analyze the query (using contextualized version if needed)
         analysis_result = llm_manager.analyze_query(context_query)
 
@@ -61,12 +65,24 @@ def analyze_query(query: str, chat_history: Optional[List[Dict[str, str]]] = Non
 
         # Detect question types
         if any(
-            word in query_lower for word in ["compare", "difference", "vs", "versus", "contrast"]
+            word in query_lower
+            for word in ["compare", "difference", "vs", "versus", "contrast"]
         ):
             analysis["query_type"] = "comparative"
             analysis["requires_multiple_sources"] = True
             analysis["requires_reasoning"] = True
-        elif any(word in query_lower for word in ["why", "how", "explain", "reason", "analyze", "relationship", "connection"]):
+        elif any(
+            word in query_lower
+            for word in [
+                "why",
+                "how",
+                "explain",
+                "reason",
+                "analyze",
+                "relationship",
+                "connection",
+            ]
+        ):
             analysis["query_type"] = "analytical"
             analysis["requires_reasoning"] = True
         elif any(word in query_lower for word in ["what", "who", "when", "where"]):
@@ -151,36 +167,58 @@ def analyze_query(query: str, chat_history: Optional[List[Dict[str, str]]] = Non
 
         # Determine if multi-hop reasoning would be beneficial
         multi_hop_beneficial = False
-        
+
         # Multi-hop is beneficial for:
         # 1. Comparative queries (need to connect multiple entities)
         if analysis["query_type"] == "comparative":
             multi_hop_beneficial = True
-        
+
         # 2. Analytical queries that need reasoning (relationships, explanations)
         elif analysis["query_type"] == "analytical" and analysis["requires_reasoning"]:
             multi_hop_beneficial = True
-            
+
         # 3. Complex queries with multiple concepts
         elif analysis["complexity"] == "complex" and len(key_concepts) >= 3:
             multi_hop_beneficial = True
-            
+
         # 4. Queries explicitly asking for relationships or connections
-        elif any(word in query_lower for word in ["relationship", "connection", "related", "link", "connect", "between"]):
+        elif any(
+            word in query_lower
+            for word in [
+                "relationship",
+                "connection",
+                "related",
+                "link",
+                "connect",
+                "between",
+            ]
+        ):
             multi_hop_beneficial = True
-            
+
         # 5. Queries asking about trends, patterns, or implications
-        elif any(word in query_lower for word in ["trend", "pattern", "impact", "effect", "influence", "implication"]):
+        elif any(
+            word in query_lower
+            for word in [
+                "trend",
+                "pattern",
+                "impact",
+                "effect",
+                "influence",
+                "implication",
+            ]
+        ):
             multi_hop_beneficial = True
 
         # Multi-hop is NOT beneficial for:
         # 1. Simple factual lookups (addresses, names, single facts)
         # 2. Direct "what is X" questions about specific entities
         # 3. Simple definition requests
-        if (analysis["query_type"] == "factual"
+        if (
+            analysis["query_type"] == "factual"
             and analysis["complexity"] == "simple"
             and len(key_concepts) <= 2
-            and not analysis["requires_multiple_sources"]):
+            and not analysis["requires_multiple_sources"]
+        ):
             multi_hop_beneficial = False
 
         analysis["multi_hop_recommended"] = multi_hop_beneficial
@@ -209,47 +247,82 @@ def analyze_query(query: str, chat_history: Optional[List[Dict[str, str]]] = Non
         }
 
 
-def _detect_follow_up_question(query: str, chat_history: List[Dict[str, str]]) -> Dict[str, bool]:
+def _detect_follow_up_question(
+    query: str, chat_history: List[Dict[str, str]]
+) -> Dict[str, bool]:
     """
     Detect if the current query is a follow-up question that requires previous context.
-    
+
     Args:
         query: Current user query
         chat_history: List of previous messages
-    
+
     Returns:
         Dictionary with is_follow_up and needs_context flags
     """
     try:
         # Quick heuristic checks first (for efficiency)
         query_lower = query.lower().strip()
-        
+
         # Strong follow-up indicators
         follow_up_indicators = [
-            "tell me more", "what about", "and", "also", "additionally",
-            "his ", "her ", "their ", "its ", "this ", "that ", "these ", "those ",
-            "he ", "she ", "they ", "it ",
-            "more about", "explain", "clarify", "elaborate",
-            "same", "similar", "different", "compared to",
+            "tell me more",
+            "what about",
+            "and",
+            "also",
+            "additionally",
+            "his ",
+            "her ",
+            "their ",
+            "its ",
+            "this ",
+            "that ",
+            "these ",
+            "those ",
+            "he ",
+            "she ",
+            "they ",
+            "it ",
+            "more about",
+            "explain",
+            "clarify",
+            "elaborate",
+            "same",
+            "similar",
+            "different",
+            "compared to",
         ]
-        
+
         # Pronouns and references that likely need context
         context_references = [
-            "he", "she", "they", "it", "this", "that", "these", "those",
-            "him", "her", "them", "his", "her", "their", "its",
+            "he",
+            "she",
+            "they",
+            "it",
+            "this",
+            "that",
+            "these",
+            "those",
+            "him",
+            "her",
+            "them",
+            "his",
+            "her",
+            "their",
+            "its",
         ]
-        
+
         # Check if query starts with these indicators (strong signal)
         starts_with_indicator = any(
             query_lower.startswith(indicator) for indicator in follow_up_indicators
         )
-        
+
         # Check if query contains context references
         contains_reference = any(
             f" {ref} " in f" {query_lower} " or query_lower.startswith(f"{ref} ")
             for ref in context_references
         )
-        
+
         # If quick checks suggest it's NOT a follow-up, return early
         if not (starts_with_indicator or contains_reference):
             # Check for questions without specific entities (likely need context)
@@ -258,16 +331,15 @@ def _detect_follow_up_question(query: str, chat_history: List[Dict[str, str]]) -
                 pass
             else:
                 return {"is_follow_up": False, "needs_context": False}
-        
+
         # Use LLM for more sophisticated detection
         # Get last 2-4 exchanges for context (limit to avoid token overflow)
         recent_history = chat_history[-6:] if len(chat_history) > 6 else chat_history
-        
-        history_text = "\n".join([
-            f"{msg['role'].title()}: {msg['content']}"
-            for msg in recent_history
-        ])
-        
+
+        history_text = "\n".join(
+            [f"{msg['role'].title()}: {msg['content']}" for msg in recent_history]
+        )
+
         detection_prompt = f"""Analyze if the current question is a follow-up question that requires context from the previous conversation.
 
 Previous conversation:
@@ -285,16 +357,17 @@ Answer with JSON format:
 {{"is_follow_up": true/false, "needs_context": true/false, "reason": "brief explanation"}}"""
 
         system_message = "You are a query analyzer. Respond only with valid JSON."
-        
+
         result = llm_manager.generate_response(
             prompt=detection_prompt,
             system_message=system_message,
             temperature=0.1,
-            max_tokens=150
+            max_tokens=150,
         )
-        
+
         # Parse the response
         import json
+
         try:
             # Try to extract JSON from the response
             result = result.strip()
@@ -302,21 +375,21 @@ Answer with JSON format:
                 result = result.split("```json")[1].split("```")[0].strip()
             elif "```" in result:
                 result = result.split("```")[1].split("```")[0].strip()
-            
+
             analysis = json.loads(result)
             logger.info(f"Follow-up detection: {analysis}")
             return {
                 "is_follow_up": analysis.get("is_follow_up", False),
-                "needs_context": analysis.get("needs_context", False)
+                "needs_context": analysis.get("needs_context", False),
             }
         except json.JSONDecodeError:
             # Fallback to heuristic if JSON parsing fails
             logger.warning(f"Failed to parse follow-up detection result: {result}")
             return {
                 "is_follow_up": starts_with_indicator or contains_reference,
-                "needs_context": starts_with_indicator or contains_reference
+                "needs_context": starts_with_indicator or contains_reference,
             }
-            
+
     except Exception as e:
         logger.error(f"Follow-up detection failed: {e}")
         # Default to safe fallback
@@ -326,23 +399,25 @@ Answer with JSON format:
 def _create_contextualized_query(query: str, chat_history: List[Dict[str, str]]) -> str:
     """
     Create a contextualized version of the query by incorporating relevant previous context.
-    
+
     Args:
         query: Current user query
         chat_history: List of previous messages
-    
+
     Returns:
         Contextualized query string
     """
     try:
         # Get last 2-4 exchanges for context
         recent_history = chat_history[-6:] if len(chat_history) > 6 else chat_history
-        
-        history_text = "\n".join([
-            f"{msg['role'].title()}: {msg['content'][:500]}"  # Limit length
-            for msg in recent_history
-        ])
-        
+
+        history_text = "\n".join(
+            [
+                f"{msg['role'].title()}: {msg['content'][:500]}"  # Limit length
+                for msg in recent_history
+            ]
+        )
+
         contextualization_prompt = f"""Given the conversation history and the current follow-up question, rewrite the question to be self-contained and clear without the previous context.
 
 Previous conversation:
@@ -359,14 +434,14 @@ Rewrite this question to include necessary context from the conversation. The re
 Rewritten question:"""
 
         system_message = "You are a query rewriter. Provide only the rewritten question without explanation."
-        
+
         contextualized = llm_manager.generate_response(
             prompt=contextualization_prompt,
             system_message=system_message,
             temperature=0.1,
-            max_tokens=200
+            max_tokens=200,
         )
-        
+
         # Clean up the response
         contextualized = contextualized.strip()
         # Remove quotes if present
@@ -374,10 +449,10 @@ Rewritten question:"""
             contextualized = contextualized[1:-1]
         if contextualized.startswith("'") and contextualized.endswith("'"):
             contextualized = contextualized[1:-1]
-        
+
         logger.info(f"Contextualized query: {query} -> {contextualized}")
         return contextualized
-        
+
     except Exception as e:
         logger.error(f"Query contextualization failed: {e}")
         # Return original query as fallback

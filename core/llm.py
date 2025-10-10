@@ -199,11 +199,21 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
                     "Request exceeds token limit, splitting into multiple requests"
                 )
                 return self._generate_rag_response_split(
-                    query, context_chunks, system_message, include_sources, temperature, chat_history
+                    query,
+                    context_chunks,
+                    system_message,
+                    include_sources,
+                    temperature,
+                    chat_history,
                 )
             else:
                 return self._generate_rag_response_single(
-                    query, context_chunks, system_message, include_sources, temperature, chat_history
+                    query,
+                    context_chunks,
+                    system_message,
+                    include_sources,
+                    temperature,
+                    chat_history,
                 )
 
         except Exception as e:
@@ -228,12 +238,14 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
                     for i, chunk in enumerate(context_chunks)
                 ]
             )
-            
+
             # Build conversation history context if provided
             history_context = ""
             if chat_history and len(chat_history) > 0:
                 # Limit to recent history to avoid token overflow
-                recent_history = chat_history[-4:] if len(chat_history) > 4 else chat_history
+                recent_history = (
+                    chat_history[-4:] if len(chat_history) > 4 else chat_history
+                )
                 history_entries = []
                 for msg in recent_history:
                     role = msg.get("role", "user")
@@ -242,7 +254,7 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
                     if len(content) > 500:
                         content = content[:500] + "..."
                     history_entries.append(f"{role.title()}: {content}")
-                
+
                 if history_entries:
                     history_context = f"""
 Previous conversation:
@@ -313,11 +325,13 @@ Please provide a comprehensive answer based on the context provided above."""
 
             responses = []
             total_chunks_used = 0
-            
+
             # Build conversation history context if provided
             history_context = ""
             if chat_history and len(chat_history) > 0:
-                recent_history = chat_history[-4:] if len(chat_history) > 4 else chat_history
+                recent_history = (
+                    chat_history[-4:] if len(chat_history) > 4 else chat_history
+                )
                 history_entries = []
                 for msg in recent_history:
                     role = msg.get("role", "user")
@@ -325,7 +339,7 @@ Please provide a comprehensive answer based on the context provided above."""
                     if len(content) > 500:
                         content = content[:500] + "..."
                     history_entries.append(f"{role.title()}: {content}")
-                
+
                 if history_entries:
                     history_context = f"""
 Previous conversation:

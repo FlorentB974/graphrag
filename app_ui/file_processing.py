@@ -28,7 +28,9 @@ def process_files_background(
     # First, estimate total chunks for progress tracking
     status_text = progress_container.empty()
     status_text.text("Estimating total processing work...")
-    total_estimated_chunks = document_processor.estimate_chunks_from_files(uploaded_files)
+    total_estimated_chunks = document_processor.estimate_chunks_from_files(
+        uploaded_files
+    )
 
     # Initialize progress tracking
     progress_bar = progress_container.progress(0)
@@ -118,7 +120,9 @@ def process_files_background(
         status_text.text("Starting entity extraction for all files in background...")
         try:
             # Start batch entity extraction in background thread
-            entity_stats = document_processor.process_batch_entities(processed_documents)
+            entity_stats = document_processor.process_batch_entities(
+                processed_documents
+            )
 
             # Update results with entity statistics when available
             if entity_stats:

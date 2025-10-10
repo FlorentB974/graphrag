@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 import streamlit as st
 
 from config.settings import settings
@@ -53,7 +54,9 @@ def display_stats() -> None:
                     stats.get("chunk_entity_relations", 0)
                     / max(stats.get("chunks", 1), 1)
                 ) * 100
-                st.caption(f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)")
+                st.caption(
+                    f"✅ Entities extracted ({entity_coverage:.1f}% chunk coverage)"
+                )
             else:
                 st.caption("⚠️ No entities extracted yet")
         except Exception:  # pylint: disable=broad-except
@@ -178,7 +181,9 @@ def display_document_list() -> None:
 
                 if processing_method == "ocr" or processing_method == "image_ocr":
                     if processing_method == "image_ocr" and ocr_applied_pages > 0:
-                        type_display = f" ({content_primary_type})" if content_primary_type else ""
+                        type_display = (
+                            f" ({content_primary_type})" if content_primary_type else ""
+                        )
                         st.write(
                             f"**OCR Processing:** 🔍 Smart OCR applied (Image{type_display})"
                         )
@@ -190,7 +195,10 @@ def display_document_list() -> None:
                         # Show OCR details
                         if ocr_items_count > 0:
                             st.caption(f"OCR items processed: {ocr_items_count}")
-                    elif summary_total_pages and (summary_total_pages - summary_ocr_pages) > 0:
+                    elif (
+                        summary_total_pages
+                        and (summary_total_pages - summary_ocr_pages) > 0
+                    ):
                         readable_pages = summary_total_pages - summary_ocr_pages
                         st.write(
                             f"**OCR Processing:** ✅ Readable text used ({readable_pages}/{summary_total_pages} pages)"
@@ -211,7 +219,9 @@ def display_document_list() -> None:
                         doc_entities = graph_db.get_document_entities(doc_id)
                         if doc_entities:
                             with st.expander("View Extracted Entities", expanded=False):
-                                for entity in doc_entities[:10]:  # Limit to first 10 entities
+                                for entity in doc_entities[
+                                    :10
+                                ]:  # Limit to first 10 entities
                                     entity_name = entity.get("name", "Unknown")
                                     entity_type = entity.get("type", "Unknown")
                                     importance = entity.get("importance_score", 0)
@@ -228,7 +238,9 @@ def display_document_list() -> None:
                                     )
                     except Exception as exc:  # pylint: disable=broad-except
                         st.error(f"Could not load entities: {exc}")
-                        logger.exception("Could not load entities for document %s", doc_id)
+                        logger.exception(
+                            "Could not load entities for document %s", doc_id
+                        )
 
                 elif chunk_count > 0:
                     st.write("**Entities:** ⚠️ Not extracted")
@@ -252,7 +264,9 @@ def display_document_list() -> None:
                                 st.error(f"Failed to delete: {exc}")
                                 logger.exception("Failed to delete doc %s", doc_id)
                     else:
-                        if st.button("🗑️ Delete", key=f"delete_{doc_id}", type="secondary"):
+                        if st.button(
+                            "🗑️ Delete", key=f"delete_{doc_id}", type="secondary"
+                        ):
                             st.session_state.confirm_delete[doc_id] = True
                             st.rerun()
 

@@ -13,7 +13,9 @@ from .sources import display_sources_detailed
 from .upload import display_document_upload
 
 
-def _find_latest_assistant_message(messages: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _find_latest_assistant_message(
+    messages: Sequence[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     for msg in reversed(messages):
         if msg.get("role") == "assistant":
             return msg
@@ -122,7 +124,9 @@ def render_sidebar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
 
             with tab2:
                 if latest_message.get("graph_fig") is not None:
-                    st.plotly_chart(latest_message["graph_fig"], use_container_width=True)
+                    st.plotly_chart(
+                        latest_message["graph_fig"], use_container_width=True
+                    )
                 else:
                     st.info("No graph available yet. Ask a question to generate one!")
 

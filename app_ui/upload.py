@@ -51,7 +51,9 @@ def display_document_upload() -> None:
                 st.info("Processing uploaded files (chunk extraction).")
 
                 # Process files (chunks only). Entity extraction runs in background if enabled.
-                extract_entities = st.session_state.get("extract_entities_checkbox", True)
+                extract_entities = st.session_state.get(
+                    "extract_entities_checkbox", True
+                )
                 results = process_files_background(
                     uploaded_files, progress_container, extract_entities
                 )
@@ -59,13 +61,9 @@ def display_document_upload() -> None:
                 # Display results
                 if results["processed_files"]:
                     # Create comprehensive success message
-                    success_msg = (
-                        f"Successfully processed {len(results['processed_files'])} files ({results['total_chunks']} chunks created"
-                    )
+                    success_msg = f"Successfully processed {len(results['processed_files'])} files ({results['total_chunks']} chunks created"
                     if results.get("total_entities", 0) > 0:
-                        success_msg += (
-                            f", {results['total_entities']} entities, {results['total_entity_relationships']} relationships"
-                        )
+                        success_msg += f", {results['total_entities']} entities, {results['total_entity_relationships']} relationships"
                     success_msg += ")"
 
                     st.toast(icon="✅", body=success_msg)

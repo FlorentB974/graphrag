@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 from pypdf import PdfReader
 
+from config.settings import settings
 from core.ocr import ocr_processor
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,49 @@ class PDFLoader:
     def __init__(self):
         """Initialize the PDF loader."""
         self.processor = ocr_processor
+
+    def _extract_basic_text(self, file_path: Path) -> Optional[Dict[str, Any]]:
+        """
+        Extract basic text from PDF without OCR.
+
+        Args:
+            file_path: Path to the PDF file
+
+        Returns:
+            Dictionary with content and metadata
+        """
+        try:
+            reader = PdfReader(str(file_path))
+            text_content = []
+
+            for page_num, page in enumerate(reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        text_content.append(f"--- Page {page_num + 1} ---\n{page_text}")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to extract text from page {page_num + 1}: {e}"
+                    )
+                    continue
+
+            if not text_content:
+                logger.warning(f"No text content extracted from PDF: {file_path}")
+                return None
+
+            content = "\n\n".join(text_content)
+
+            metadata = {
+                "processing_method": "basic_text_extraction",
+                "total_pages": len(reader.pages),
+                "pages_processed": len(text_content),
+            }
+
+            return {"content": content, "metadata": metadata}
+
+        except Exception as e:
+            logger.error(f"Basic PDF text extraction failed for {file_path}: {e}")
+            return None
 
     def load(self, file_path: Path) -> Optional[str]:
         """
@@ -45,11 +89,16 @@ class PDFLoader:
             Dictionary with content and OCR metadata
         """
         try:
+            # Check if OCR is enabled in settings
+            if not settings.enable_ocr:
+                logger.info(f"Processing PDF without OCR (OCR disabled): {file_path}")
+                return self._extract_basic_text(file_path)
+
             logger.info(f"Processing PDF with intelligent OCR: {file_path}")
-            
+
             # Use OCR processor to intelligently handle the PDF
             result = self.processor.process_pdf_intelligently(file_path)
-            
+
             if not result["content"]:
                 logger.warning(f"No content extracted from PDF: {file_path}")
                 return None
@@ -57,7 +106,7 @@ class PDFLoader:
             # Create comprehensive metadata - flatten for Neo4j compatibility
             ocr_metadata = result["ocr_metadata"]
             processing_summary = ocr_metadata.get("processing_summary", {})
-            
+
             metadata = {
                 "processing_method": "ocr",
                 "total_pages": ocr_metadata.get("total_pages", 0),
@@ -83,10 +132,7 @@ class PDFLoader:
                 f"Images: {metadata['summary_image_pages']}"
             )
 
-            return {
-                "content": result["content"],
-                "metadata": metadata
-            }
+            return {"content": result["content"], "metadata": metadata}
 
         except Exception as e:
             logger.error(f"Failed to load PDF with OCR {file_path}: {e}")
@@ -95,38 +141,20 @@ class PDFLoader:
     def load_with_ocr(self, file_path: Path, enable_ocr: bool = True) -> Optional[str]:
         """
         Legacy method for compatibility.
-        Now uses intelligent OCR regardless of enable_ocr parameter.
+        Respects both the enable_ocr parameter and global settings.
 
         Args:
             file_path: Path to the PDF file
-            enable_ocr: Ignored (intelligent OCR always applies intelligently)
+            enable_ocr: Whether to enable OCR (also checks global settings)
 
         Returns:
             Extracted text content or None if failed
         """
-        if not enable_ocr:
-            # If OCR is explicitly disabled, fall back to basic text extraction
-            try:
-                reader = PdfReader(str(file_path))
-                text_content = []
-                
-                for page_num, page in enumerate(reader.pages):
-                    try:
-                        page_text = page.extract_text()
-                        if page_text.strip():
-                            text_content.append(f"--- Page {page_num + 1} ---\n{page_text}")
-                    except Exception as e:
-                        logger.warning(f"Failed to extract text from page {page_num + 1}: {e}")
-                        continue
-                
-                if not text_content:
-                    return None
-                    
-                return "\n\n".join(text_content)
-                
-            except Exception as e:
-                logger.error(f"Basic PDF text extraction failed for {file_path}: {e}")
-                return None
+        # Check both parameter and global setting
+        if not enable_ocr or not settings.enable_ocr:
+            # Use basic text extraction
+            result = self._extract_basic_text(file_path)
+            return result["content"] if result else None
         else:
             # Use intelligent OCR (default behavior)
             return self.load(file_path)

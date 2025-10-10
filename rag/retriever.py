@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from core.embeddings import embedding_manager
-from core.graph_db import graph_db, PathResult
+from core.graph_db import PathResult, graph_db
 from rag.nodes.query_analysis import analyze_query
 
 logger = logging.getLogger(__name__)
@@ -363,14 +363,14 @@ class DocumentRetriever:
         try:
             # Step 1: Seed entity selection
             seed_entity_ids = []
-            
+
             if use_hybrid_seeding:
                 # Hybrid seeding: get chunks first, then extract entities
                 query_embedding = embedding_manager.get_embedding(query)
                 similar_chunks = graph_db.vector_similarity_search(
                     query_embedding, seed_top_k * 2
                 )
-                
+
                 # Extract entities from these chunks
                 chunk_ids = [chunk["chunk_id"] for chunk in similar_chunks]
                 if chunk_ids:
@@ -416,10 +416,10 @@ class DocumentRetriever:
                 all_chunk_ids = []
                 for hop_chunks in path.supporting_chunk_ids:
                     all_chunk_ids.extend(hop_chunks)
-                
+
                 # Remove duplicates while preserving order
                 unique_chunk_ids = list(dict.fromkeys(all_chunk_ids))
-                
+
                 if not unique_chunk_ids:
                     # Path has no supporting chunks, skip
                     continue
@@ -442,14 +442,15 @@ class DocumentRetriever:
                 entity_embeddings = [
                     e.embedding for e in path.entities if e.embedding is not None
                 ]
-                
+
                 if entity_embeddings:
                     # Average entity embeddings for path representation
                     path_embedding = [
-                        sum(emb[i] for emb in entity_embeddings) / len(entity_embeddings)
+                        sum(emb[i] for emb in entity_embeddings)
+                        / len(entity_embeddings)
                         for i in range(len(entity_embeddings[0]))
                     ]
-                    
+
                     # Calculate query similarity to path
                     path_query_similarity = graph_db._calculate_cosine_similarity(
                         query_embedding, path_embedding
@@ -504,7 +505,10 @@ class DocumentRetriever:
             seen_chunks = {}
             for result in path_results:
                 chunk_id = result["chunk_id"]
-                if chunk_id not in seen_chunks or result["similarity"] > seen_chunks[chunk_id]["similarity"]:
+                if (
+                    chunk_id not in seen_chunks
+                    or result["similarity"] > seen_chunks[chunk_id]["similarity"]
+                ):
                     seen_chunks[chunk_id] = result
 
             final_results = list(seen_chunks.values())
@@ -521,7 +525,11 @@ class DocumentRetriever:
             return []
 
     async def hybrid_retrieval(
-        self, query: str, top_k: int = 5, chunk_weight: float = 0.5, use_multi_hop: bool = False
+        self,
+        query: str,
+        top_k: int = 5,
+        chunk_weight: float = 0.5,
+        use_multi_hop: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Hybrid retrieval combining chunk-based, entity-based, and optionally multi-hop approaches.
@@ -540,10 +548,10 @@ class DocumentRetriever:
             query_analysis = analyze_query(query)
             multi_hop_recommended = query_analysis.get("multi_hop_recommended", True)
             query_type = query_analysis.get("query_type", "factual")
-            
+
             # Override multi-hop decision based on query analysis
             effective_use_multi_hop = use_multi_hop and multi_hop_recommended
-            
+
             # Adjust path weight based on query type
             base_path_weight = settings.hybrid_path_weight
             if query_type == "comparative":
@@ -555,7 +563,7 @@ class DocumentRetriever:
             else:
                 # Factual queries - reduce multi-hop influence
                 path_weight = max(0.2, base_path_weight * 0.7)
-            
+
             logger.info(
                 f"Multi-hop decision: requested={use_multi_hop}, recommended={multi_hop_recommended}, "
                 f"effective={effective_use_multi_hop}, query_type={query_type}, path_weight={path_weight:.2f}"
@@ -566,14 +574,22 @@ class DocumentRetriever:
                 # With multi-hop: chunk, entity, and path results
                 remaining_weight = 1.0 - path_weight
                 chunk_count = max(1, int(top_k * chunk_weight * remaining_weight))
-                entity_count = max(1, int(top_k * (1 - chunk_weight) * remaining_weight))
+                entity_count = max(
+                    1, int(top_k * (1 - chunk_weight) * remaining_weight)
+                )
                 # Allocate path slots based on adjusted weight and query type
                 if query_type == "comparative":
-                    path_count = max(int(top_k * path_weight), top_k // 2)  # More paths for comparisons
+                    path_count = max(
+                        int(top_k * path_weight), top_k // 2
+                    )  # More paths for comparisons
                 elif query_type == "analytical":
-                    path_count = max(int(top_k * path_weight), top_k // 3)  # Moderate paths for analysis
+                    path_count = max(
+                        int(top_k * path_weight), top_k // 3
+                    )  # Moderate paths for analysis
                 else:
-                    path_count = max(1, int(top_k * path_weight))  # Fewer paths for factual queries
+                    path_count = max(
+                        1, int(top_k * path_weight)
+                    )  # Fewer paths for factual queries
             else:
                 # Without multi-hop: just chunk and entity
                 chunk_count = max(1, int(top_k * chunk_weight))
@@ -583,7 +599,7 @@ class DocumentRetriever:
             # Get results from different approaches
             chunk_results = await self.chunk_based_retrieval(query, chunk_count)
             entity_results = await self.entity_based_retrieval(query, entity_count)
-            
+
             path_results = []
             if effective_use_multi_hop:
                 path_results = await self.multi_hop_reasoning_retrieval(
@@ -596,12 +612,21 @@ class DocumentRetriever:
                 # Limit path results, but be more generous if we have high-quality results
                 if len(path_results) > path_count:
                     # Sort by similarity to keep the best ones
-                    path_results.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+                    path_results.sort(
+                        key=lambda x: x.get("similarity", 0.0), reverse=True
+                    )
                     # Keep top path_count, but allow up to 2x if quality is high
-                    high_quality_count = sum(1 for r in path_results if r.get("similarity", 0.0) > 0.5)
-                    keep_count = min(len(path_results), max(path_count, min(high_quality_count, path_count * 2)))
+                    high_quality_count = sum(
+                        1 for r in path_results if r.get("similarity", 0.0) > 0.5
+                    )
+                    keep_count = min(
+                        len(path_results),
+                        max(path_count, min(high_quality_count, path_count * 2)),
+                    )
                     path_results = path_results[:keep_count]
-                    logger.info(f"Multi-hop: keeping {keep_count}/{len(path_results)} path results (path_count={path_count}, high_quality={high_quality_count})")
+                    logger.info(
+                        f"Multi-hop: keeping {keep_count}/{len(path_results)} path results (path_count={path_count}, high_quality={high_quality_count})"
+                    )
 
             # Combine and deduplicate results by chunk_id
             combined_results = {}
@@ -649,12 +674,18 @@ class DocumentRetriever:
                         existing = combined_results[chunk_id]
                         existing["retrieval_source"] = "hybrid_with_paths"
                         existing["path_entities"] = result.get("path_entities", [])
-                        existing["path_relationships"] = result.get("path_relationships", [])
+                        existing["path_relationships"] = result.get(
+                            "path_relationships", []
+                        )
                         existing["path_length"] = result.get("path_length", 0)
                         # Boost score for chunks found by multiple methods
-                        current_score = existing.get("hybrid_score", existing.get("chunk_score", 0.0))
+                        current_score = existing.get(
+                            "hybrid_score", existing.get("chunk_score", 0.0)
+                        )
                         path_score = result.get("similarity", 0.3)
-                        existing["hybrid_score"] = min(1.0, (current_score + path_score) * 0.7)
+                        existing["hybrid_score"] = min(
+                            1.0, (current_score + path_score) * 0.7
+                        )
                     else:
                         result["retrieval_source"] = "path_based"
                         result["hybrid_score"] = result.get("similarity", 0.3)
@@ -675,7 +706,9 @@ class DocumentRetriever:
                 1 for r in final_results if r.get("retrieval_source") == "path_based"
             )
             hybrid_count = sum(
-                1 for r in final_results if r.get("retrieval_source") in ["hybrid", "hybrid_with_paths"]
+                1
+                for r in final_results
+                if r.get("retrieval_source") in ["hybrid", "hybrid_with_paths"]
             )
 
             logger.info(
@@ -714,7 +747,9 @@ class DocumentRetriever:
         Returns:
             List of relevant chunks with metadata
         """
-        logger.info(f"Starting retrieval with mode: {mode.value}, top_k: {top_k}, multi_hop: {use_multi_hop}")
+        logger.info(
+            f"Starting retrieval with mode: {mode.value}, top_k: {top_k}, multi_hop: {use_multi_hop}"
+        )
 
         if mode == RetrievalMode.CHUNK_ONLY:
             return await self.chunk_based_retrieval(query, top_k)
@@ -722,7 +757,9 @@ class DocumentRetriever:
             return await self.entity_based_retrieval(query, top_k)
         elif mode == RetrievalMode.HYBRID:
             chunk_weight = kwargs.get("chunk_weight", 0.5)
-            return await self.hybrid_retrieval(query, top_k, chunk_weight, use_multi_hop)
+            return await self.hybrid_retrieval(
+                query, top_k, chunk_weight, use_multi_hop
+            )
         else:
             logger.error(f"Unknown retrieval mode: {mode}")
             return []
@@ -750,7 +787,9 @@ class DocumentRetriever:
         """
         try:
             # Get initial results
-            initial_chunks = await self.retrieve(query, mode, top_k, use_multi_hop=use_multi_hop)
+            initial_chunks = await self.retrieve(
+                query, mode, top_k, use_multi_hop=use_multi_hop
+            )
 
             if not initial_chunks:
                 return []

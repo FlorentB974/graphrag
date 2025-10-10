@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from config.settings import settings
 from core.ocr import ocr_processor
 
 logger = logging.getLogger(__name__)
@@ -42,11 +43,16 @@ class ImageLoader:
             Dictionary with content and OCR metadata
         """
         try:
+            # Check if OCR is enabled in settings
+            if not settings.enable_ocr:
+                logger.info(f"Skipping image processing (OCR disabled): {file_path}")
+                return None
+
             logger.info(f"Processing image with intelligent OCR: {file_path}")
-            
+
             # Use OCR processor to analyze and extract from image
             result = self.processor.process_standalone_image(file_path)
-            
+
             if not result["content"]:
                 logger.info(f"No text content found in image: {file_path}")
                 return None
@@ -54,7 +60,7 @@ class ImageLoader:
             # Create metadata - flatten for Neo4j compatibility
             ocr_metadata = result["ocr_metadata"]
             content_analysis = ocr_metadata.get("content_analysis", {})
-            
+
             metadata = {
                 "processing_method": "image_ocr",
                 "file_type": "standalone_image",
@@ -68,12 +74,11 @@ class ImageLoader:
             # Log processing result
             if ocr_metadata.get("ocr_applied", 0) > 0:
                 content_type = metadata["content_primary_type"]
-                logger.info(f"OCR extracted text from {content_type} image: {file_path}")
-            
-            return {
-                "content": result["content"],
-                "metadata": metadata
-            }
+                logger.info(
+                    f"OCR extracted text from {content_type} image: {file_path}"
+                )
+
+            return {"content": result["content"], "metadata": metadata}
 
         except Exception as e:
             logger.error(f"Failed to load image with OCR {file_path}: {e}")

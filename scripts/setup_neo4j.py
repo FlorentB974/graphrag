@@ -88,6 +88,7 @@ async def afind_and_fix_bad_embeddings(session, apply: bool = False):
     - If `apply` is False the function performs a dry-run and only prints what would be changed.
     """
     import asyncio
+
     from core.embeddings import embedding_manager
 
     # Hardcoded parameters per request
@@ -177,8 +178,10 @@ async def afind_and_fix_bad_embeddings(session, apply: bool = False):
             )
 
         if bad_chunks:
-            tasks = [asyncio.create_task(_fix_chunk_embedding(chunk)) for chunk in bad_chunks]
-            
+            tasks = [
+                asyncio.create_task(_fix_chunk_embedding(chunk)) for chunk in bad_chunks
+            ]
+
             for coro in asyncio.as_completed(tasks):
                 try:
                     await coro

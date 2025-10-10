@@ -44,7 +44,7 @@ async def retrieve_documents_async(
         search_query = query_analysis.get("contextualized_query", query)
         if search_query != query:
             logger.info(f"Using contextualized query for retrieval: {search_query}")
-        
+
         # Determine retrieval strategy based on query analysis and mode
         complexity = query_analysis.get("complexity", "simple")
         requires_multiple = query_analysis.get("requires_multiple_sources", False)

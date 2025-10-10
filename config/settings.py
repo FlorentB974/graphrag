@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     # OCR Configuration
     enable_ocr: bool = Field(
-        default=True, description="Enable OCR processing for scanned documents"
+        default=False, description="Enable OCR processing for scanned documents"
     )
     enable_quality_filtering: bool = Field(
         default=True, description="Enable chunk quality filtering"
@@ -132,9 +132,9 @@ class Settings(BaseSettings):
             "answer_completeness": 0.25,
             "factual_grounding": 0.25,
             "coherence": 0.10,
-            "citation_quality": 0.10
+            "citation_quality": 0.10,
         },
-        description="Weights for different quality score components"
+        description="Weights for different quality score components",
     )
 
     model_config = {

@@ -8,12 +8,8 @@ import logging
 
 import streamlit as st
 
-from app_ui import (
-    initialize_session_state,
-    process_latest_user_message,
-    render_chat_messages,
-    render_sidebar,
-)
+from app_ui import (initialize_session_state, process_latest_user_message,
+                    render_chat_messages, render_sidebar)
 from config.settings import settings
 
 logging.basicConfig(level=getattr(logging, settings.log_level))

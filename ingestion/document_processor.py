@@ -20,8 +20,8 @@ from core.entity_extraction import EntityExtractor
 from core.graph_db import graph_db
 from ingestion.loaders.csv_loader import CSVLoader
 from ingestion.loaders.docx_loader import DOCXLoader
-from ingestion.loaders.pdf_loader import PDFLoader
 from ingestion.loaders.image_loader import ImageLoader
+from ingestion.loaders.pdf_loader import PDFLoader
 from ingestion.loaders.pptx_loader import PPTXLoader
 from ingestion.loaders.text_loader import TextLoader
 from ingestion.loaders.xlsx_loader import XLSXLoader
@@ -82,10 +82,12 @@ class DocumentProcessor:
             ".tiff": image_loader,
             ".bmp": image_loader,
         }
-        
+
         # Smart OCR is always enabled and applied intelligently
         # No user configuration needed - OCR is applied only where necessary
-        self.enable_quality_filtering = getattr(settings, "enable_quality_filtering", True)
+        self.enable_quality_filtering = getattr(
+            settings, "enable_quality_filtering", True
+        )
 
         # Initialize entity extractor if enabled
         if settings.enable_entity_extraction:
@@ -291,7 +293,7 @@ class DocumentProcessor:
         """Asynchronously create entities and relationships with parallel embedding generation."""
         created_entities = 0
         created_relationships = 0
-        
+
         # Process entities in parallel with controlled concurrency
         concurrency = getattr(settings, "embedding_concurrency")
         sem = asyncio.Semaphore(concurrency)
@@ -336,8 +338,11 @@ class DocumentProcessor:
 
         # Create all entities in parallel
         if entity_dict:
-            tasks = [asyncio.create_task(_create_single_entity(entity)) for entity in entity_dict.values()]
-            
+            tasks = [
+                asyncio.create_task(_create_single_entity(entity))
+                for entity in entity_dict.values()
+            ]
+
             for coro in asyncio.as_completed(tasks):
                 try:
                     await coro
@@ -349,12 +354,8 @@ class DocumentProcessor:
         for relationships in relationship_dict.values():
             for relationship in relationships:
                 try:
-                    source_id = self._generate_entity_id(
-                        relationship.source_entity
-                    )
-                    target_id = self._generate_entity_id(
-                        relationship.target_entity
-                    )
+                    source_id = self._generate_entity_id(relationship.source_entity)
+                    target_id = self._generate_entity_id(relationship.target_entity)
                     graph_db.create_entity_relationship(
                         entity_id1=source_id,
                         entity_id2=target_id,
@@ -392,8 +393,12 @@ class DocumentProcessor:
         """
         try:
             # Smart OCR is applied automatically by loaders
-            use_quality_filtering = enable_quality_filtering if enable_quality_filtering is not None else self.enable_quality_filtering
-            
+            use_quality_filtering = (
+                enable_quality_filtering
+                if enable_quality_filtering is not None
+                else self.enable_quality_filtering
+            )
+
             start_time = time.time()
             if not file_path.exists():
                 logger.error(f"File not found: {file_path}")
@@ -402,7 +407,7 @@ class DocumentProcessor:
             # Get appropriate loader
             file_ext = file_path.suffix.lower()
             loader = self.loaders.get(file_ext)
-            
+
             # Handle image files with intelligent OCR
             ocr_metadata = {}
             if isinstance(loader, ImageLoader):
@@ -435,7 +440,7 @@ class DocumentProcessor:
             # Generate document ID and extract metadata
             doc_id = self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
-            
+
             # Add OCR metadata if available
             if ocr_metadata:
                 metadata.update(ocr_metadata)
@@ -454,9 +459,11 @@ class DocumentProcessor:
                     content,
                     doc_id,
                     enable_quality_filtering=use_quality_filtering,
-                    enable_ocr_enhancement=False  # OCR already applied by smart loaders
+                    enable_ocr_enhancement=False,  # OCR already applied by smart loaders
                 )
-                logger.info(f"Used enhanced chunking (Quality filtering: {use_quality_filtering}) for {doc_id}")
+                logger.info(
+                    f"Used enhanced chunking (Quality filtering: {use_quality_filtering}) for {doc_id}"
+                )
             else:
                 chunks = document_chunker.chunk_text(content, doc_id)
                 logger.info(f"Used standard chunking for {doc_id}")
@@ -546,7 +553,9 @@ class DocumentProcessor:
 
                         # Persist entities and relationships asynchronously
                         created_entities, created_relationships = asyncio.run(
-                            self._create_entities_async(entity_dict, relationship_dict, doc_id_local)
+                            self._create_entities_async(
+                                entity_dict, relationship_dict, doc_id_local
+                            )
                         )
 
                         # Phase 3: Database operations for relationships
@@ -895,7 +904,7 @@ class DocumentProcessor:
             file_path: Path to the file to process
             original_filename: Optional original filename to preserve
             progress_callback: Optional callback function to report chunk processing progress
-            
+
             enable_quality_filtering: Optional override for quality filtering (if None, uses global setting)
 
         Returns:
@@ -904,8 +913,12 @@ class DocumentProcessor:
         try:
             # Determine OCR settings (use provided params or fall back to global settings)
             # Smart OCR applied automatically
-            use_quality_filtering = enable_quality_filtering if enable_quality_filtering is not None else self.enable_quality_filtering
-            
+            use_quality_filtering = (
+                enable_quality_filtering
+                if enable_quality_filtering is not None
+                else self.enable_quality_filtering
+            )
+
             start_time = time.time()
             if not file_path.exists():
                 logger.error(f"File not found: {file_path}")
@@ -914,13 +927,13 @@ class DocumentProcessor:
             # Get appropriate loader
             file_ext = file_path.suffix.lower()
             loader = self.loaders.get(file_ext)
-            
+
             # Generate document ID and extract metadata (needed for all cases)
             doc_id = self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
-            
+
             logger.info(f"Processing file chunks only: {file_path}")
-            
+
             # Handle image and PDF files with intelligent OCR
             ocr_metadata = {}
             if isinstance(loader, ImageLoader):
@@ -948,7 +961,7 @@ class DocumentProcessor:
                 if not content:
                     logger.warning(f"No content extracted from: {file_path}")
                     return None
-            
+
             # Add OCR metadata if available
             if ocr_metadata:
                 metadata.update(ocr_metadata)
@@ -967,9 +980,11 @@ class DocumentProcessor:
                     content,
                     doc_id,
                     enable_quality_filtering=use_quality_filtering,
-                    enable_ocr_enhancement=False  # OCR already applied by smart loaders
+                    enable_ocr_enhancement=False,  # OCR already applied by smart loaders
                 )
-                logger.info(f"Used enhanced chunking (Quality filtering: {use_quality_filtering}) for {doc_id}")
+                logger.info(
+                    f"Used enhanced chunking (Quality filtering: {use_quality_filtering}) for {doc_id}"
+                )
             else:
                 chunks = document_chunker.chunk_text(content, doc_id)
                 logger.info(f"Used standard chunking for {doc_id}")
@@ -1145,7 +1160,9 @@ class DocumentProcessor:
 
                         # Persist entities and relationships asynchronously
                         created_entities, created_relationships = asyncio.run(
-                            self._create_entities_async(entity_dict, relationship_dict, doc_id)
+                            self._create_entities_async(
+                                entity_dict, relationship_dict, doc_id
+                            )
                         )
 
                         # Phase 3: Database operations for relationships
@@ -1462,7 +1479,9 @@ class DocumentProcessor:
 
                             # Persist entities and relationships asynchronously
                             created_entities, created_relationships = asyncio.run(
-                                self._create_entities_async(entity_dict, relationship_dict, doc_id)
+                                self._create_entities_async(
+                                    entity_dict, relationship_dict, doc_id
+                                )
                             )
 
                             # Phase 3: Database operations for relationships

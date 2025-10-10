@@ -209,4 +209,3 @@ def display_sources_detailed(sources: List[Dict[str, Any]]) -> None:
                 f", {total_entities} entit{'ies' if total_entities != 1 else 'y'}"
             )
         st.caption(count_text)
-

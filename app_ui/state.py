@@ -6,7 +6,6 @@ from typing import Any, Dict
 
 import streamlit as st
 
-
 _DEFAULT_VALUES: Dict[str, Any] = {
     "messages": [],
     "processing_files": False,
@@ -20,4 +19,6 @@ def initialize_session_state() -> None:
     for key, default in _DEFAULT_VALUES.items():
         if key not in st.session_state:
             # Use copy for mutable defaults to avoid shared state across reruns
-            st.session_state[key] = default.copy() if isinstance(default, list) else default
+            st.session_state[key] = (
+                default.copy() if isinstance(default, list) else default
+            )

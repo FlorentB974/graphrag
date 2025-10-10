@@ -22,3 +22,7 @@ This is a comprehensive RAG (Retrieval-Augmented Generation) pipeline using Lang
 - Implement proper error handling and logging
 - Maintain clear separation between data processing and UI layers
 - Document all API endpoints and configuration options
+- When running a python command, always source the virtual environment first:
+  ```bash
+  source .venv/bin/activate
+  ```

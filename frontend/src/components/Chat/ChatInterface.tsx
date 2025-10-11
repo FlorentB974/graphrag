@@ -273,35 +273,6 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <header className="bg-white border-b border-secondary-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-secondary-900">
-              💬 Chat with Your Documents
-            </h1>
-            <p className="text-sm text-secondary-600 mt-1">
-              Ask questions about your documents and get intelligent answers
-            </p>
-          </div>
-          {messages.length > 0 && (
-            <button
-              onClick={handleNewChat}
-              className="flex items-center gap-2 button-primary text-sm"
-              title="Start a new chat (current chat is saved to history)"
-            >
-              <PlusCircleIcon className="w-5 h-5" />
-              New Chat
-            </button>
-          )}
-        </div>
-        {isHistoryLoading && (
-          <p className="text-xs text-secondary-500 mt-2">
-            Loading conversation...
-          </p>
-        )}
-      </header>
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (

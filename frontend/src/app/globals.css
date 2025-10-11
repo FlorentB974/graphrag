@@ -49,6 +49,10 @@
   .card {
     @apply bg-white rounded-xl shadow-sm border border-secondary-200 p-6;
   }
+
+  .no-transition {
+    transition: none !important;
+  }
 }
 
 /* Custom scrollbar */

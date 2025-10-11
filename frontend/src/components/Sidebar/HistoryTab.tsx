@@ -13,11 +13,20 @@ export default function HistoryTab() {
   const loadSession = useChatStore((state) => state.loadSession)
   const setSessionId = useChatStore((state) => state.setSessionId)
   const clearChat = useChatStore((state) => state.clearChat)
+  const historyRefreshKey = useChatStore((state) => state.historyRefreshKey)
   const activeSessionId = useChatStore((state) => state.sessionId)
 
   useEffect(() => {
     loadSessions()
   }, [])
+
+  // Reload history when another part of the app signals a refresh (e.g., New Chat)
+  useEffect(() => {
+    // ignore initial mount because loadSessions already ran
+    if (historyRefreshKey > 0) {
+      loadSessions()
+    }
+  }, [historyRefreshKey])
 
   const loadSessions = async () => {
     try {

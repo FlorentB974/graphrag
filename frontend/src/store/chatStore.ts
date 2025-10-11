@@ -6,6 +6,9 @@ interface ChatStore {
   messages: Message[]
   sessionId: string
   isHistoryLoading: boolean
+  // Increment this key to notify history UI to refresh
+  historyRefreshKey: number
+  notifyHistoryRefresh: () => void
   setSessionId: (sessionId: string) => void
   clearChat: () => void
   addMessage: (message: Message) => void
@@ -18,8 +21,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: [],
   sessionId: '',
   isHistoryLoading: false,
+  historyRefreshKey: 0,
   setSessionId: (sessionId) => set({ sessionId }),
-  clearChat: () => set({ messages: [], sessionId: '' }),
+  notifyHistoryRefresh: () => set((state) => ({ historyRefreshKey: state.historyRefreshKey + 1 })),
+  clearChat: () => {
+    // Clear UI state and notify history to refresh
+    set({ messages: [], sessionId: '' })
+    get().notifyHistoryRefresh()
+  },
   addMessage: (message) =>
     set((state) => ({
       messages: [...state.messages, message],

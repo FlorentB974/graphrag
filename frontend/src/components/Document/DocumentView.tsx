@@ -10,6 +10,10 @@ import {
   ExclamationCircleIcon,
 } from '@heroicons/react/24/outline'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/solid'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
+import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import type {
   DocumentChunk,
@@ -115,6 +119,26 @@ export default function DocumentView() {
       return acc
     }, {})
   }, [documentData?.entities])
+
+  const isMarkdownDocument = useMemo(() => {
+    if (!documentData) return false
+
+    const mime = documentData.mime_type?.toLowerCase() || ''
+    const markdownMimeTypes = new Set([
+      'text/markdown',
+      'text/x-markdown',
+      'text/md',
+      'text/x-md',
+      'application/markdown',
+    ])
+
+    if (markdownMimeTypes.has(mime)) {
+      return true
+    }
+
+    const fileName = documentData.file_name?.toLowerCase() || ''
+    return fileName.endsWith('.md') || fileName.endsWith('.markdown')
+  }, [documentData])
 
   const toggleChunk = useCallback((chunk: DocumentChunk) => {
     setExpandedChunks((state) => ({
@@ -300,18 +324,22 @@ export default function DocumentView() {
               <div className="divide-y divide-secondary-200">
                 {(showAllChunks ? documentData.chunks : documentData.chunks.slice(0, CHUNKS_LIMIT)).map((chunk: DocumentChunk) => {
                   const expanded = expandedChunks[chunk.id]
+                  const firstLine = (chunk.text || '').split(/\r?\n/)[0] || ''
+                  const previewLine = firstLine.trim() || 'No preview available'
                   return (
                     <article key={chunk.id} className="px-5 py-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex-1 min-w-0">
                           <p className="text-xs text-secondary-500">
                             Chunk {typeof chunk.index === 'number' ? chunk.index + 1 : chunk.id}
                           </p>
-                          <p className="text-xs text-secondary-400">
-                            Offset: {chunk.offset ?? '—'} · Score: {chunk.score ?? '—'}
-                          </p>
+                          <div className="relative overflow-hidden pr-8">
+                            <p className="text-sm font-medium text-secondary-900 truncate whitespace-nowrap">
+                              {previewLine}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           <button
                             type="button"
                             onClick={() => handleCopyChunk(chunk)}
@@ -330,15 +358,31 @@ export default function DocumentView() {
                             ) : (
                               <ChevronDownIcon className="w-4 h-4" />
                             )}
-                            {expanded ? 'Collapse' : 'Expand'}
                           </button>
                         </div>
                       </div>
-                      {expanded && (
-                        <p className="mt-3 text-sm text-secondary-800 whitespace-pre-wrap leading-relaxed">
-                          {chunk.text}
-                        </p>
-                      )}
+                      <AnimatePresence>
+                        {expanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className="mt-3 text-sm text-secondary-800 leading-relaxed overflow-hidden border-t border-secondary-200 pt-3"
+                          >
+                            {isMarkdownDocument ? (
+                              <ReactMarkdown
+                                className="prose prose-sm prose-slate max-w-none"
+                                remarkPlugins={[remarkGfm, remarkBreaks]}
+                              >
+                                {chunk.text || ''}
+                              </ReactMarkdown>
+                            ) : (
+                              <p className="whitespace-pre-wrap">{chunk.text ?? ''}</p>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </article>
                   )
                 })}

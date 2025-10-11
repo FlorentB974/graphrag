@@ -18,6 +18,7 @@ export default function ChatInterface() {
   const updateLastMessage = useChatStore((state) => state.updateLastMessage)
   const setSessionId = useChatStore((state) => state.setSessionId)
   const clearChat = useChatStore((state) => state.clearChat)
+  const notifyHistoryRefresh = useChatStore((state) => state.notifyHistoryRefresh)
   const isHistoryLoading = useChatStore((state) => state.isHistoryLoading)
   const [isLoading, setIsLoading] = useState(false)
   const [documentQueueKey, setDocumentQueueKey] = useState(0)
@@ -196,6 +197,8 @@ export default function ChatInterface() {
       if (newSessionId && !sessionId) {
         setSessionId(newSessionId)
       }
+
+      notifyHistoryRefresh()
     } catch (error) {
       // Cancel animation frame on error
       if (animationFrameId !== null) {

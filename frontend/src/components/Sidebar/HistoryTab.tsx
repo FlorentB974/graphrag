@@ -79,14 +79,14 @@ export default function HistoryTab() {
           <p>No conversation history yet</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {sessions.map((session) => (
             <div
               key={session.session_id}
-              className={`card p-4 hover:shadow-md transition-shadow cursor-pointer ${
+              className={`card p-3 flex items-center justify-between transition-all cursor-pointer group ${
                 activeSessionId === session.session_id
-                  ? 'border-primary-400 shadow-primary-100'
-                  : ''
+                  ? 'border-primary-300 shadow-primary-100 ring-1 ring-primary-100'
+                  : 'hover:shadow-md'
               }`}
               onClick={async () => {
                 if (activeSessionId === session.session_id) {
@@ -96,29 +96,29 @@ export default function HistoryTab() {
                 setSessionId(session.session_id)
               }}
             >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className="text-sm text-secondary-900 line-clamp-2">
+              <div className="flex-1 min-w-0 pr-8">
+                <div className="relative">
+                  <p className="text-sm font-medium text-secondary-900 truncate">
                     {session.preview || 'New conversation'}
                   </p>
-                  <p className="text-xs text-secondary-600 mt-1">
-                    {session.message_count} messages •{' '}
-                    {formatDistanceToNow(new Date(session.updated_at), { addSuffix: true })}
-                  </p>
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDelete(session.session_id)
-                    if (activeSessionId === session.session_id) {
-                      clearChat()
-                    }
-                  }}
-                  className="text-red-600 hover:text-red-700 p-1"
-                >
-                  <TrashIcon className="w-4 h-4" />
-                </button>
+                <p className="text-xs text-secondary-600 mt-1">
+                  {session.message_count} messages •{' '}
+                  {formatDistanceToNow(new Date(session.updated_at), { addSuffix: true })}
+                </p>
               </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete(session.session_id)
+                  if (activeSessionId === session.session_id) {
+                    clearChat()
+                  }
+                }}
+                className="text-red-600 hover:text-red-700 p-1 ml-2 flex-shrink-0"
+              >
+                <TrashIcon className="w-4 h-4" />
+              </button>
             </div>
           ))}
         </div>

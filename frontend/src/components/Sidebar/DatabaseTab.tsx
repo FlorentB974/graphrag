@@ -121,7 +121,6 @@ export default function DatabaseTab() {
                         {doc.filename}
                       </p>
                       {/* fading gradient to the right so long names visually fade out */}
-                      <div className="pointer-events-none absolute top-0 right-0 h-full w-8 bg-gradient-to-l from-white/0 via-white/60 to-transparent" />
                     </div>
                     <p className="text-xs text-secondary-600 mt-1">
                       {doc.chunk_count} chunks

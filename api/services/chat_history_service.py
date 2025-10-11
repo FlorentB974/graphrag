@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from api.models import ChatMessage, ConversationHistory, ConversationSession
@@ -35,7 +35,8 @@ class ChatHistoryService:
             follow_up_questions: Optional follow-up questions
         """
         try:
-            timestamp = datetime.utcnow().isoformat()
+            # Use the machine's local timezone so frontend shows relative times in local context
+            timestamp = datetime.now().astimezone().isoformat()
 
             driver = graph_db.driver
             if driver is None:
@@ -137,11 +138,24 @@ class ChatHistoryService:
                     )
                 )
 
+            # Normalize session timestamps if they are numeric epoch ms
+            def _normalize_ts(value):
+                try:
+                    # Numeric epoch (ms) from Neo4j -> convert to local tz ISO
+                    if isinstance(value, (int, float)):
+                        return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc).astimezone().isoformat()
+                    # If it's already a string, return as-is (assume it includes timezone or local time)
+                    if isinstance(value, str) and value:
+                        return value
+                except Exception:
+                    pass
+                return ""
+
             return ConversationHistory(
                 session_id=session_id,
                 messages=messages,
-                created_at=session_data.get("created_at", ""),
-                updated_at=session_data.get("updated_at", ""),
+                created_at=_normalize_ts(session_data.get("created_at", "")),
+                updated_at=_normalize_ts(session_data.get("updated_at", "")),
             )
 
         except Exception as e:
@@ -180,11 +194,23 @@ class ChatHistoryService:
                     if preview and len(preview) > 100:
                         preview = preview[:100] + "..."
 
+                    # Normalize created_at / updated_at to ISO8601 strings.
+                    def _normalize_ts(value):
+                        # If Neo4j stored an epoch milliseconds integer, convert it to local tz ISO
+                        try:
+                            if isinstance(value, (int, float)):
+                                return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc).astimezone().isoformat()
+                            if isinstance(value, str) and value:
+                                return value
+                        except Exception:
+                            pass
+                        return ""
+
                     sessions.append(
                         ConversationSession(
                             session_id=record["session_id"],
-                            created_at=record["created_at"],
-                            updated_at=record["updated_at"],
+                            created_at=_normalize_ts(record.get("created_at")),
+                            updated_at=_normalize_ts(record.get("updated_at")),
                             message_count=record["message_count"],
                             preview=preview,
                         )

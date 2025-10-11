@@ -12,12 +12,15 @@ interface ChatStore {
   historyRefreshKey: number
   activeView: ActiveView
   selectedDocumentId: string | null
+  selectedChunkId: string | number | null
   notifyHistoryRefresh: () => void
   setSessionId: (sessionId: string) => void
   setActiveView: (view: ActiveView) => void
   clearChat: () => void
   selectDocument: (documentId: string) => void
+  selectDocumentChunk: (documentId: string, chunkId: string | number) => void
   clearSelectedDocument: () => void
+  clearSelectedChunk: () => void
   addMessage: (message: Message) => void
   updateLastMessage: (updater: (previous: Message) => Message) => void
   replaceMessages: (messages: Message[], sessionId: string) => void
@@ -31,17 +34,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   historyRefreshKey: 0,
   activeView: 'chat',
   selectedDocumentId: null,
+  selectedChunkId: null,
   setSessionId: (sessionId) => set({ sessionId }),
   setActiveView: (view) => set({ activeView: view }),
   notifyHistoryRefresh: () => set((state) => ({ historyRefreshKey: state.historyRefreshKey + 1 })),
   clearChat: () => {
     // Clear UI state and notify history to refresh
-    set({ messages: [], sessionId: '', activeView: 'chat', selectedDocumentId: null })
+    set({ messages: [], sessionId: '', activeView: 'chat', selectedDocumentId: null, selectedChunkId: null })
     get().notifyHistoryRefresh()
   },
   selectDocument: (documentId) =>
-    set({ selectedDocumentId: documentId, activeView: 'document' }),
-  clearSelectedDocument: () => set({ selectedDocumentId: null, activeView: 'chat' }),
+    set({ selectedDocumentId: documentId, activeView: 'document', selectedChunkId: null }),
+  selectDocumentChunk: (documentId, chunkId) =>
+    set({ selectedDocumentId: documentId, activeView: 'document', selectedChunkId: chunkId }),
+  clearSelectedDocument: () => set({ selectedDocumentId: null, selectedChunkId: null, activeView: 'chat' }),
+  clearSelectedChunk: () => set({ selectedChunkId: null }),
   addMessage: (message) =>
     set((state) => ({
       messages: [...state.messages, message],

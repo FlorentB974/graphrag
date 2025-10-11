@@ -123,8 +123,10 @@ export default function DatabaseTab() {
               <div
                 key={index}
                 onClick={() => handleSelectDocument(doc.document_id)}
-                className={`card p-3 flex items-center justify-between cursor-pointer transition-colors ${
-                  isActive ? 'ring-2 ring-primary-500 border-primary-500' : 'hover:border-primary-200'
+                className={`card p-3 flex items-center justify-between transition-all cursor-pointer group ${
+                  isActive
+                    ? 'border-primary-300 shadow-primary-100 ring-1 ring-primary-100'
+                    : 'hover:shadow-md'
                 }`}
               >
                 <div className="flex-1 min-w-0 pr-8">

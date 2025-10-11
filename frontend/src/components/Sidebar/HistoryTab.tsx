@@ -12,6 +12,7 @@ export default function HistoryTab() {
   const [loading, setLoading] = useState(true)
   const loadSession = useChatStore((state) => state.loadSession)
   const setSessionId = useChatStore((state) => state.setSessionId)
+  const setActiveView = useChatStore((state) => state.setActiveView)
   const clearChat = useChatStore((state) => state.clearChat)
   const historyRefreshKey = useChatStore((state) => state.historyRefreshKey)
   const activeSessionId = useChatStore((state) => state.sessionId)
@@ -94,6 +95,7 @@ export default function HistoryTab() {
                 }
                 await loadSession(session.session_id)
                 setSessionId(session.session_id)
+                setActiveView('chat')
               }}
             >
               <div className="flex-1 min-w-0 pr-8">

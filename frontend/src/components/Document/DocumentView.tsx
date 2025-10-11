@@ -42,7 +42,9 @@ const initialPreviewState: PreviewState = {
 
 export default function DocumentView() {
   const selectedDocumentId = useChatStore((state) => state.selectedDocumentId)
+  const selectedChunkId = useChatStore((state) => state.selectedChunkId)
   const clearSelectedDocument = useChatStore((state) => state.clearSelectedDocument)
+  const clearSelectedChunk = useChatStore((state) => state.clearSelectedChunk)
   const selectDocument = useChatStore((state) => state.selectDocument)
 
   const [documentData, setDocumentData] = useState<DocumentDetails | null>(null)
@@ -96,6 +98,16 @@ export default function DocumentView() {
       isSubscribed = false
     }
   }, [selectedDocumentId])
+
+  useEffect(() => {
+    if (selectedChunkId !== null && documentData) {
+      const chunk = documentData.chunks.find(c => c.index === selectedChunkId || c.id === selectedChunkId)
+      if (chunk) {
+        setExpandedChunks(prev => ({ ...prev, [chunk.id]: true }))
+      }
+      clearSelectedChunk()
+    }
+  }, [selectedChunkId, documentData, clearSelectedChunk])
 
   useEffect(() => {
     return () => {

@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Source } from '@/types'
 import { ChevronDownIcon, ChevronUpIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useChatStore } from '@/store/chatStore'
 
 interface SourcesListProps {
   sources: Source[]
@@ -20,6 +21,7 @@ interface GroupedSource {
 export default function SourcesList({ sources }: SourcesListProps) {
   const [expanded, setExpanded] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
+  const selectDocumentChunk = useChatStore((state) => state.selectDocumentChunk)
 
   // Group sources by document
   const groupedSources = useMemo(() => {
@@ -154,7 +156,7 @@ export default function SourcesList({ sources }: SourcesListProps) {
                   {doc.chunks.map((chunk, chunkIndex) => {
                     const similarity = chunk.similarity || chunk.relevance_score || 0
                     return (
-                      <div key={chunkIndex} className="bg-white rounded p-2 text-sm">
+                      <div key={chunkIndex} className="bg-white rounded p-2 text-sm cursor-pointer hover:bg-secondary-50 transition-colors" onClick={() => chunk.chunk_index !== undefined && selectDocumentChunk(doc.documentId, chunk.chunk_index)}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2 flex-wrap">
                             {chunk.entity_name ? (

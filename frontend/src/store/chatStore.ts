@@ -2,15 +2,22 @@ import { create } from 'zustand'
 import { Message } from '@/types'
 import { api } from '@/lib/api'
 
+type ActiveView = 'chat' | 'document'
+
 interface ChatStore {
   messages: Message[]
   sessionId: string
   isHistoryLoading: boolean
   // Increment this key to notify history UI to refresh
   historyRefreshKey: number
+  activeView: ActiveView
+  selectedDocumentId: string | null
   notifyHistoryRefresh: () => void
   setSessionId: (sessionId: string) => void
+  setActiveView: (view: ActiveView) => void
   clearChat: () => void
+  selectDocument: (documentId: string) => void
+  clearSelectedDocument: () => void
   addMessage: (message: Message) => void
   updateLastMessage: (updater: (previous: Message) => Message) => void
   replaceMessages: (messages: Message[], sessionId: string) => void
@@ -22,13 +29,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   sessionId: '',
   isHistoryLoading: false,
   historyRefreshKey: 0,
+  activeView: 'chat',
+  selectedDocumentId: null,
   setSessionId: (sessionId) => set({ sessionId }),
+  setActiveView: (view) => set({ activeView: view }),
   notifyHistoryRefresh: () => set((state) => ({ historyRefreshKey: state.historyRefreshKey + 1 })),
   clearChat: () => {
     // Clear UI state and notify history to refresh
-    set({ messages: [], sessionId: '' })
+    set({ messages: [], sessionId: '', activeView: 'chat', selectedDocumentId: null })
     get().notifyHistoryRefresh()
   },
+  selectDocument: (documentId) =>
+    set({ selectedDocumentId: documentId, activeView: 'document' }),
+  clearSelectedDocument: () => set({ selectedDocumentId: null, activeView: 'chat' }),
   addMessage: (message) =>
     set((state) => ({
       messages: [...state.messages, message],

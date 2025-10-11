@@ -1,5 +1,7 @@
 # GraphRAG v2.0 - Complete Setup Guide
 
+<!-- markdownlint-disable -->
+
 This guide will help you set up and run the new GraphRAG v2.0 with the modern Next.js frontend and FastAPI backend.
 
 ## Quick Start
@@ -70,6 +72,7 @@ The frontend will be available at `http://localhost:3000`.
 - **Quality Scoring**: Real-time answer quality assessment
 - **File Upload**: Drag-and-drop document upload
 - **Database Management**: View stats and manage documents
+- **Document View**: Inspect document metadata, chunk text, entities, and previews without leaving the app
 
 ### ⚡ Performance Improvements
 
@@ -120,6 +123,11 @@ The frontend will be available at `http://localhost:3000`.
 - `DELETE /api/database/documents/{id}` - Delete a document
 - `POST /api/database/clear` - Clear entire database
 - `GET /api/database/documents` - List all documents
+
+### Documents
+
+- `GET /api/documents/{id}` - Retrieve full document metadata (chunks, entities, related docs)
+- `GET /api/documents/{id}/preview` - Stream or redirect to a previewable version of the file
 
 ### Health
 
@@ -172,10 +180,13 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 ```bash
 # Backend tests (from project root)
 source .venv/bin/activate
-pytest tests/
+pytest api/tests/
 
 # Frontend linting (from frontend directory)
 npm run lint
+
+# Frontend unit tests (from frontend directory)
+npm run test
 ```
 
 ## Document Ingestion

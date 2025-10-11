@@ -1,5 +1,7 @@
 # GraphRAG v2.0 🚀
 
+<!-- markdownlint-disable -->
+
 A state-of-the-art document intelligence system powered by graph-based RAG (Retrieval-Augmented Generation). Built with Next.js, FastAPI, and Neo4j.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -23,6 +25,7 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 - **Smart Chunking**: Intelligent document segmentation
 - **Entity Extraction**: Automatic identification of key entities
 - **Graph Relationships**: Connects related concepts across documents
+- **In-app Document View**: Inspect metadata, chunks, entities, and live previews
 
 ### 🔍 Advanced Retrieval
 - **Hybrid Search**: Combines vector similarity and graph traversal
@@ -178,8 +181,15 @@ Frontend will be available at `http://localhost:3000`
 
 1. Click the **Database** tab
 2. View statistics (documents, chunks, entities, relationships)
-3. Manage documents (view details, delete)
-4. Clear the entire database if needed
+3. Click a document row to open the full Document View with preview
+4. Manage documents (delete, clear database) without leaving the chat context
+
+### Viewing Documents
+
+1. Select a document from the **Database** tab
+2. Review metadata, chunk text, extracted entities, and related documents
+3. Open the preview to stream PDFs, images, or download other formats
+4. Use the back button to return to the chat without losing conversation state
 
 ## 🔧 Configuration
 
@@ -258,7 +268,10 @@ graphrag4/
 
 ```bash
 source .venv/bin/activate
-pytest tests/
+pytest api/tests/
+
+cd frontend
+npm run test
 ```
 
 ### Code Quality
@@ -345,7 +358,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) f
 
 - [ ] Multi-language support
 - [ ] Voice input/output
-- [ ] Document preview
+- [x] Document preview
 - [ ] Advanced search
 - [ ] Export conversations
 - [ ] Dark mode

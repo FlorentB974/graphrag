@@ -113,6 +113,57 @@ class DatabaseStats(BaseModel):
     documents: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class DocumentChunk(BaseModel):
+    """Chunk information associated with a document."""
+
+    id: str | int
+    text: str
+    index: int | None = None
+    offset: int | None = None
+    score: float | None = None
+
+
+class DocumentEntity(BaseModel):
+    """Entity extracted from a document."""
+
+    type: str
+    text: str
+    count: int | None = None
+    positions: List[int] | None = None
+
+
+class RelatedDocument(BaseModel):
+    """Related document link."""
+
+    id: str
+    title: str | None = None
+    link: str | None = None
+
+
+class UploaderInfo(BaseModel):
+    """Information about the document uploader."""
+
+    id: str | None = None
+    name: str | None = None
+
+
+class DocumentMetadataResponse(BaseModel):
+    """Response model for document metadata."""
+
+    id: str
+    title: str | None = None
+    file_name: str | None = None
+    mime_type: str | None = None
+    preview_url: str | None = None
+    uploaded_at: str | None = None
+    uploader: UploaderInfo | None = None
+    chunks: List[DocumentChunk] = Field(default_factory=list)
+    entities: List[DocumentEntity] = Field(default_factory=list)
+    quality_scores: Dict[str, Any] | None = None
+    related_documents: List[RelatedDocument] | None = None
+    metadata: Dict[str, Any] | None = None
+
+
 class ConversationSession(BaseModel):
     """Conversation session model."""
 

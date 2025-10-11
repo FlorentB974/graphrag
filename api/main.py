@@ -4,14 +4,11 @@ FastAPI backend for GraphRAG chat application.
 
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
-from api.routers import chat, database, history
+from api.routers import chat, database, documents, history
 from config.settings import settings
 
 logging.basicConfig(level=getattr(logging, settings.log_level))
@@ -45,6 +42,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(database.router, prefix="/api/database", tags=["database"])
+app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(history.router, prefix="/api/history", tags=["history"])
 
 

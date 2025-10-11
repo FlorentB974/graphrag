@@ -48,14 +48,55 @@ export interface DatabaseStats {
   total_chunks: number
   total_entities: number
   total_relationships: number
-  documents: Document[]
+  documents: DocumentSummary[]
 }
 
-export interface Document {
+export interface DocumentSummary {
   document_id: string
   filename: string
   created_at: string
   chunk_count: number
+}
+
+export interface UploaderInfo {
+  id?: string
+  name?: string
+}
+
+export interface DocumentChunk {
+  id: string | number
+  text: string
+  index?: number
+  offset?: number
+  score?: number | null
+}
+
+export interface DocumentEntity {
+  type: string
+  text: string
+  count?: number
+  positions?: Array<number>
+}
+
+export interface RelatedDocument {
+  id: string
+  title?: string
+  link?: string
+}
+
+export interface DocumentDetails {
+  id: string
+  title?: string
+  file_name?: string
+  mime_type?: string
+  preview_url?: string
+  uploaded_at?: string
+  uploader?: UploaderInfo | null
+  chunks: DocumentChunk[]
+  entities: DocumentEntity[]
+  quality_scores?: Record<string, any> | null
+  related_documents?: RelatedDocument[]
+  metadata?: Record<string, any>
 }
 
 export interface UploadResponse {

@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { DatabaseStats } from '@/types'
 import { TrashIcon } from '@heroicons/react/24/outline'
+import { useChatStore } from '@/store/chatStore'
 
 export default function DatabaseTab() {
   const [stats, setStats] = useState<DatabaseStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const selectDocument = useChatStore((state) => state.selectDocument)
+  const selectedDocumentId = useChatStore((state) => state.selectedDocumentId)
 
   useEffect(() => {
     loadStats()
@@ -49,6 +52,10 @@ export default function DatabaseTab() {
     } catch (error) {
       console.error('Failed to delete document:', error)
     }
+  }
+
+  const handleSelectDocument = (documentId: string) => {
+    selectDocument(documentId)
   }
 
   const handleClearDatabase = async () => {
@@ -110,10 +117,15 @@ export default function DatabaseTab() {
           </div>
 
           <div className="space-y-2">
-            {stats.documents.map((doc, index) => (
+            {stats.documents.map((doc, index) => {
+              const isActive = doc.document_id === selectedDocumentId
+              return (
               <div
                 key={index}
-                className="card p-3 flex items-center justify-between"
+                onClick={() => handleSelectDocument(doc.document_id)}
+                className={`card p-3 flex items-center justify-between cursor-pointer transition-colors ${
+                  isActive ? 'ring-2 ring-primary-500 border-primary-500' : 'hover:border-primary-200'
+                }`}
               >
                 <div className="flex-1 min-w-0 pr-8">
                     <div className="relative">
@@ -127,14 +139,17 @@ export default function DatabaseTab() {
                     </p>
                   </div>
                   <button
-                    onClick={() => handleDeleteDocument(doc.document_id)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDeleteDocument(doc.document_id)
+                    }}
                     className="text-red-600 hover:text-red-700 p-1 ml-2 flex-shrink-0"
                     title={`Delete ${doc.filename}`}
                   >
                     <TrashIcon className="w-4 h-4" />
                   </button>
               </div>
-            ))}
+            )})}
           </div>
         </>
       )}

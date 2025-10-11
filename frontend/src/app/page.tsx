@@ -1,10 +1,13 @@
 'use client'
 
 import ChatInterface from '@/components/Chat/ChatInterface'
+import DocumentView from '@/components/Document/DocumentView'
 import Sidebar from '@/components/Sidebar/Sidebar'
 import { useEffect, useState } from 'react'
+import { useChatStore } from '@/store/chatStore'
 
 export default function Home() {
+  const activeView = useChatStore((state) => state.activeView)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const DEFAULT_WIDTH = 320
   const MIN_WIDTH = 260
@@ -43,7 +46,7 @@ export default function Home() {
 
       {/* Main Content */}
       <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-0' : 'ml-0'}`}>
-        <ChatInterface />
+        {activeView === 'document' ? <DocumentView /> : <ChatInterface />}
       </main>
     </div>
   )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Message } from '@/types'
 import { api } from '@/lib/api'
 import MessageBubble from './MessageBubble'
@@ -39,12 +39,29 @@ export default function ChatInterface() {
     }
   }
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     handleStopStreaming()
     // Current session is already saved to history automatically
     // Just clear the UI and reset session ID
     clearChat()
-  }
+  }, [clearChat])
+
+  // Keyboard shortcut for new chat
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only trigger if 'n' is pressed and not in an input/textarea
+      if (event.key === 'n' && 
+          !(document.activeElement instanceof HTMLInputElement) && 
+          !(document.activeElement instanceof HTMLTextAreaElement) &&
+          !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault()
+        handleNewChat()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleNewChat])
 
   const handleSendMessage = async (message: string) => {
     if (!message.trim() || isLoading || isHistoryLoading) return

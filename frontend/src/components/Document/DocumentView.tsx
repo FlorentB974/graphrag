@@ -46,6 +46,11 @@ export default function DocumentView() {
   const [error, setError] = useState<string | null>(null)
   const [expandedChunks, setExpandedChunks] = useState<Record<string | number, boolean>>({})
   const [previewState, setPreviewState] = useState<PreviewState>(initialPreviewState)
+  const [showAllChunks, setShowAllChunks] = useState(false)
+  const [showAllEntities, setShowAllEntities] = useState<Record<string, boolean>>({})
+
+  const CHUNKS_LIMIT = 10
+  const ENTITIES_PER_TYPE_LIMIT = 5
 
   useEffect(() => {
     let isSubscribed = true
@@ -55,6 +60,8 @@ export default function DocumentView() {
       setError(null)
       setDocumentData(null)
       setPreviewState(initialPreviewState)
+      setShowAllChunks(false)
+      setShowAllEntities({})
 
       try {
         const data = await api.getDocument(documentId)
@@ -77,6 +84,8 @@ export default function DocumentView() {
     } else {
       setDocumentData(null)
       setPreviewState(initialPreviewState)
+      setShowAllChunks(false)
+      setShowAllEntities({})
     }
 
     return () => {
@@ -167,6 +176,13 @@ export default function DocumentView() {
     },
     [selectDocument]
   )
+
+  const toggleShowAllEntities = useCallback((type: string) => {
+    setShowAllEntities((state) => ({
+      ...state,
+      [type]: !state[type],
+    }))
+  }, [])
 
   if (!selectedDocumentId) {
     return (
@@ -282,7 +298,7 @@ export default function DocumentView() {
                 <span className="text-xs text-secondary-500">{documentData.chunks.length} entries</span>
               </header>
               <div className="divide-y divide-secondary-200">
-                {documentData.chunks.map((chunk: DocumentChunk) => {
+                {(showAllChunks ? documentData.chunks : documentData.chunks.slice(0, CHUNKS_LIMIT)).map((chunk: DocumentChunk) => {
                   const expanded = expandedChunks[chunk.id]
                   return (
                     <article key={chunk.id} className="px-5 py-4">
@@ -326,6 +342,17 @@ export default function DocumentView() {
                     </article>
                   )
                 })}
+                {documentData.chunks.length > CHUNKS_LIMIT && (
+                  <div className="px-5 py-4 border-t border-secondary-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllChunks(!showAllChunks)}
+                      className="button-secondary text-sm flex items-center gap-2"
+                    >
+                      {showAllChunks ? 'Show Less' : `Show ${documentData.chunks.length - CHUNKS_LIMIT} more Chunks`}
+                    </button>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -342,23 +369,38 @@ export default function DocumentView() {
                 <p className="px-5 py-4 text-sm text-secondary-500">No entities extracted.</p>
               ) : (
                 <div className="divide-y divide-secondary-100">
-                  {Object.entries(groupedEntities).map(([type, entities]) => (
-                    <div key={type} className="px-5 py-4 space-y-2">
-                      <h4 className="text-xs font-semibold text-secondary-500 uppercase tracking-wide">
-                        {type}
-                      </h4>
-                      <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {entities.map((entity) => (
-                          <li key={`${type}-${entity.text}`} className="border border-secondary-200 rounded-lg px-3 py-2">
-                            <p className="text-sm font-medium text-secondary-900">{entity.text}</p>
-                            <p className="text-xs text-secondary-500">
-                              Count: {entity.count ?? '—'} · Positions: {entity.positions?.join(', ') || '—'}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                  {Object.entries(groupedEntities).map(([type, entities]) => {
+                    const showAll = showAllEntities[type] || false
+                    const displayedEntities = showAll ? entities : entities.slice(0, ENTITIES_PER_TYPE_LIMIT)
+                    const hasMore = entities.length > ENTITIES_PER_TYPE_LIMIT
+
+                    return (
+                      <div key={type} className="px-5 py-4 space-y-2">
+                        <h4 className="text-xs font-semibold text-secondary-500 uppercase tracking-wide">
+                          {type}
+                        </h4>
+                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {displayedEntities.map((entity) => (
+                            <li key={`${type}-${entity.text}`} className="border border-secondary-200 rounded-lg px-3 py-2">
+                              <p className="text-sm font-medium text-secondary-900">{entity.text}</p>
+                              <p className="text-xs text-secondary-500">
+                                Count: {entity.count ?? '—'} · Positions: {entity.positions?.join(', ') || '—'}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                        {hasMore && (
+                          <button
+                            type="button"
+                            onClick={() => toggleShowAllEntities(type)}
+                            className="button-secondary text-xs mt-2"
+                          >
+                            {showAll ? 'Show Less' : `Show ${entities.length - ENTITIES_PER_TYPE_LIMIT} more ${type.toLowerCase()}s`}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </section>

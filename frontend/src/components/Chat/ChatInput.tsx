@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import { StopIcon, DocumentArrowUpIcon } from '@heroicons/react/24/outline'
 import { api } from '@/lib/api'
@@ -11,6 +11,7 @@ interface ChatInputProps {
   isStreaming?: boolean
   onStop?: () => void
   onFileUploaded?: () => void
+  userMessages?: string[]
 }
 
 export default function ChatInput({
@@ -19,10 +20,28 @@ export default function ChatInput({
   disabled,
   isStreaming,
   onFileUploaded,
+  userMessages = [],
 }: ChatInputProps) {
   const [input, setInput] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const [savedInput, setSavedInput] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-resize textarea based on content
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }
+
+  // Adjust height when input changes
+  useEffect(() => {
+    adjustTextareaHeight()
+  }, [input])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,6 +51,8 @@ export default function ChatInput({
     if (input.trim() && !disabled) {
       onSend(input)
       setInput('')
+      setHistoryIndex(-1)
+      setSavedInput('')
     }
   }
 
@@ -39,6 +60,29 @@ export default function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit(e)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (userMessages.length > 0) {
+        if (historyIndex === -1) {
+          // Save current input before navigating
+          setSavedInput(input)
+        }
+        const newIndex = Math.min(historyIndex + 1, userMessages.length - 1)
+        setHistoryIndex(newIndex)
+        setInput(userMessages[userMessages.length - 1 - newIndex])
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (historyIndex > -1) {
+        const newIndex = historyIndex - 1
+        setHistoryIndex(newIndex)
+        if (newIndex === -1) {
+          // Restore saved input
+          setInput(savedInput)
+        } else {
+          setInput(userMessages[userMessages.length - 1 - newIndex])
+        }
+      }
     }
   }
 
@@ -117,13 +161,14 @@ export default function ChatInput({
           )}
 
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question about your documents..."
             disabled={disabled || isStreaming || uploadingFile}
             rows={1}
-            className="input-field pr-24 resize-none"
+            className="input-field pr-24 resize-none overflow-hidden"
           />
 
           <div

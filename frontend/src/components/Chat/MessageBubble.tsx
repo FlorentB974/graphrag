@@ -27,7 +27,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     >
       <div
         className={`chat-message ${
-          isUser ? 'chat-message-user' : 'chat-message-assistant relative pr-12'
+          isUser ? 'chat-message-user' : 'chat-message-assistant relative pr-4 pl-4'
         }`}
       >
 

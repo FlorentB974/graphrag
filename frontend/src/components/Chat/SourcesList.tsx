@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Source } from '@/types'
 import { ChevronDownIcon, ChevronUpIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface SourcesListProps {
   sources: Source[]
@@ -81,8 +82,20 @@ export default function SourcesList({ sources }: SourcesListProps) {
         )}
       </button>
 
-      {expanded && (
-        <div className="space-y-2">
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            key="sources-expanded"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              duration: 0.3,
+              ease: [0.4, 0, 0.2, 1],
+              opacity: { duration: 0.2 }
+            }}
+            className="space-y-2 overflow-hidden"
+          >
           {visibleDocs.map((doc, index) => (
             <div
               key={doc.documentId}
@@ -124,8 +137,20 @@ export default function SourcesList({ sources }: SourcesListProps) {
                 </div>
               </div>
 
-              {selectedDoc === doc.documentId && (
-                <div className="mt-3 pt-3 border-t border-secondary-200 space-y-2">
+              <AnimatePresence>
+                {selectedDoc === doc.documentId && (
+                  <motion.div
+                    key={`doc-${doc.documentId}`}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{
+                      duration: 0.3,
+                      ease: [0.4, 0, 0.2, 1],
+                      opacity: { duration: 0.2 }
+                    }}
+                    className="mt-3 pt-3 border-t border-secondary-200 space-y-2 overflow-hidden"
+                  >
                   {doc.chunks.map((chunk, chunkIndex) => {
                     const similarity = chunk.similarity || chunk.relevance_score || 0
                     return (
@@ -174,8 +199,9 @@ export default function SourcesList({ sources }: SourcesListProps) {
                       </div>
                     )
                   })}
-                </div>
+                </motion.div>
               )}
+              </AnimatePresence>
             </div>
           ))}
 
@@ -187,8 +213,9 @@ export default function SourcesList({ sources }: SourcesListProps) {
               Show {groupedSources.length - 3} more documents
             </button>
           )}
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   )
 }

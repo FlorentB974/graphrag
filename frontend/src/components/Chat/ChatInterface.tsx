@@ -249,6 +249,11 @@ export default function ChatInterface() {
     setDocumentQueueKey((prev) => prev + 1)
   }
 
+  // Get user messages for history navigation
+  const userMessages = messages
+    .filter((msg) => msg.role === 'user')
+    .map((msg) => msg.content)
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -340,6 +345,7 @@ export default function ChatInterface() {
             onFileUploaded={handleFileUploaded}
             disabled={isHistoryLoading}
             isStreaming={isLoading}
+            userMessages={userMessages}
           />
         </div>
       </div>

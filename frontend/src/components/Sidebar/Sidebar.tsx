@@ -8,6 +8,7 @@ import {
   ClockIcon,
   CircleStackIcon,
 } from '@heroicons/react/24/outline'
+import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 import HistoryTab from './HistoryTab'
 import DatabaseTab from './DatabaseTab'
 
@@ -30,6 +31,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<'history' | 'database'>('history')
   const [isResizing, setIsResizing] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
 
   const tabs = [
     { id: 'history' as const, label: 'History', icon: ClockIcon },
@@ -120,52 +122,72 @@ export default function Sidebar({
         className={`fixed lg:static inset-y-0 left-0 z-40 w-80 bg-white border-r border-secondary-200 transform transition-transform duration-300 ease-in-out ${
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } relative`}
-        style={{ width: `${width}px` }}
+        style={{ width: `${collapsed ? 72 : width}px` }}
       >
         <div className="flex flex-col h-full">
-          {/* Logo/Brand */}
-          <div className="p-6 border-b border-secondary-200">
-            <h1 className="text-xl font-bold text-secondary-900">🚀 GraphRAG</h1>
-            <p className="text-sm text-secondary-600 mt-1">Document Intelligence</p>
-          </div>
+          {/* Collapse button (desktop) */}
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden lg:flex absolute top-4 right-4 z-50 items-center justify-center p-2 rounded bg-white border border-secondary-200 hover:bg-secondary-50"
+          >
+            {collapsed ? (
+              <ChevronRightIcon className="w-5 h-5" />
+            ) : (
+              <ChevronLeftIcon className="w-5 h-5" />
+            )}
+          </button>
 
-          {/* Tabs */}
-          <div className="flex border-b border-secondary-200">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 flex items-center justify-center py-3 text-sm font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? 'text-primary-600 border-b-2 border-primary-600'
-                    : 'text-secondary-600 hover:text-secondary-900'
-                }`}
-              >
-                <tab.icon className="w-5 h-5 mr-1" />
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          {/* When collapsed we hide the rest of the content entirely */}
+          {!collapsed && (
+            <>
+              {/* Logo/Brand */}
+              <div className="p-6 border-b border-secondary-200">
+                <h1 className="text-xl font-bold text-secondary-900">🚀 GraphRAG</h1>
+                <p className="text-sm text-secondary-600 mt-1">Document Intelligence</p>
+              </div>
 
-          {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div key={activeTab} className="tab-content">
-              {activeTab === 'history' && <HistoryTab />}
-              {activeTab === 'database' && <DatabaseTab />}
-            </div>
-          </div>
+              {/* Tabs */}
+              <div className="flex border-b border-secondary-200">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 flex items-center justify-center py-3 text-sm font-medium transition-colors ${
+                      activeTab === tab.id
+                        ? 'text-primary-600 border-b-2 border-primary-600'
+                        : 'text-secondary-600 hover:text-secondary-900'
+                    }`}
+                  >
+                    <tab.icon className="w-5 h-5 mr-1" />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                <div key={activeTab} className="tab-content">
+                  {activeTab === 'history' && <HistoryTab />}
+                  {activeTab === 'database' && <DatabaseTab />}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Resize handle */}
-        <div
-          className={`hidden lg:flex absolute top-0 -right-2 h-full w-4 items-center justify-center cursor-col-resize ${
-            isResizing ? 'bg-primary-100/60' : 'bg-transparent'
-          }`}
-          onMouseDown={onMouseDown}
-          onTouchStart={onTouchStart}
-        >
-          <div className="h-16 w-1 rounded bg-secondary-300" />
-        </div>
+        {/* Resize handle (hidden when collapsed) */}
+        {!collapsed && (
+          <div
+            className={`hidden lg:flex absolute top-0 -right-2 h-full w-4 items-center justify-center cursor-col-resize ${
+              isResizing ? 'bg-primary-100/60' : 'bg-transparent'
+            }`}
+            onMouseDown={onMouseDown}
+            onTouchStart={onTouchStart}
+          >
+            <div className="h-16 w-1 rounded bg-secondary-300" />
+          </div>
+        )}
       </aside>
 
       {/* Overlay for mobile */}

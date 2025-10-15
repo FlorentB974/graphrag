@@ -193,7 +193,8 @@ export default function DocumentView() {
       const objectUrl = URL.createObjectURL(blob)
       setPreviewState({ url: objectUrl, mimeType, isLoading: false, error: null, objectUrl })
     } catch (previewError) {
-      setPreviewState({ url: null, mimeType: undefined, isLoading: false, error: 'Unable to load preview', objectUrl: null })
+      const errorMessage = previewError instanceof Error ? previewError.message : 'Unable to load preview'
+      setPreviewState({ url: null, mimeType: undefined, isLoading: false, error: errorMessage, objectUrl: null })
       console.error('Failed to load preview', previewError)
     }
   }, [documentData?.mime_type, documentData?.preview_url, previewState.objectUrl, selectedDocumentId])
@@ -346,7 +347,8 @@ export default function DocumentView() {
                             Chunk {typeof chunk.index === 'number' ? chunk.index + 1 : chunk.id}
                           </p>
                           <div className="relative overflow-hidden pr-8">
-                            <p className="text-sm font-medium text-secondary-900 truncate whitespace-nowrap">
+                            {/* Allow preview line to wrap and break long words instead of truncating */}
+                            <p className="text-sm font-medium text-secondary-900 break-words break-all">
                               {previewLine}
                             </p>
                           </div>
@@ -384,13 +386,14 @@ export default function DocumentView() {
                           >
                             {isMarkdownDocument ? (
                               <ReactMarkdown
-                                className="prose prose-sm prose-slate max-w-none"
+                                className="prose prose-sm prose-slate max-w-none break-words"
                                 remarkPlugins={[remarkGfm, remarkBreaks]}
                               >
                                 {chunk.text || ''}
                               </ReactMarkdown>
                             ) : (
-                              <p className="whitespace-pre-wrap">{chunk.text ?? ''}</p>
+                              // Use whitespace-pre-wrap to preserve newlines but allow breaking long words
+                              <p className="whitespace-pre-wrap break-words">{chunk.text ?? ''}</p>
                             )}
                           </motion.div>
                         )}
@@ -475,8 +478,8 @@ export default function DocumentView() {
                 <h3 className="text-sm font-semibold text-secondary-900 mb-3">Related documents</h3>
                 <ul className="space-y-2">
                   {documentData.related_documents.map((doc) => (
-                    <li key={doc.id} className="flex items-center justify-between gap-3">
-                      <div>
+                    <li key={doc.id} className="flex items-center justify-between gap-3 p-3 border border-secondary-200 rounded-lg hover:bg-secondary-50 transition-colors">
+                      <div className="flex-1">
                         <p className="text-sm font-medium text-secondary-900">
                           {doc.title || doc.link || doc.id}
                         </p>
@@ -485,9 +488,12 @@ export default function DocumentView() {
                             href={doc.link}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-xs text-primary-600 hover:underline"
+                            className="text-xs text-primary-600 hover:underline inline-flex items-center gap-1 mt-1"
                           >
-                            Open reference
+                            <span>Open external link</span>
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
                           </a>
                         )}
                       </div>

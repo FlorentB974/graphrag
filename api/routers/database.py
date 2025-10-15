@@ -70,9 +70,18 @@ async def upload_document(file: UploadFile = File(...)):
     filename = file.filename or "unknown"
     
     try:
-        # Save uploaded file temporarily
-        temp_path = Path(f"/tmp/{filename}")
-        with open(temp_path, "wb") as f:
+        # Generate a unique file ID to avoid conflicts
+        file_id = hashlib.md5(f"{filename}_{time.time()}".encode()).hexdigest()[:16]
+        
+        # Save uploaded file to staged_uploads directory (not /tmp) so it persists for preview
+        staged_dir = Path("data/staged_uploads")
+        staged_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use the same naming pattern as stage endpoint for consistency
+        safe_filename = filename.replace(" ", " ")  # Keep spaces for now
+        file_path = staged_dir / f"{file_id}_{safe_filename}"
+        
+        with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
@@ -81,14 +90,12 @@ async def upload_document(file: UploadFile = File(...)):
         result = await loop.run_in_executor(
             None,
             document_processor.process_file,
-            temp_path
+            file_path,
+            filename  # Pass original filename
         )
 
-        # Clean up temp file
-        try:
-            temp_path.unlink()
-        except Exception:
-            pass  # Ignore cleanup errors
+        # DO NOT delete the file - we need it for previews
+        # The file path is stored in the database and used by the preview endpoint
 
         if result and result.get("status") == "success":
             return DocumentUploadResponse(
@@ -437,15 +444,12 @@ async def _process_documents_task(file_ids: List[str]):
                 # Remove from staged documents
                 del _staged_documents[file_id]
 
-                # Clean up file
-                try:
-                    file_path.unlink()
-                except Exception as cleanup_error:
-                    logger.warning(f"Failed to cleanup file: {cleanup_error}")
-
+                # DO NOT delete the file - we need it for previews
+                # The file path is stored in the database and used by the preview endpoint
+                # If disk space becomes an issue, implement a proper file retention policy
                 logger.info(
                     f"Successfully processed {staged_doc.filename}: "
-                    f"{result.get('chunks_created', 0)} chunks"
+                    f"{result.get('chunks_created', 0)} chunks, file retained for preview"
                 )
             else:
                 error_msg = result.get("error", "Processing failed") if result else "Processing failed"

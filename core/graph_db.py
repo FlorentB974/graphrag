@@ -107,6 +107,8 @@ class GraphDB:
                 MERGE (c:Chunk {id: $chunk_id})
                 SET c.content = $content,
                     c.embedding = $embedding,
+                    c.chunk_index = $chunk_index,
+                    c.offset = $offset,
                     c += $metadata
                 WITH c
                 MATCH (d:Document {id: $doc_id})
@@ -116,6 +118,8 @@ class GraphDB:
                 doc_id=doc_id,
                 content=content,
                 embedding=embedding,
+                chunk_index=metadata.get("chunk_index", 0),
+                offset=metadata.get("offset", 0),
                 metadata=metadata,
             )
 
@@ -1814,7 +1818,7 @@ class GraphDB:
                 RETURN c.id as id,
                        c.content as text,
                        c.chunk_index as index,
-                       c.offset as offset,
+                       coalesce(c.offset, 0) as offset,
                        c.score as score
                 ORDER BY coalesce(c.chunk_index, 0) ASC, c.id ASC
                 """,
@@ -1856,10 +1860,10 @@ class GraphDB:
                 """
                 MATCH (d:Document {id: $doc_id})-[r:RELATED_TO|SIMILAR_TO]-(other:Document)
                 RETURN DISTINCT other.id as id,
-                                other.title as title,
-                                other.link as link,
+                                coalesce(other.title, other.filename) as title,
+                                coalesce(other.link, '') as link,
                                 other.filename as filename
-                ORDER BY other.title ASC
+                ORDER BY coalesce(other.title, other.filename) ASC
                 """,
                 doc_id=doc_id,
             )
@@ -1867,7 +1871,7 @@ class GraphDB:
                 {
                     "id": record["id"],
                     "title": record["title"] or record["filename"],
-                    "link": record["link"],
+                    "link": record["link"] if record["link"] else None,
                 }
                 for record in related_records
             ]

@@ -47,7 +47,14 @@ async def get_document_preview(document_id: str):
         raise HTTPException(status_code=404, detail="Preview not available")
 
     path = Path(file_path)
+    # If path is relative, make it absolute relative to the project root
+    if not path.is_absolute():
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent  # Go up from api/routers/ to project root
+        path = project_root / path
+
     if not path.exists() or not path.is_file():
+        logger.error(f"File not found at path: {path}")
         raise HTTPException(status_code=404, detail="Preview not available")
 
     media_type = info.get("mime_type") or "application/octet-stream"

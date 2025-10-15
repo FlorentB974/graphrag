@@ -177,19 +177,29 @@ class DocumentProcessor:
         self, file_path: Path, original_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """Extract metadata from file."""
+        import mimetypes
+        
         # Use original filename if provided, otherwise use file path name
         filename = original_filename if original_filename else file_path.name
         # Replace spaces with underscores for cleaner database storage
         if original_filename and " " in filename:
             filename = filename.replace(" ", "_")
 
+        # Detect MIME type based on file extension
+        mime_type, _ = mimetypes.guess_type(filename)
+        if not mime_type:
+            # Fallback to generic binary type if detection fails
+            mime_type = "application/octet-stream"
+
         return {
             "filename": filename,
             "file_path": str(file_path),
             "file_size": file_path.stat().st_size,
             "file_extension": file_path.suffix,
+            "mime_type": mime_type,
             "created_at": file_path.stat().st_ctime,
             "modified_at": file_path.stat().st_mtime,
+            "link": "",  # Empty string instead of None to avoid Neo4j warnings
         }
 
     def _derive_content_primary_type(self, file_extension: Optional[str]) -> str:

@@ -48,6 +48,7 @@ export default function DocumentView() {
   const selectDocument = useChatStore((state) => state.selectDocument)
 
   const [documentData, setDocumentData] = useState<DocumentDetails | null>(null)
+  const [hasPreview, setHasPreview] = useState<boolean | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expandedChunks, setExpandedChunks] = useState<Record<string | number, boolean>>({})
@@ -73,6 +74,7 @@ export default function DocumentView() {
         const data = await api.getDocument(documentId)
         if (isSubscribed) {
           setDocumentData(data)
+          setHasPreview(null)
         }
       } catch (fetchError) {
         if (isSubscribed) {
@@ -92,12 +94,32 @@ export default function DocumentView() {
       setPreviewState(initialPreviewState)
       setShowAllChunks(false)
       setShowAllEntities({})
+      setHasPreview(null)
     }
 
     return () => {
       isSubscribed = false
     }
   }, [selectedDocumentId])
+
+  useEffect(() => {
+    let isSubscribed = true
+    const checkPreview = async () => {
+      if (!documentData) return
+      try {
+        const available = await api.hasDocumentPreview(documentData.id)
+        if (isSubscribed) setHasPreview(available)
+      } catch (e) {
+        if (isSubscribed) setHasPreview(false)
+      }
+    }
+
+    checkPreview()
+
+    return () => {
+      isSubscribed = false
+    }
+  }, [documentData])
 
   useEffect(() => {
     if (selectedChunkId !== null && documentData) {
@@ -324,7 +346,13 @@ export default function DocumentView() {
                 </div>
                 <div>
                   <dt className="text-secondary-500">Preview available</dt>
-                  <dd className="text-secondary-900">{documentData.preview_url ? 'Yes' : 'No'}</dd>
+                  <dd className="text-secondary-900">
+                    {hasPreview === null
+                      ? (documentData.preview_url ? 'Yes' : 'No')
+                      : hasPreview
+                      ? 'Yes'
+                      : 'No'}
+                  </dd>
                 </div>
               </dl>
             </section>

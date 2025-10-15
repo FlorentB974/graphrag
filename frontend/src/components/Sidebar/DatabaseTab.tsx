@@ -10,6 +10,7 @@ export default function DatabaseTab() {
   const [stats, setStats] = useState<DatabaseStats | null>(null)
   const [loading, setLoading] = useState(true)
   const selectDocument = useChatStore((state) => state.selectDocument)
+  const clearSelectedDocument = useChatStore((state) => state.clearSelectedDocument)
   const selectedDocumentId = useChatStore((state) => state.selectedDocumentId)
 
   useEffect(() => {
@@ -36,8 +37,10 @@ export default function DatabaseTab() {
       setLoading(true)
       const data = await api.getStats()
       setStats(data)
+      return data
     } catch (error) {
       console.error('Failed to load stats:', error)
+      return null
     } finally {
       setLoading(false)
     }
@@ -48,7 +51,27 @@ export default function DatabaseTab() {
 
     try {
       await api.deleteDocument(documentId)
-      await loadStats()
+      const newStats = await loadStats()
+
+      // If the deleted document was selected, switch selection to next available or fallback to chat
+      if (selectedDocumentId === documentId) {
+        if (newStats && newStats.documents && newStats.documents.length > 0) {
+          // Find next document: try to find the document at the same index as the deleted one
+          const idx = newStats.documents.findIndex((d: any) => d.document_id === documentId)
+          // If not found (deleted), pick the next one at idx (same position) or the last one
+          const pickIndex = Math.min(Math.max(0, idx), newStats.documents.length - 1)
+          const nextDoc = newStats.documents[pickIndex]
+          if (nextDoc) {
+            selectDocument(nextDoc.document_id)
+          } else {
+            // No documents left
+            clearSelectedDocument()
+          }
+        } else {
+          // No documents left, go back to chat view
+          clearSelectedDocument()
+        }
+      }
     } catch (error) {
       console.error('Failed to delete document:', error)
     }
@@ -63,7 +86,9 @@ export default function DatabaseTab() {
 
     try {
       await api.clearDatabase()
-      await loadStats()
+      const newStats = await loadStats()
+      // After clearing the database, ensure the UI returns to chat view
+      clearSelectedDocument()
     } catch (error) {
       console.error('Failed to clear database:', error)
     }

@@ -143,34 +143,28 @@ def retrieve_documents(
         List of relevant document chunks
     """
     try:
-        return asyncio.run(
-            retrieve_documents_async(
-                query,
-                query_analysis,
-                retrieval_mode,
-                top_k,
-                chunk_weight,
-                graph_expansion,
-                use_multi_hop,
-            )
-        )
-    except RuntimeError:
-        # If event loop is already running, create new task
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            return loop.run_until_complete(
-                retrieve_documents_async(
-                    query,
-                    query_analysis,
-                    retrieval_mode,
-                    top_k,
-                    chunk_weight,
-                    graph_expansion,
-                    use_multi_hop,
+        # Check if we're already in an event loop (e.g., running inside FastAPI)
+        try:
+            asyncio.get_running_loop()
+            # We're in an async context - need to run in thread pool
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    retrieve_documents_async(
+                        query,
+                        query_analysis,
+                        retrieval_mode,
+                        top_k,
+                        chunk_weight,
+                        graph_expansion,
+                        use_multi_hop,
+                    )
                 )
-            )
-        else:
-            return loop.run_until_complete(
+                return future.result()
+        except RuntimeError:
+            # No event loop running - safe to use asyncio.run()
+            return asyncio.run(
                 retrieve_documents_async(
                     query,
                     query_analysis,

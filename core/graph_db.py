@@ -5,6 +5,8 @@ Neo4j graph database operations for the RAG pipeline.
 import asyncio
 import logging
 import math
+import mimetypes
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -105,6 +107,8 @@ class GraphDB:
                 MERGE (c:Chunk {id: $chunk_id})
                 SET c.content = $content,
                     c.embedding = $embedding,
+                    c.chunk_index = $chunk_index,
+                    c.offset = $offset,
                     c += $metadata
                 WITH c
                 MATCH (d:Document {id: $doc_id})
@@ -114,6 +118,8 @@ class GraphDB:
                 doc_id=doc_id,
                 content=content,
                 embedding=embedding,
+                chunk_index=metadata.get("chunk_index", 0),
+                offset=metadata.get("offset", 0),
                 metadata=metadata,
             )
 
@@ -1715,6 +1721,250 @@ class GraphDB:
         except Exception as e:
             logger.error(f"Path finding failed: {e}")
             return []
+
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get comprehensive database statistics for the API."""
+        with self.driver.session() as session:  # type: ignore
+            # Get basic stats
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WITH count(d) AS total_documents
+                OPTIONAL MATCH (c:Chunk)
+                WITH total_documents, count(c) AS total_chunks
+                OPTIONAL MATCH (e:Entity)
+                WITH total_documents, total_chunks, count(e) AS total_entities
+                OPTIONAL MATCH ()-[r]->()
+                RETURN total_documents, total_chunks, total_entities, count(r) AS total_relationships
+                """
+            )
+            record = result.single()
+            stats = record.data() if record else {}
+
+            # Get document list
+            doc_result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       d.created_at as created_at,
+                       chunk_count
+                ORDER BY d.created_at DESC
+                """
+            )
+            documents = [record.data() for record in doc_result]
+
+            return {
+                "total_documents": stats.get("total_documents", 0),
+                "total_chunks": stats.get("total_chunks", 0),
+                "total_entities": stats.get("total_entities", 0),
+                "total_relationships": stats.get("total_relationships", 0),
+                "documents": documents,
+            }
+
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """List all documents in the database."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       d.created_at as created_at,
+                       chunk_count
+                ORDER BY d.created_at DESC
+                """
+            )
+            return [record.data() for record in result]
+
+    def get_document_details(self, doc_id: str) -> Dict[str, Any]:
+        """Retrieve detailed metadata for a document."""
+
+        def _timestamp_to_iso(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+            if isinstance(value, str):
+                try:
+                    numeric = float(value)
+                    return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
+                except ValueError:
+                    return value
+            return str(value)
+
+        with self.driver.session() as session:  # type: ignore
+            doc_record = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                RETURN d
+                """,
+                doc_id=doc_id,
+            ).single()
+
+            if doc_record is None:
+                raise ValueError("Document not found")
+
+            doc_node = doc_record["d"]
+            doc_data = dict(doc_node)
+
+            chunk_records = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)
+                RETURN c.id as id,
+                       c.content as text,
+                       c.chunk_index as index,
+                       coalesce(c.offset, 0) as offset,
+                       c.score as score
+                ORDER BY coalesce(c.chunk_index, 0) ASC, c.id ASC
+                """,
+                doc_id=doc_id,
+            )
+            chunks = [
+                {
+                    "id": record["id"],
+                    "text": record["text"] or "",
+                    "index": record["index"],
+                    "offset": record["offset"],
+                    "score": record["score"],
+                }
+                for record in chunk_records
+            ]
+
+            entity_records = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                RETURN e.type as type,
+                       e.name as text,
+                       count(*) as count,
+                       collect(DISTINCT c.chunk_index) as positions
+                ORDER BY type ASC, text ASC
+                """,
+                doc_id=doc_id,
+            )
+            entities = [
+                {
+                    "type": record["type"],
+                    "text": record["text"],
+                    "count": record["count"],
+                    "positions": [pos for pos in (record["positions"] or []) if pos is not None],
+                }
+                for record in entity_records
+            ]
+
+            related_records = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[r:RELATED_TO|SIMILAR_TO]-(other:Document)
+                RETURN DISTINCT other.id as id,
+                                coalesce(other.title, other.filename) as title,
+                                coalesce(other.link, '') as link,
+                                other.filename as filename
+                ORDER BY coalesce(other.title, other.filename) ASC
+                """,
+                doc_id=doc_id,
+            )
+            related_documents = [
+                {
+                    "id": record["id"],
+                    "title": record["title"] or record["filename"],
+                    "link": record["link"] if record["link"] else None,
+                }
+                for record in related_records
+            ]
+
+            uploader_info: Optional[Dict[str, Any]] = None
+            uploader_value = doc_data.get("uploader")
+            if isinstance(uploader_value, dict):
+                uploader_info = {
+                    "id": uploader_value.get("id"),
+                    "name": uploader_value.get("name"),
+                }
+            else:
+                uploader_id = doc_data.get("uploader_id")
+                uploader_name = doc_data.get("uploader_name")
+                if uploader_id or uploader_name:
+                    uploader_info = {"id": uploader_id, "name": uploader_name}
+
+            uploaded_at = (
+                _timestamp_to_iso(doc_data.get("uploaded_at"))
+                or _timestamp_to_iso(doc_data.get("created_at"))
+            )
+
+            known_keys = {
+                "id",
+                "title",
+                "filename",
+                "mime_type",
+                "preview_url",
+                "uploaded_at",
+                "created_at",
+                "uploader",
+                "uploader_id",
+                "uploader_name",
+                "quality_scores",
+            }
+
+            metadata = {
+                key: value
+                for key, value in doc_data.items()
+                if key not in known_keys
+            }
+
+            return {
+                "id": doc_data.get("id", doc_id),
+                "title": doc_data.get("title"),
+                "file_name": doc_data.get("filename"),
+                "mime_type": doc_data.get("mime_type"),
+                "preview_url": doc_data.get("preview_url"),
+                "uploaded_at": uploaded_at,
+                "uploader": uploader_info,
+                "chunks": chunks,
+                "entities": entities,
+                "quality_scores": doc_data.get("quality_scores"),
+                "related_documents": related_documents or None,
+                "metadata": metadata or None,
+            }
+
+    def get_document_file_info(self, doc_id: str) -> Dict[str, Any]:
+        """Return file metadata for previewing a document."""
+
+        with self.driver.session() as session:  # type: ignore
+            record = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                RETURN d.filename as file_name,
+                       d.file_path as file_path,
+                       d.mime_type as mime_type,
+                       d.preview_url as preview_url
+                """,
+                doc_id=doc_id,
+            ).single()
+
+            if record is None:
+                raise ValueError("Document not found")
+
+            file_path = record["file_path"]
+            mime_type = record["mime_type"]
+            if not mime_type and file_path:
+                mime_type = mimetypes.guess_type(file_path)[0]
+
+            return {
+                "file_name": record["file_name"],
+                "file_path": file_path,
+                "mime_type": mime_type,
+                "preview_url": record["preview_url"],
+            }
+
+    def clear_database(self) -> None:
+        """Clear all data from the database."""
+        with self.driver.session() as session:  # type: ignore
+            # Delete all nodes and relationships
+            session.run("MATCH (n) DETACH DELETE n")
+            logger.info("Database cleared")
 
 
 # Global database instance

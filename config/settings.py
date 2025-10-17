@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     # OCR Configuration
     enable_ocr: bool = Field(
-        default=False, description="Enable OCR processing for scanned documents"
+        default=True, description="Enable OCR processing for scanned documents"
     )
     enable_quality_filtering: bool = Field(
         default=True, description="Enable chunk quality filtering"

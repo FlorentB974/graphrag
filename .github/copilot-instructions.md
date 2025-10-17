@@ -1,9 +1,9 @@
 ## Project Overview
-This is a comprehensive RAG (Retrieval-Augmented Generation) pipeline using LangGraph and Streamlit with Neo4j graph database integration.
+This is a comprehensive RAG (Retrieval-Augmented Generation) pipeline using LangGraph and FastAPI/Uvicorn with Neo4j graph database integration.
 
 ## Architecture Components
 - **LangGraph**: Orchestrates the RAG workflow with graph-based reasoning
-- **Streamlit**: Provides the web interface for user interaction and document ingestion
+- **FastAPI/Uvicorn**: Provides the web interface for user interaction and document ingestion
 - **Neo4j**: Graph database for storing document chunks and relationships
 - **OpenAI API**: Configurable LLM integration with custom endpoints
 - **Multi-format Document Ingestion**: Supports various file types (PDF, DOCX, TXT, etc.)
@@ -26,3 +26,5 @@ This is a comprehensive RAG (Retrieval-Augmented Generation) pipeline using Lang
   ```bash
   source .venv/bin/activate
   ```
+- Do not write MD files documentation unless specified
+- Do not write tests unless specified

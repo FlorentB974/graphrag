@@ -16,6 +16,15 @@ from pdf2image import convert_from_path
 from PIL import Image
 from pypdf import PdfReader
 
+try:
+    from langdetect import detect, DetectorFactory
+    LANGDETECT_AVAILABLE = True
+    # Set seed for consistent language detection
+    DetectorFactory.seed = 0
+except ImportError:
+    LANGDETECT_AVAILABLE = False
+    detect = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,10 +46,17 @@ class OCRProcessor:
         self.IMAGE_DPI = 300  # DPI for PDF to image conversion
         self.ANALYSIS_DPI = 150  # Lower DPI for content analysis (faster)
 
-        # OCR configuration
+        # OCR configuration (default English)
         self.tesseract_config = "--oem 3 --psm 6"
+        self.default_language = "eng"
+        self.supported_languages = ["eng", "fra", "deu", "spa", "ita"]  # eng, French, German, Spanish, Italian
+        
+        # Language detection
+        self.detect_language = LANGDETECT_AVAILABLE
+        if not LANGDETECT_AVAILABLE:
+            logger.warning("langdetect not available - language detection disabled. Install with: pip install langdetect")
 
-        logger.info("Smart OCR processor initialized")
+        logger.info("Smart OCR processor initialized with language support")
 
     def _setup_poppler_path(self):
         """Ensure poppler utilities are available in PATH."""
@@ -83,6 +99,65 @@ class OCRProcessor:
             logger.warning(
                 f"Failed to setup poppler PATH: {e}. OCR may fail for some PDFs."
             )
+
+    def _detect_document_language(self, text: str) -> str:
+        """
+        Detect the language of a text sample.
+
+        Args:
+            text: Text sample to analyze (use first few sentences)
+
+        Returns:
+            Language code (e.g., 'fra' for French, 'eng' for English)
+        """
+        if not text or len(text.strip()) < 20:
+            logger.debug("Text too short for language detection, using default language")
+            return self.default_language
+
+        if not self.detect_language or detect is None:
+            return self.default_language
+
+        try:
+            # Detect language using langdetect
+            detected_lang = detect(text)
+            
+            # Map language codes to Tesseract codes
+            lang_mapping = {
+                "en": "eng",
+                "fr": "fra",
+                "de": "deu",
+                "es": "spa",
+                "it": "ita",
+            }
+            
+            tesseract_lang = lang_mapping.get(detected_lang, self.default_language)
+            
+            if tesseract_lang not in self.supported_languages:
+                logger.debug(
+                    f"Detected language '{detected_lang}' not supported, using {self.default_language}"
+                )
+                return self.default_language
+            
+            logger.debug(f"Detected language: {detected_lang} -> Tesseract: {tesseract_lang}")
+            return tesseract_lang
+
+        except Exception as e:
+            logger.debug(f"Language detection failed: {e}, using default language")
+            return self.default_language
+
+    def _get_ocr_language(self, text_sample: Optional[str] = None) -> str:
+        """
+        Get the appropriate OCR language based on detected content.
+
+        Args:
+            text_sample: Optional text sample to detect language from
+
+        Returns:
+            Language code for Tesseract OCR
+        """
+        if text_sample:
+            return self._detect_document_language(text_sample)
+        return self.default_language
 
     def _analyze_text_quality(self, text: str) -> Dict[str, Any]:
         """
@@ -414,7 +489,7 @@ class OCRProcessor:
             return image
 
     def _extract_text_from_image(
-        self, image: Image.Image, content_type: str = "mixed"
+        self, image: Image.Image, content_type: str = "mixed", language: Optional[str] = None
     ) -> Optional[str]:
         """
         Extract text from a PIL Image using OCR with content-aware configuration.
@@ -422,11 +497,18 @@ class OCRProcessor:
         Args:
             image: PIL Image object
             content_type: Type of content detected in image
+            language: Optional language code (e.g., 'fra' for French, 'eng' for English)
 
         Returns:
             Extracted text or None if failed
         """
         try:
+            # Determine OCR language
+            if language is None:
+                language = self.default_language
+            
+            logger.debug(f"Extracting text with language: {language}")
+
             # Convert PIL Image to numpy array
             img_array = np.array(image)
 
@@ -439,11 +521,11 @@ class OCRProcessor:
 
             # Adjust OCR config based on content type
             if content_type == "diagram":
-                config = "--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?()[]{}/-+=*&%$#@"
+                config = f"--oem 3 --psm 6 -l {language} -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:!?()[]{{}}/-+=*&%$#@"
             elif content_type == "scanned_page":
-                config = "--oem 3 --psm 4"  # Assume single column of text
+                config = f"--oem 3 --psm 4 -l {language}"  # Assume single column of text
             else:
-                config = self.tesseract_config  # Default config
+                config = f"--oem 3 --psm 6 -l {language}"  # Default config with language
 
             # Perform OCR
             text = pytesseract.image_to_string(enhanced_image, config=config)
@@ -634,7 +716,24 @@ class OCRProcessor:
                 "ocr_items": [],
                 "readable_text_pages": 0,
                 "processing_summary": analysis["summary"],
+                "detected_language": self.default_language,
             }
+
+            # Detect document language from first readable page
+            detected_language = self.default_language
+            for page_analysis in analysis["pages"]:
+                if page_analysis["text_analysis"]["is_readable"]:
+                    page_num = page_analysis["page_number"] - 1
+                    try:
+                        page_text = reader.pages[page_num].extract_text()
+                        if page_text and len(page_text.strip()) > 50:
+                            detected_language = self._get_ocr_language(page_text)
+                            ocr_metadata["detected_language"] = detected_language
+                            logger.info(f"Detected document language: {detected_language}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Failed to detect language from page {page_num + 1}: {e}")
+                        continue
 
             # Process each page based on analysis
             for page_analysis in analysis["pages"]:
@@ -662,9 +761,9 @@ class OCRProcessor:
                                 )
 
                                 if images:
-                                    # Extract text using OCR
+                                    # Extract text using OCR with detected language
                                     ocr_text = self._extract_text_from_image(
-                                        images[0], ocr_item["type"]
+                                        images[0], ocr_item["type"], language=detected_language
                                     )
 
                                     if ocr_text and ocr_text.strip():
@@ -681,6 +780,7 @@ class OCRProcessor:
                                                 "source": ocr_item["source"],
                                                 "confidence": ocr_item["confidence"],
                                                 "text_length": len(ocr_text),
+                                                "language": detected_language,
                                             }
                                         )
                                         ocr_metadata["ocr_applied"] += 1
@@ -766,6 +866,7 @@ class OCRProcessor:
                     "content_analysis": content_analysis,
                     "ocr_applied": 0,
                     "ocr_items": [],
+                    "detected_language": self.default_language,
                 }
 
                 # Apply OCR if needed
@@ -775,6 +876,10 @@ class OCRProcessor:
                     )
 
                     if ocr_text and ocr_text.strip():
+                        # Detect language from extracted text
+                        detected_language = self._get_ocr_language(ocr_text)
+                        ocr_metadata["detected_language"] = detected_language
+                        
                         ocr_metadata["ocr_applied"] = 1
                         ocr_metadata["ocr_items"].append(
                             {
@@ -784,11 +889,12 @@ class OCRProcessor:
                                     content_analysis["primary_type"], 0.5
                                 ),
                                 "text_length": len(ocr_text),
+                                "language": detected_language,
                             }
                         )
 
                         logger.info(
-                            f"Successfully extracted text from image: {file_path}"
+                            f"Successfully extracted text from image ({detected_language}): {file_path}"
                         )
                         return {"content": ocr_text, "ocr_metadata": ocr_metadata}
                     else:

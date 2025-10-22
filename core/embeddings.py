@@ -86,7 +86,7 @@ def retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0
     return decorator
 
 
-def async_retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0):
+def async_retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0):
     """
     Async decorator for retrying API calls with exponential backoff on rate limiting errors.
     """
@@ -156,7 +156,7 @@ class EmbeddingManager:
             self.model = getattr(settings, "ollama_embedding_model")
             self.ollama_base_url = getattr(settings, "ollama_base_url")
 
-    @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
+    @retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0)
     def get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text with retry logic."""
         try:
@@ -169,7 +169,7 @@ class EmbeddingManager:
             logger.error(f"Failed to generate embedding: {e}")
             raise
 
-    @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
+    @retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0)
     def _get_ollama_embedding(self, text: str) -> List[float]:
         """Generate embedding using Ollama with retry logic."""
         response = requests.post(

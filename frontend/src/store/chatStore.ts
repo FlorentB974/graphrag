@@ -82,6 +82,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           quality_score: message.quality_score || undefined,
           follow_up_questions: message.follow_up_questions || undefined,
           isStreaming: false,
+          context_documents: message.context_documents || undefined,
         })
       )
 

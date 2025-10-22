@@ -16,7 +16,7 @@ from core.llm import llm_manager
 logger = logging.getLogger(__name__)
 
 
-def retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0):
+def retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0):
     """
     Decorator for retrying LLM calls with exponential backoff on rate limiting errors.
 
@@ -450,7 +450,7 @@ RELATIONSHIPS:
     ) -> Tuple[List[Entity], List[Relationship]]:
         """Extract entities and relationships from a single text chunk with retry logic."""
 
-        @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
+        @retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0)
         def _generate_response_with_retry(prompt):
             return llm_manager.generate_response(
                 prompt=prompt, max_tokens=4000, temperature=0.1

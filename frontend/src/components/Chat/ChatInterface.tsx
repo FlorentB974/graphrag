@@ -63,7 +63,7 @@ export default function ChatInterface() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleNewChat])
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (message: string, contextDocuments: string[] = []) => {
     if (!message.trim() || isLoading || isHistoryLoading) return
 
     // Add user message
@@ -71,6 +71,7 @@ export default function ChatInterface() {
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
+      context_documents: contextDocuments,
     }
     addMessage(userMessage)
     setIsLoading(true)
@@ -84,6 +85,7 @@ export default function ChatInterface() {
     let streamCompleted = false
     let animationFrameId: number | null = null
     let contentBuffer: string[] = []
+    let effectiveContextDocs = [...contextDocuments]
 
     // Smooth rendering using requestAnimationFrame
     const smoothRender = () => {
@@ -133,6 +135,7 @@ export default function ChatInterface() {
           message,
           session_id: sessionId,
           stream: true,
+          context_documents: contextDocuments,
         },
         { signal: controller.signal }
       )
@@ -171,6 +174,9 @@ export default function ChatInterface() {
                 followUpQuestions = data.content
               } else if (data.type === 'metadata') {
                 newSessionId = data.content.session_id
+                if (Array.isArray(data.content.context_documents)) {
+                  effectiveContextDocs = data.content.context_documents
+                }
               } else if (data.type === 'done') {
                 streamCompleted = true
               } else if (data.type === 'error') {
@@ -182,9 +188,6 @@ export default function ChatInterface() {
           }
         }
       }
-
-      // Mark stream as completed and let animation frame finish
-      streamCompleted = true
 
       // Mark stream as completed and let animation frame finish
       streamCompleted = true
@@ -209,6 +212,7 @@ export default function ChatInterface() {
         sources,
         quality_score: qualityScore,
         follow_up_questions: followUpQuestions,
+        context_documents: effectiveContextDocs,
       }))
 
       if (newSessionId && !sessionId) {
@@ -238,6 +242,7 @@ export default function ChatInterface() {
               : prev.quality_score,
           follow_up_questions:
             followUpQuestions.length > 0 ? followUpQuestions : prev.follow_up_questions,
+          context_documents: effectiveContextDocs,
         }))
       } else {
         console.error('Error sending message:', error)
@@ -245,6 +250,7 @@ export default function ChatInterface() {
           role: 'assistant',
           content: 'Sorry, I encountered an error processing your request. Please try again.',
           isStreaming: false,
+          context_documents: effectiveContextDocs,
         }))
       }
     } finally {
@@ -258,7 +264,7 @@ export default function ChatInterface() {
   }
 
   const handleFollowUpClick = (question: string) => {
-    handleSendMessage(question)
+    handleSendMessage(question, [])
   }
 
   const handleFileUploaded = () => {

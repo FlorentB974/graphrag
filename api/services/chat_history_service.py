@@ -22,6 +22,7 @@ class ChatHistoryService:
         sources: Optional[List[Dict[str, Any]]] = None,
         quality_score: Optional[Dict[str, Any]] = None,
         follow_up_questions: Optional[List[str]] = None,
+        context_documents: Optional[List[str]] = None,
     ) -> None:
         """
         Save a message to chat history.
@@ -53,7 +54,8 @@ class ChatHistoryService:
                 timestamp: $timestamp,
                 sources: $sources,
                 quality_score: $quality_score,
-                follow_up_questions: $follow_up_questions
+                follow_up_questions: $follow_up_questions,
+                context_documents: $context_documents
             })
             CREATE (s)-[:HAS_MESSAGE]->(m)
             """
@@ -67,6 +69,7 @@ class ChatHistoryService:
                 sources=json.dumps(sources or []),
                 quality_score=json.dumps(quality_score or {}),
                 follow_up_questions=follow_up_questions or [],
+                context_documents=context_documents or [],
             )
 
             logger.info(f"Saved message to session {session_id}")
@@ -135,6 +138,7 @@ class ChatHistoryService:
                         sources=sources_data,
                         quality_score=quality_data,
                         follow_up_questions=msg_node.get("follow_up_questions"),
+                        context_documents=msg_node.get("context_documents"),
                     )
                 )
 

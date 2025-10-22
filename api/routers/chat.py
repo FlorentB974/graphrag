@@ -23,7 +23,7 @@ router = APIRouter()
 
 
 async def stream_response_generator(
-    result: dict, session_id: str, user_query: str
+    result: dict, session_id: str, user_query: str, context_documents: List[str]
 ) -> AsyncGenerator[str, None]:
     """Generate streaming response with SSE format."""
     try:
@@ -96,6 +96,7 @@ async def stream_response_generator(
                 session_id=session_id,
                 role="user",
                 content=user_query,
+                context_documents=context_documents,
             )
             await chat_history_service.save_message(
                 session_id=session_id,
@@ -104,6 +105,7 @@ async def stream_response_generator(
                 sources=result.get("sources", []),
                 quality_score=quality_score,
                 follow_up_questions=follow_up_questions,
+                context_documents=context_documents,
             )
             logger.info(f"Saved chat to history for session: {session_id}")
         except Exception as e:
@@ -138,6 +140,7 @@ async def stream_response_generator(
             "content": {
                 "session_id": session_id,
                 "metadata": result.get("metadata", {}),
+                "context_documents": result.get("context_documents", []),
             },
         }
         yield f"data: {json.dumps(metadata_data)}\n\n"
@@ -181,6 +184,8 @@ async def chat_query(request: ChatRequest):
             except Exception as e:
                 logger.warning(f"Could not load chat history: {e}")
 
+        context_documents = request.context_documents or []
+
         # Process query through RAG pipeline
         result = graph_rag.query(
             user_query=request.message,
@@ -189,12 +194,15 @@ async def chat_query(request: ChatRequest):
             temperature=request.temperature,
             use_multi_hop=request.use_multi_hop,
             chat_history=chat_history,
+            context_documents=context_documents,
         )
 
         # If streaming is requested, return SSE stream
         if request.stream:
             return StreamingResponse(
-                stream_response_generator(result, session_id, request.message),
+                stream_response_generator(
+                    result, session_id, request.message, context_documents
+                ),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -243,6 +251,7 @@ async def chat_query(request: ChatRequest):
                 session_id=session_id,
                 role="user",
                 content=request.message,
+                context_documents=context_documents,
             )
             await chat_history_service.save_message(
                 session_id=session_id,
@@ -251,6 +260,7 @@ async def chat_query(request: ChatRequest):
                 sources=result.get("sources", []),
                 quality_score=quality_score,
                 follow_up_questions=follow_up_questions,
+                context_documents=context_documents,
             )
         except Exception as e:
             logger.warning(f"Could not save to chat history: {e}")
@@ -262,6 +272,7 @@ async def chat_query(request: ChatRequest):
             follow_up_questions=follow_up_questions,
             session_id=session_id,
             metadata=result.get("metadata", {}),
+            context_documents=result.get("context_documents", context_documents),
         )
 
     except Exception as e:

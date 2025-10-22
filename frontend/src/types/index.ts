@@ -6,6 +6,7 @@ export interface Message {
   quality_score?: QualityScore
   follow_up_questions?: string[]
   isStreaming?: boolean
+  context_documents?: string[]
 }
 
 export interface Source {
@@ -107,6 +108,11 @@ export interface UploadResponse {
   error?: string
 }
 
+export interface DocumentTextPayload {
+  document_id: string
+  text: string
+}
+
 export interface ChatRequest {
   message: string
   session_id?: string
@@ -115,4 +121,5 @@ export interface ChatRequest {
   temperature?: number
   use_multi_hop?: boolean
   stream?: boolean
+  context_documents?: string[]
 }

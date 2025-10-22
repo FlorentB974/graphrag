@@ -4,7 +4,7 @@ Document retrieval node for LangGraph RAG pipeline.
 
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from config.settings import settings
 from rag.retriever import DocumentRetriever, RetrievalMode
@@ -23,6 +23,7 @@ async def retrieve_documents_async(
     chunk_weight: float = 0.5,
     graph_expansion: bool = True,
     use_multi_hop: bool = False,
+    context_documents: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Retrieve relevant documents based on query and analysis using enhanced retriever.
@@ -35,11 +36,14 @@ async def retrieve_documents_async(
         chunk_weight: Weight for chunk-based results in hybrid mode
         graph_expansion: Whether to use graph expansion
         use_multi_hop: Whether to use multi-hop reasoning
+        context_documents: Optional list of document IDs to restrict retrieval scope
 
     Returns:
         List of relevant document chunks
     """
     try:
+        allowed_docs = context_documents or []
+
         # Use contextualized query if this is a follow-up question
         search_query = query_analysis.get("contextualized_query", query)
         if search_query != query:
@@ -89,6 +93,8 @@ async def retrieve_documents_async(
         # Get the appropriate retrieval mode
         enhanced_mode = mode_mapping.get(retrieval_mode, RetrievalMode.HYBRID)
 
+        allowed_ids = allowed_docs if allowed_docs else None
+
         # Use enhanced retriever. Prefer graph expansion when configured
         if (complexity == "complex" or query_type == "comparative") and graph_expansion:
             chunks = await document_retriever.retrieve_with_graph_expansion(
@@ -96,6 +102,7 @@ async def retrieve_documents_async(
                 mode=enhanced_mode,
                 top_k=adjusted_top_k,
                 use_multi_hop=use_multi_hop,
+                allowed_document_ids=allowed_ids,
             )
         else:
             # Pass chunk_weight and multi_hop through to hybrid retriever if present
@@ -105,11 +112,17 @@ async def retrieve_documents_async(
                 top_k=adjusted_top_k,
                 chunk_weight=chunk_weight,
                 use_multi_hop=use_multi_hop,
+                allowed_document_ids=allowed_ids,
             )
 
         logger.info(
-            f"Retrieved {len(chunks)} chunks using {retrieval_mode} mode (enhanced_mode: {enhanced_mode.value}) "
-            f"with top_k={adjusted_top_k}, multi_hop={use_multi_hop}"
+            "Retrieved %d chunks using %s mode (enhanced_mode: %s) with top_k=%d, multi_hop=%s, restricted_docs=%s",
+            len(chunks),
+            retrieval_mode,
+            enhanced_mode.value,
+            adjusted_top_k,
+            use_multi_hop,
+            bool(allowed_docs),
         )
         return chunks
 
@@ -126,6 +139,7 @@ def retrieve_documents(
     chunk_weight: float = 0.5,
     graph_expansion: bool = True,
     use_multi_hop: bool = False,
+    context_documents: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Synchronous wrapper for document retrieval.
@@ -138,16 +152,20 @@ def retrieve_documents(
         chunk_weight: Weight for chunk-based results
         graph_expansion: Whether to use graph expansion
         use_multi_hop: Whether to use multi-hop reasoning
+        context_documents: Optional list of document IDs to restrict retrieval scope
 
     Returns:
         List of relevant document chunks
     """
     try:
+        allowed_docs = context_documents or []
+
         # Check if we're already in an event loop (e.g., running inside FastAPI)
         try:
             asyncio.get_running_loop()
             # We're in an async context - need to run in thread pool
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
                     asyncio.run,
@@ -159,7 +177,8 @@ def retrieve_documents(
                         chunk_weight,
                         graph_expansion,
                         use_multi_hop,
-                    )
+                        context_documents=allowed_docs,
+                    ),
                 )
                 return future.result()
         except RuntimeError:
@@ -173,6 +192,7 @@ def retrieve_documents(
                     chunk_weight,
                     graph_expansion,
                     use_multi_hop,
+                    context_documents=allowed_docs,
                 )
             )
     except Exception as e:

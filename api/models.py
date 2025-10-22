@@ -16,6 +16,7 @@ class ChatMessage(BaseModel):
     sources: Optional[List[Dict[str, Any]]] = None
     quality_score: Optional[Dict[str, Any]] = None
     follow_up_questions: Optional[List[str]] = None
+    context_documents: Optional[List[str]] = None
 
 
 class ChatRequest(BaseModel):
@@ -28,6 +29,10 @@ class ChatRequest(BaseModel):
     temperature: float = Field(0.7, description="LLM temperature")
     use_multi_hop: bool = Field(False, description="Enable multi-hop reasoning")
     stream: bool = Field(True, description="Enable streaming response")
+    context_documents: List[str] = Field(
+        default_factory=list,
+        description="List of document IDs to restrict retrieval context",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -39,6 +44,10 @@ class ChatResponse(BaseModel):
     follow_up_questions: List[str] = Field(default_factory=list)
     session_id: str = Field(..., description="Session ID")
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    context_documents: List[str] = Field(
+        default_factory=list,
+        description="Document IDs used to constrain retrieval",
+    )
 
 
 class FollowUpRequest(BaseModel):

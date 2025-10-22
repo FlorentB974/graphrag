@@ -810,7 +810,7 @@ class GraphDB:
                 async with sem:
                     try:
                         # Add small delay to prevent API flooding
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(0.3)
                         entity_text = f"{name}: {description}" if description else name
                         embedding = await embedding_manager.aget_embedding(entity_text)
                     except Exception as e:
@@ -1341,7 +1341,7 @@ class GraphDB:
 
                         if content:
                             # Add small delay to prevent API flooding
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(0.3)
                             # Generate new embedding
                             embedding = await embedding_manager.aget_embedding(content)
 
@@ -1392,7 +1392,7 @@ class GraphDB:
 
                         if entity_data:
                             # Add small delay to prevent API flooding
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(0.3)
                             # Use entity name + description for embedding
                             text = (
                                 f"{entity_data['name']}: {entity_data['description']}"

@@ -9,7 +9,7 @@ import { DocumentSummary } from '@/types'
 type SelectedDocMap = Record<string, { filename: string }>
 
 interface ChatInputProps {
-  onSend: (message: string, contextDocuments: string[]) => void
+  onSend: (message: string, contextDocuments: string[], contextDocumentLabels: string[]) => void
   disabled?: boolean
   isStreaming?: boolean
   onStop?: () => void
@@ -200,7 +200,10 @@ export default function ChatInput({
     }
     if (input.trim() && !disabled) {
       const contextDocIds = Object.keys(selectedDocs)
-      onSend(input, contextDocIds)
+      const contextDocLabels = contextDocIds
+        .map((id) => selectedDocs[id]?.filename)
+        .filter((label): label is string => Boolean(label))
+      onSend(input, contextDocIds, contextDocLabels)
       setInput('')
       setHistoryIndex(-1)
       setSavedInput('')

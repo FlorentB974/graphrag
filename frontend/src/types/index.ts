@@ -7,6 +7,7 @@ export interface Message {
   follow_up_questions?: string[]
   isStreaming?: boolean
   context_documents?: string[]
+  context_document_labels?: string[]
 }
 
 export interface Source {

@@ -14,6 +14,9 @@ interface MessageBubbleProps {
 
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+  const contextDocDisplay = message.context_document_labels && message.context_document_labels.length > 0
+    ? message.context_document_labels
+    : message.context_documents
 
   return (
     <motion.div
@@ -35,13 +38,25 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm, remarkBreaks]}
-            >
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
               {message.content}
             </ReactMarkdown>
           )}
         </div>
+
+        {isUser && Array.isArray(message.context_documents) && message.context_documents.length > 0 && contextDocDisplay && contextDocDisplay.length > 0 && (
+          <div className="mt-2">
+            <span className="inline-flex flex-wrap items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs text-white/90">
+              <span className="font-semibold uppercase tracking-wide text-white/70">Context:</span>
+              <span
+                className="truncate"
+                title={contextDocDisplay.join(', ')}
+              >
+                {contextDocDisplay.join(', ')}
+              </span>
+            </span>
+          </div>
+        )}
 
         {message.isStreaming && (
           <div className="flex items-center mt-2 text-secondary-500">

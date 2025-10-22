@@ -63,7 +63,11 @@ export default function ChatInterface() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleNewChat])
 
-  const handleSendMessage = async (message: string, contextDocuments: string[] = []) => {
+  const handleSendMessage = async (
+    message: string,
+    contextDocuments: string[],
+    contextDocumentLabels: string[]
+  ) => {
     if (!message.trim() || isLoading || isHistoryLoading) return
 
     // Add user message
@@ -72,6 +76,7 @@ export default function ChatInterface() {
       content: message,
       timestamp: new Date().toISOString(),
       context_documents: contextDocuments,
+      context_document_labels: contextDocumentLabels,
     }
     addMessage(userMessage)
     setIsLoading(true)
@@ -86,6 +91,14 @@ export default function ChatInterface() {
     let animationFrameId: number | null = null
     let contentBuffer: string[] = []
     let effectiveContextDocs = [...contextDocuments]
+    const contextDocLabelMap = new Map<string, string>()
+    contextDocuments.forEach((id, index) => {
+      const label = contextDocumentLabels[index]
+      if (label) {
+        contextDocLabelMap.set(id, label)
+      }
+    })
+    let effectiveContextDocLabels = [...contextDocumentLabels]
 
     // Smooth rendering using requestAnimationFrame
     const smoothRender = () => {
@@ -176,6 +189,9 @@ export default function ChatInterface() {
                 newSessionId = data.content.session_id
                 if (Array.isArray(data.content.context_documents)) {
                   effectiveContextDocs = data.content.context_documents
+                  effectiveContextDocLabels = data.content.context_documents.map(
+                    (docId: string) => contextDocLabelMap.get(docId) || docId
+                  )
                 }
               } else if (data.type === 'done') {
                 streamCompleted = true
@@ -213,6 +229,7 @@ export default function ChatInterface() {
         quality_score: qualityScore,
         follow_up_questions: followUpQuestions,
         context_documents: effectiveContextDocs,
+        context_document_labels: effectiveContextDocLabels,
       }))
 
       if (newSessionId && !sessionId) {
@@ -243,6 +260,7 @@ export default function ChatInterface() {
           follow_up_questions:
             followUpQuestions.length > 0 ? followUpQuestions : prev.follow_up_questions,
           context_documents: effectiveContextDocs,
+          context_document_labels: effectiveContextDocLabels,
         }))
       } else {
         console.error('Error sending message:', error)
@@ -251,6 +269,7 @@ export default function ChatInterface() {
           content: 'Sorry, I encountered an error processing your request. Please try again.',
           isStreaming: false,
           context_documents: effectiveContextDocs,
+          context_document_labels: effectiveContextDocLabels,
         }))
       }
     } finally {
@@ -264,7 +283,7 @@ export default function ChatInterface() {
   }
 
   const handleFollowUpClick = (question: string) => {
-    handleSendMessage(question, [])
+    handleSendMessage(question, [], [])
   }
 
   const handleFileUploaded = () => {

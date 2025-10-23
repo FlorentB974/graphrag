@@ -28,13 +28,17 @@ export default function SourcesList({ sources }: SourcesListProps) {
     const groups = new Map<string, GroupedSource>()
 
     sources.forEach((source) => {
-      const docKey = source.document_id || source.document_name || source.filename || 'Unknown'
+      // Use document_name as the primary key for grouping to ensure chunks and entities 
+      // from the same document are grouped together
       const docName = source.document_name || source.filename || 'Unknown Document'
+      const docKey = docName // Use document name as the key
 
       if (!groups.has(docKey)) {
+        // Find the first source with a valid document_id to use as the group's documentId
+        const docId = source.document_id || docKey
         groups.set(docKey, {
           documentName: docName,
-          documentId: docKey,
+          documentId: docId,
           chunks: [],
           avgSimilarity: 0,
           entityCount: 0,
@@ -42,6 +46,12 @@ export default function SourcesList({ sources }: SourcesListProps) {
       }
 
       const group = groups.get(docKey)!
+      
+      // If this source has a document_id and the group doesn't have one yet, use it
+      if (source.document_id && group.documentId === docKey) {
+        group.documentId = source.document_id
+      }
+      
       group.chunks.push(source)
       
       // Count entities (handle entity sources)
@@ -155,8 +165,17 @@ export default function SourcesList({ sources }: SourcesListProps) {
                   >
                   {doc.chunks.map((chunk, chunkIndex) => {
                     const similarity = chunk.similarity || chunk.relevance_score || 0
+                    const handleChunkClick = () => {
+                      if (chunk.chunk_index !== undefined) {
+                        // Regular chunk - navigate to specific chunk
+                        selectDocumentChunk(doc.documentId, chunk.chunk_index)
+                      } else {
+                        // Entity source - just navigate to the document
+                        selectDocumentChunk(doc.documentId, 0)
+                      }
+                    }
                     return (
-                      <div key={chunkIndex} className="bg-white rounded p-2 text-sm cursor-pointer hover:bg-secondary-50 transition-colors" onClick={() => chunk.chunk_index !== undefined && selectDocumentChunk(doc.documentId, chunk.chunk_index)}>
+                      <div key={chunkIndex} className="bg-white rounded p-2 text-sm cursor-pointer hover:bg-secondary-50 transition-colors" onClick={handleChunkClick}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2 flex-wrap">
                             {chunk.entity_name ? (

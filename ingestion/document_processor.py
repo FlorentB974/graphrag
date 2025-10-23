@@ -5,7 +5,6 @@ Multi-format document processor for the RAG pipeline.
 import asyncio
 import hashlib
 import logging
-import random
 import threading
 import time
 from dataclasses import dataclass
@@ -260,8 +259,7 @@ class DocumentProcessor:
 
             async with sem:
                 try:
-                    # Add small delay to prevent API flooding
-                    await asyncio.sleep(random.uniform(0.1, 0.3))
+                    # Rate limiting is now handled in EmbeddingManager
                     embedding = await embedding_manager.aget_embedding(content)
                 except Exception as e:
                     logger.error(f"Async embedding failed for {chunk_id}: {e}")
@@ -313,8 +311,7 @@ class DocumentProcessor:
             async with sem:
                 try:
                     entity_id = self._generate_entity_id(entity.name)
-                    # Add small delay to prevent API flooding
-                    await asyncio.sleep(0.1)
+                    # Rate limiting is now handled in EmbeddingManager
                     # Use async entity creation
                     await graph_db.acreate_entity_node(
                         entity_id,

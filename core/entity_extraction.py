@@ -16,14 +16,14 @@ from core.llm import llm_manager
 logger = logging.getLogger(__name__)
 
 
-def retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0):
+def retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0):
     """
     Decorator for retrying LLM calls with exponential backoff on rate limiting errors.
 
     Args:
         max_retries: Maximum number of retry attempts
-        base_delay: Base delay in seconds
-        max_delay: Maximum delay in seconds
+        base_delay: Base delay in seconds (increased from 2.0 to 3.0)
+        max_delay: Maximum delay in seconds (increased from 120.0 to 180.0)
     """
 
     def decorator(func):
@@ -65,7 +65,7 @@ def retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.
 
                     # Calculate delay with exponential backoff and jitter
                     delay = min(base_delay * (2**attempt), max_delay)
-                    jitter = random.uniform(0.1, 0.3) * delay  # Add 10-30% jitter
+                    jitter = random.uniform(0.2, 0.5) * delay  # Add 20-50% jitter (increased)
                     total_delay = delay + jitter
 
                     logger.info(f"Retrying in {total_delay:.2f} seconds...")
@@ -450,7 +450,7 @@ RELATIONSHIPS:
     ) -> Tuple[List[Entity], List[Relationship]]:
         """Extract entities and relationships from a single text chunk with retry logic."""
 
-        @retry_with_exponential_backoff(max_retries=5, base_delay=2.0, max_delay=120.0)
+        @retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0)
         def _generate_response_with_retry(prompt):
             return llm_manager.generate_response(
                 prompt=prompt, max_tokens=4000, temperature=0.1
@@ -488,12 +488,25 @@ RELATIONSHIPS:
         # Concurrency limit from settings (use embedding_concurrency to match pattern)
         concurrency = getattr(settings, "llm_concurrency")
         sem = asyncio.Semaphore(concurrency)
+        
+        # Track last request time for rate limiting (use dict to make it mutable)
+        request_tracker = {"last_time": 0.0}
 
         async def _sem_extract(chunk):
             async with sem:
                 try:
-                    # Add small delay to prevent API flooding
-                    await asyncio.sleep(random.uniform(0.2, 0.5))
+                    # Enforce minimum delay between LLM requests
+                    current_time = time.time()
+                    time_since_last = current_time - request_tracker["last_time"]
+                    min_delay = random.uniform(settings.llm_delay_min, settings.llm_delay_max)
+                    
+                    if time_since_last < min_delay:
+                        sleep_time = min_delay - time_since_last
+                        logger.debug(f"Rate limiting LLM: sleeping {sleep_time:.2f}s")
+                        await asyncio.sleep(sleep_time)
+                    
+                    request_tracker["last_time"] = time.time()
+                    
                     return await self.extract_from_chunk(
                         chunk["content"], chunk["chunk_id"]
                     )

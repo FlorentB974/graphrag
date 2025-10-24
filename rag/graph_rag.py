@@ -28,6 +28,7 @@ class RAGState:
         self.sources: List[Dict[str, Any]] = []
         self.metadata: Dict[str, Any] = {}
         self.quality_score: Optional[Dict[str, Any]] = None
+        self.context_documents: List[str] = []
 
 
 class GraphRAG:
@@ -90,6 +91,7 @@ class GraphRAG:
                 chunk_weight=chunk_weight,
                 graph_expansion=graph_expansion,
                 use_multi_hop=use_multi_hop,
+                context_documents=state.get("context_documents", []),
             )
             return state
         except Exception as e:
@@ -148,7 +150,8 @@ class GraphRAG:
         chunk_weight: float = 0.5,
         graph_expansion: bool = True,
         use_multi_hop: bool = False,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, Any]]] = None,
+        context_documents: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Process a user query through the RAG pipeline.
@@ -182,6 +185,7 @@ class GraphRAG:
             state["use_multi_hop"] = use_multi_hop
             # Add chat history for follow-up questions
             state["chat_history"] = chat_history or []
+            state["context_documents"] = context_documents or []
 
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")
@@ -191,6 +195,12 @@ class GraphRAG:
             final_state = RAGState()
             for k, v in (final_state_dict or {}).items():
                 setattr(final_state, k, v)
+
+            context_docs = getattr(final_state, "context_documents", [])
+            metadata = getattr(final_state, "metadata", {}) or {}
+            if context_docs:
+                metadata = {**metadata, "context_documents": context_docs}
+                setattr(final_state, "metadata", metadata)
 
             # Return results
             return {
@@ -202,6 +212,7 @@ class GraphRAG:
                 "query_analysis": getattr(final_state, "query_analysis", {}),
                 "metadata": getattr(final_state, "metadata", {}),
                 "quality_score": getattr(final_state, "quality_score", None),
+                "context_documents": context_docs,
             }
 
         except Exception as e:
@@ -215,6 +226,7 @@ class GraphRAG:
                 "query_analysis": {},
                 "metadata": {"error": str(e)},
                 "quality_score": None,
+                "context_documents": context_documents or [],
             }
 
     async def aquery(self, user_query: str) -> Dict[str, Any]:

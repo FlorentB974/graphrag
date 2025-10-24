@@ -5,6 +5,7 @@ Text embedding utilities using OpenAI API.
 import asyncio
 import logging
 import random
+import threading
 import time
 from typing import List
 
@@ -24,14 +25,14 @@ if settings.openai_proxy:
     openai.http_client = httpx.Client(verify=False, base_url=settings.openai_proxy)
 
 
-def retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0):
+def retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0):
     """
     Decorator for retrying API calls with exponential backoff on rate limiting errors.
 
     Args:
         max_retries: Maximum number of retry attempts
-        base_delay: Base delay in seconds
-        max_delay: Maximum delay in seconds
+        base_delay: Base delay in seconds (increased from 1.0 to 3.0)
+        max_delay: Maximum delay in seconds (increased from 60.0 to 180.0)
     """
 
     def decorator(func):
@@ -73,7 +74,7 @@ def retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0
 
                     # Calculate delay with exponential backoff and jitter
                     delay = min(base_delay * (2**attempt), max_delay)
-                    jitter = random.uniform(0.1, 0.3) * delay  # Add 10-30% jitter
+                    jitter = random.uniform(0.2, 0.5) * delay  # Add 20-50% jitter (increased)
                     total_delay = delay + jitter
 
                     logger.info(f"Retrying in {total_delay:.2f} seconds...")
@@ -86,7 +87,7 @@ def retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0
     return decorator
 
 
-def async_retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0):
+def async_retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0):
     """
     Async decorator for retrying API calls with exponential backoff on rate limiting errors.
     """
@@ -130,7 +131,7 @@ def async_retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_dela
 
                     # Calculate delay with exponential backoff and jitter
                     delay = min(base_delay * (2**attempt), max_delay)
-                    jitter = random.uniform(0.1, 0.3) * delay  # Add 10-30% jitter
+                    jitter = random.uniform(0.2, 0.5) * delay  # Add 20-50% jitter (increased)
                     total_delay = delay + jitter
 
                     logger.info(f"Retrying in {total_delay:.2f} seconds...")
@@ -149,6 +150,8 @@ class EmbeddingManager:
     def __init__(self):
         """Initialize the embedding manager."""
         self.provider = getattr(settings, "llm_provider").lower()
+        self._last_request_time = 0
+        self._request_lock = threading.Lock()
 
         if self.provider == "openai":
             self.model = settings.embedding_model
@@ -156,9 +159,26 @@ class EmbeddingManager:
             self.model = getattr(settings, "ollama_embedding_model")
             self.ollama_base_url = getattr(settings, "ollama_base_url")
 
-    @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
+    def _wait_for_rate_limit(self):
+        """Enforce minimum delay between requests to prevent rate limiting."""
+        with self._request_lock:
+            current_time = time.time()
+            time_since_last = current_time - self._last_request_time
+            min_delay = random.uniform(settings.embedding_delay_min, settings.embedding_delay_max)
+            
+            if time_since_last < min_delay:
+                sleep_time = min_delay - time_since_last
+                logger.debug(f"Rate limiting: sleeping {sleep_time:.2f}s")
+                time.sleep(sleep_time)
+            
+            self._last_request_time = time.time()
+
+    @retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0)
     def get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text with retry logic."""
+        # Enforce rate limiting before making request
+        self._wait_for_rate_limit()
+        
         try:
             if self.provider == "ollama":
                 return self._get_ollama_embedding(text)
@@ -169,9 +189,10 @@ class EmbeddingManager:
             logger.error(f"Failed to generate embedding: {e}")
             raise
 
-    @retry_with_exponential_backoff(max_retries=3, base_delay=1.0, max_delay=60.0)
+    @retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0)
     def _get_ollama_embedding(self, text: str) -> List[float]:
         """Generate embedding using Ollama with retry logic."""
+        # Rate limiting is already handled in get_embedding
         response = requests.post(
             f"{self.ollama_base_url}/api/embeddings",
             json={"model": self.model, "prompt": text},

@@ -30,6 +30,18 @@ class DocumentRetriever:
         """Initialize the enhanced document retriever."""
         pass
 
+    @staticmethod
+    def _filter_chunks_by_documents(
+        chunks: List[Dict[str, Any]],
+        allowed_document_ids: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Restrict chunks to a set of allowed document IDs."""
+        if not allowed_document_ids:
+            return chunks
+
+        allowed_set = set(allowed_document_ids)
+        return [chunk for chunk in chunks if chunk.get("document_id") in allowed_set]
+
     def _generate_entity_id(self, entity_name: str) -> str:
         """Generate a consistent entity ID from entity name."""
         return hashlib.md5(entity_name.upper().strip().encode()).hexdigest()
@@ -68,7 +80,10 @@ class DocumentRetriever:
         return entity_ids
 
     async def chunk_based_retrieval(
-        self, query: str, top_k: int = 5
+        self,
+        query: str,
+        top_k: int = 5,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Traditional chunk-based retrieval using vector similarity.
@@ -85,8 +100,17 @@ class DocumentRetriever:
             query_embedding = embedding_manager.get_embedding(query)
 
             # Perform vector similarity search with larger top_k to allow filtering
+            search_limit = top_k * 3
+            if allowed_document_ids:
+                search_limit = max(search_limit, top_k * 5)
+
             similar_chunks = graph_db.vector_similarity_search(
-                query_embedding, top_k * 3
+                query_embedding, search_limit
+            )
+
+            # Enforce document restriction if provided
+            similar_chunks = self._filter_chunks_by_documents(
+                similar_chunks, allowed_document_ids
             )
 
             # Filter chunks by minimum similarity threshold
@@ -100,7 +124,11 @@ class DocumentRetriever:
             final_chunks = filtered_chunks[:top_k]
 
             logger.info(
-                f"Retrieved {len(similar_chunks)} chunks, filtered to {len(filtered_chunks)}, returning {len(final_chunks)} chunks using chunk-based retrieval"
+                "Retrieved %d chunks, filtered to %d, returning %d chunks using chunk-based retrieval (restricted=%s)",
+                len(similar_chunks),
+                len(filtered_chunks),
+                len(final_chunks),
+                bool(allowed_document_ids),
             )
             return final_chunks
 
@@ -109,7 +137,10 @@ class DocumentRetriever:
             return []
 
     async def entity_based_retrieval(
-        self, query: str, top_k: int = 5
+        self,
+        query: str,
+        top_k: int = 5,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Entity-based retrieval using entity similarity and relationships.
@@ -134,6 +165,17 @@ class DocumentRetriever:
 
             # Get chunks that contain these entities
             relevant_chunks = graph_db.get_chunks_for_entities(entity_ids)
+
+            # Respect document restriction if provided
+            relevant_chunks = self._filter_chunks_by_documents(
+                relevant_chunks, allowed_document_ids
+            )
+
+            if not relevant_chunks:
+                logger.info(
+                    "Entity-based retrieval filtered out all chunks due to document restriction"
+                )
+                return []
 
             # Calculate similarity scores for chunks based on query
             query_embedding = embedding_manager.get_embedding(query)
@@ -185,7 +227,11 @@ class DocumentRetriever:
             # Return top_k chunks
             final_chunks = filtered_chunks[:top_k]
             logger.info(
-                f"Entity-based retrieval: found {len(relevant_chunks)} chunks, filtered to {len(filtered_chunks)}, returning {len(final_chunks)} with scores"
+                "Entity-based retrieval: found %d chunks, filtered to %d, returning %d with scores (restricted=%s)",
+                len(relevant_chunks),
+                len(filtered_chunks),
+                len(final_chunks),
+                bool(allowed_document_ids),
             )
 
             return final_chunks
@@ -199,6 +245,7 @@ class DocumentRetriever:
         initial_entities: List[str],
         expansion_depth: int = 1,
         max_chunks: Optional[int] = None,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Expand retrieval by following entity relationships.
@@ -286,6 +333,13 @@ class DocumentRetriever:
 
             expanded_chunks = graph_db.get_chunks_for_entities(list(expanded_entities))
 
+            expanded_chunks = self._filter_chunks_by_documents(
+                expanded_chunks, allowed_document_ids
+            )
+
+            if not expanded_chunks:
+                return []
+
             # Add expansion metadata and similarity scores
             for chunk in expanded_chunks:
                 chunk["retrieval_mode"] = "entity_expansion"
@@ -346,6 +400,7 @@ class DocumentRetriever:
         max_hops: int = 2,
         beam_size: int = 8,
         use_hybrid_seeding: bool = True,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Multi-hop reasoning retrieval using path traversal.
@@ -361,6 +416,11 @@ class DocumentRetriever:
             List of chunks with path-based scoring and provenance
         """
         try:
+            if allowed_document_ids:
+                logger.info(
+                    "Skipping multi-hop reasoning because retrieval is restricted to specific documents"
+                )
+                return []
             # Step 1: Seed entity selection
             seed_entity_ids = []
 
@@ -530,6 +590,7 @@ class DocumentRetriever:
         top_k: int = 5,
         chunk_weight: float = 0.5,
         use_multi_hop: bool = False,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Hybrid retrieval combining chunk-based, entity-based, and optionally multi-hop approaches.
@@ -549,8 +610,14 @@ class DocumentRetriever:
             multi_hop_recommended = query_analysis.get("multi_hop_recommended", True)
             query_type = query_analysis.get("query_type", "factual")
 
+            allowed_set = set(allowed_document_ids) if allowed_document_ids else None
+
             # Override multi-hop decision based on query analysis
-            effective_use_multi_hop = use_multi_hop and multi_hop_recommended
+            effective_use_multi_hop = (
+                use_multi_hop
+                and multi_hop_recommended
+                and not (allowed_document_ids and len(allowed_document_ids) > 0)
+            )
 
             # Adjust path weight based on query type
             base_path_weight = settings.hybrid_path_weight
@@ -565,8 +632,13 @@ class DocumentRetriever:
                 path_weight = max(0.2, base_path_weight * 0.7)
 
             logger.info(
-                f"Multi-hop decision: requested={use_multi_hop}, recommended={multi_hop_recommended}, "
-                f"effective={effective_use_multi_hop}, query_type={query_type}, path_weight={path_weight:.2f}"
+                "Multi-hop decision: requested=%s, recommended=%s, effective=%s, query_type=%s, path_weight=%.2f, restricted=%s",
+                use_multi_hop,
+                multi_hop_recommended,
+                effective_use_multi_hop,
+                query_type,
+                path_weight,
+                bool(allowed_document_ids),
             )
 
             # Calculate split for each approach
@@ -597,8 +669,12 @@ class DocumentRetriever:
                 path_count = 0
 
             # Get results from different approaches
-            chunk_results = await self.chunk_based_retrieval(query, chunk_count)
-            entity_results = await self.entity_based_retrieval(query, entity_count)
+            chunk_results = await self.chunk_based_retrieval(
+                query, chunk_count, allowed_document_ids=allowed_document_ids
+            )
+            entity_results = await self.entity_based_retrieval(
+                query, entity_count, allowed_document_ids=allowed_document_ids
+            )
 
             path_results = []
             if effective_use_multi_hop:
@@ -608,6 +684,7 @@ class DocumentRetriever:
                     max_hops=settings.multi_hop_max_hops,
                     beam_size=settings.multi_hop_beam_size,
                     use_hybrid_seeding=True,
+                    allowed_document_ids=allowed_document_ids,
                 )
                 # Limit path results, but be more generous if we have high-quality results
                 if len(path_results) > path_count:
@@ -662,6 +739,8 @@ class DocumentRetriever:
                     else:
                         result["retrieval_source"] = "entity_based"
                         # Use actual similarity score, with better fallback
+                        if allowed_set and result.get("document_id") not in allowed_set:
+                            continue
                         result["hybrid_score"] = result.get("similarity", 0.3)
                         combined_results[chunk_id] = result
 
@@ -751,14 +830,24 @@ class DocumentRetriever:
             f"Starting retrieval with mode: {mode.value}, top_k: {top_k}, multi_hop: {use_multi_hop}"
         )
 
+        allowed_document_ids = kwargs.pop("allowed_document_ids", None)
+
         if mode == RetrievalMode.CHUNK_ONLY:
-            return await self.chunk_based_retrieval(query, top_k)
+            return await self.chunk_based_retrieval(
+                query, top_k, allowed_document_ids=allowed_document_ids
+            )
         elif mode == RetrievalMode.ENTITY_ONLY:
-            return await self.entity_based_retrieval(query, top_k)
+            return await self.entity_based_retrieval(
+                query, top_k, allowed_document_ids=allowed_document_ids
+            )
         elif mode == RetrievalMode.HYBRID:
             chunk_weight = kwargs.get("chunk_weight", 0.5)
             return await self.hybrid_retrieval(
-                query, top_k, chunk_weight, use_multi_hop
+                query,
+                top_k,
+                chunk_weight,
+                use_multi_hop,
+                allowed_document_ids=allowed_document_ids,
             )
         else:
             logger.error(f"Unknown retrieval mode: {mode}")
@@ -771,6 +860,7 @@ class DocumentRetriever:
         top_k: int = 3,
         expand_depth: int = 2,
         use_multi_hop: bool = False,
+        allowed_document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve chunks and expand using graph relationships.
@@ -788,11 +878,30 @@ class DocumentRetriever:
         try:
             # Get initial results
             initial_chunks = await self.retrieve(
-                query, mode, top_k, use_multi_hop=use_multi_hop
+                query,
+                mode,
+                top_k,
+                use_multi_hop=use_multi_hop,
+                allowed_document_ids=allowed_document_ids,
             )
 
             if not initial_chunks:
                 return []
+
+            allowed_set = set(allowed_document_ids) if allowed_document_ids else None
+
+            if allowed_set:
+                initial_chunks = [
+                    chunk
+                    for chunk in initial_chunks
+                    if chunk.get("document_id") in allowed_set
+                ]
+
+                if not initial_chunks:
+                    logger.info(
+                        "Initial retrieval yielded no chunks after applying document restriction"
+                    )
+                    return []
 
             expanded_chunks = []
             seen_chunk_ids = set()
@@ -801,6 +910,8 @@ class DocumentRetriever:
             for chunk in initial_chunks:
                 chunk_id = chunk.get("chunk_id")
                 if chunk_id and chunk_id not in seen_chunk_ids:
+                    if allowed_set and chunk.get("document_id") not in allowed_set:
+                        continue
                     expanded_chunks.append(chunk)
                     seen_chunk_ids.add(chunk_id)
 
@@ -825,6 +936,7 @@ class DocumentRetriever:
                                 max_chunks=settings.max_expanded_chunks
                                 // len(initial_chunks)
                                 + 1,
+                                allowed_document_ids=allowed_document_ids,
                             )
 
                             source_similarity = chunk.get(
@@ -834,6 +946,8 @@ class DocumentRetriever:
                             for exp_chunk in expanded:
                                 exp_chunk_id = exp_chunk.get("chunk_id")
                                 if exp_chunk_id and exp_chunk_id not in seen_chunk_ids:
+                                    if allowed_set and exp_chunk.get("document_id") not in allowed_set:
+                                        continue
                                     chunk_similarity = exp_chunk.get("similarity", 0.0)
 
                                     # Only add high-quality expansions
@@ -890,6 +1004,8 @@ class DocumentRetriever:
                         for rel_chunk in related_chunks:
                             rel_chunk_id = rel_chunk.get("chunk_id")
                             if rel_chunk_id and rel_chunk_id not in seen_chunk_ids:
+                                if allowed_set and rel_chunk.get("document_id") not in allowed_set:
+                                    continue
                                 # Calculate similarity based on distance and source similarity
                                 distance = rel_chunk.get("distance", 1)
                                 # Decay factor based on graph distance

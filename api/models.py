@@ -3,6 +3,7 @@ Pydantic models for API requests and responses.
 """
 
 from typing import Any, Dict, List, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -83,6 +84,10 @@ class StagedDocument(BaseModel):
     file_size: int
     file_path: str
     timestamp: float
+    document_id: Optional[str] = None
+    mode: Literal["full", "chunks_only", "entities_only"] = Field(
+        "full", description="Processing mode"
+    )
 
 
 class StageDocumentResponse(BaseModel):
@@ -90,6 +95,7 @@ class StageDocumentResponse(BaseModel):
 
     file_id: str
     filename: str
+    document_id: Optional[str] = None
     status: str
     error: Optional[str] = None
 
@@ -98,11 +104,18 @@ class ProcessProgress(BaseModel):
     """Model for document processing progress."""
 
     file_id: str
+    document_id: Optional[str] = None
     filename: str
-    status: str  # 'processing', 'completed', 'error'
+    status: str  # 'queued', 'processing', 'completed', 'error'
+    stage: Optional[str] = Field(None, description="Current processing stage")
+    mode: Optional[str] = Field(None, description="Processing mode")
+    queue_position: Optional[int] = Field(None, description="Position in processing queue")
     chunks_processed: int
     total_chunks: int
+    chunk_progress: Optional[float] = Field(None, description="Chunk processing progress 0-1")
+    entity_progress: Optional[float] = Field(None, description="Entity processing progress 0-1")
     progress_percentage: float
+    entity_state: Optional[str] = Field(None, description="Entity extraction state")
     error: Optional[str] = None
 
 
@@ -110,6 +123,19 @@ class ProcessDocumentsRequest(BaseModel):
     """Request model for processing staged documents."""
 
     file_ids: List[str] = Field(..., description="List of file IDs to process")
+
+
+class ProcessingSummary(BaseModel):
+    """Global processing summary for UI indicators."""
+
+    is_processing: bool = Field(False, description="Whether any processing job is active")
+    current_file_id: Optional[str] = Field(None, description="Currently processed staged file id")
+    current_document_id: Optional[str] = Field(None, description="Currently processed document id")
+    current_filename: Optional[str] = Field(None, description="Human friendly filename")
+    current_stage: Optional[str] = Field(None, description="Current processing stage")
+    progress_percentage: Optional[float] = Field(None, description="Overall progress percentage")
+    queue_length: int = Field(0, description="Number of pending jobs including current")
+    pending_documents: List[ProcessProgress] = Field(default_factory=list)
 
 
 class DatabaseStats(BaseModel):
@@ -120,6 +146,7 @@ class DatabaseStats(BaseModel):
     total_entities: int
     total_relationships: int
     documents: List[Dict[str, Any]] = Field(default_factory=list)
+    processing: Optional[ProcessingSummary] = None
 
 
 class DocumentChunk(BaseModel):

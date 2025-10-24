@@ -1750,7 +1750,10 @@ class GraphDB:
                 RETURN d.id as document_id,
                        d.filename as filename,
                        d.created_at as created_at,
-                       chunk_count
+              coalesce(d.processing_status, 'idle') as processing_status,
+              coalesce(d.processing_stage, 'idle') as processing_stage,
+              coalesce(d.processing_progress, 0.0) as processing_progress,
+              chunk_count
                 ORDER BY d.created_at DESC
                 """
             )

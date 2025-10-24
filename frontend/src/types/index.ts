@@ -1,3 +1,5 @@
+import type { ProcessProgress } from './upload'
+
 export interface Message {
   role: 'user' | 'assistant'
   content: string
@@ -51,6 +53,7 @@ export interface DatabaseStats {
   total_entities: number
   total_relationships: number
   documents: DocumentSummary[]
+  processing?: ProcessingSummary
 }
 
 export interface DocumentSummary {
@@ -58,6 +61,21 @@ export interface DocumentSummary {
   filename: string
   created_at: string
   chunk_count: number
+  processing_status?: string
+  processing_stage?: string
+  processing_progress?: number
+  queue_position?: number | null
+}
+
+export interface ProcessingSummary {
+  is_processing: boolean
+  current_file_id?: string | null
+  current_document_id?: string | null
+  current_filename?: string | null
+  current_stage?: string | null
+  progress_percentage?: number | null
+  queue_length: number
+  pending_documents: ProcessProgress[]
 }
 
 export interface UploaderInfo {

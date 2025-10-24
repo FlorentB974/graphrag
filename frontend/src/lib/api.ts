@@ -1,4 +1,5 @@
 import type { DocumentDetails, DocumentChunk, DocumentTextPayload } from '@/types'
+import type { ProcessingProgressResponse } from '@/types/upload'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -148,7 +149,7 @@ export const api = {
     return response.json()
   },
 
-  async getProcessingProgress(fileId?: string) {
+  async getProcessingProgress(fileId?: string): Promise<ProcessingProgressResponse> {
     const url = fileId
       ? `${API_URL}/api/database/progress/${fileId}`
       : `${API_URL}/api/database/progress`
@@ -173,6 +174,32 @@ export const api = {
     const response = await fetch(`${API_URL}/api/database/clear`, {
       method: 'POST',
     })
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+    return response.json()
+  },
+
+  async reprocessDocumentChunks(documentId: string) {
+    const response = await fetch(
+      `${API_URL}/api/database/documents/${documentId}/process/chunks`,
+      {
+        method: 'POST',
+      }
+    )
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+    return response.json()
+  },
+
+  async reprocessDocumentEntities(documentId: string) {
+    const response = await fetch(
+      `${API_URL}/api/database/documents/${documentId}/process/entities`,
+      {
+        method: 'POST',
+      }
+    )
     if (!response.ok) {
       throw new Error(`API error: ${response.statusText}`)
     }

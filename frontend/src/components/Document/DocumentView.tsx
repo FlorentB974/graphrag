@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeftIcon,
   DocumentTextIcon,
@@ -21,6 +21,7 @@ import type {
   DocumentEntity,
   RelatedDocument,
 } from '@/types'
+import type { ProcessingGlobalSummary } from '@/types/upload'
 import { useChatStore } from '@/store/chatStore'
 import DocumentPreview from './DocumentPreview'
 
@@ -55,6 +56,20 @@ export default function DocumentView() {
   const [previewState, setPreviewState] = useState<PreviewState>(initialPreviewState)
   const [showAllChunks, setShowAllChunks] = useState(false)
   const [showAllEntities, setShowAllEntities] = useState<Record<string, boolean>>({})
+  const [processingState, setProcessingState] = useState<ProcessingGlobalSummary | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [isActionPending, setIsActionPending] = useState(false)
+  const prevProcessingRef = useRef(false)
+
+  const refreshProcessingState = useCallback(async () => {
+    try {
+      const response = await api.getProcessingProgress()
+      setProcessingState(response.global)
+    } catch (stateError) {
+      console.error('Failed to load processing state', stateError)
+    }
+  }, [])
 
   const CHUNKS_LIMIT = 10
   const ENTITIES_PER_TYPE_LIMIT = 5
@@ -88,19 +103,41 @@ export default function DocumentView() {
     }
 
     if (selectedDocumentId) {
-      fetchDocument(selectedDocumentId)
+      void fetchDocument(selectedDocumentId)
+      void refreshProcessingState()
     } else {
       setDocumentData(null)
       setPreviewState(initialPreviewState)
       setShowAllChunks(false)
       setShowAllEntities({})
       setHasPreview(null)
+      setProcessingState(null)
+    }
+
+    const handleProcessed = () => {
+      if (selectedDocumentId) {
+        void fetchDocument(selectedDocumentId)
+        void refreshProcessingState()
+      }
+    }
+
+    const handleProcessingUpdated = () => {
+      void refreshProcessingState()
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('documents:processed', handleProcessed)
+      window.addEventListener('documents:processing-updated', handleProcessingUpdated)
     }
 
     return () => {
       isSubscribed = false
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('documents:processed', handleProcessed)
+        window.removeEventListener('documents:processing-updated', handleProcessingUpdated)
+      }
     }
-  }, [selectedDocumentId])
+  }, [refreshProcessingState, selectedDocumentId])
 
   useEffect(() => {
     let isSubscribed = true
@@ -228,6 +265,88 @@ export default function DocumentView() {
     setPreviewState(initialPreviewState)
   }, [previewState.objectUrl])
 
+  const handleReprocessChunks = useCallback(async () => {
+    if (!documentData?.id) return
+    setIsActionPending(true)
+    setActionError(null)
+    setActionMessage(null)
+    try {
+      await api.reprocessDocumentChunks(documentData.id)
+      setActionMessage('Chunk processing queued')
+      await refreshProcessingState()
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documents:processing-updated'))
+      }
+    } catch (reprocessError) {
+      setActionError(
+        reprocessError instanceof Error
+          ? reprocessError.message
+          : 'Failed to queue chunk processing'
+      )
+    } finally {
+      setIsActionPending(false)
+    }
+  }, [documentData?.id, refreshProcessingState])
+
+  const handleReprocessEntities = useCallback(async () => {
+    if (!documentData?.id) return
+    setIsActionPending(true)
+    setActionError(null)
+    setActionMessage(null)
+    try {
+      await api.reprocessDocumentEntities(documentData.id)
+      setActionMessage('Entity extraction queued')
+      await refreshProcessingState()
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documents:processing-updated'))
+      }
+    } catch (reprocessError) {
+      setActionError(
+        reprocessError instanceof Error
+          ? reprocessError.message
+          : 'Failed to queue entity extraction'
+      )
+    } finally {
+      setIsActionPending(false)
+    }
+  }, [documentData?.id, refreshProcessingState])
+
+  useEffect(() => {
+    if (!actionMessage) return
+    const timer = window.setTimeout(() => setActionMessage(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [actionMessage])
+
+  useEffect(() => {
+    if (!actionError) return
+    const timer = window.setTimeout(() => setActionError(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [actionError])
+
+  useEffect(() => {
+    const isProcessingNow = Boolean(processingState?.is_processing)
+    const wasProcessing = prevProcessingRef.current
+    prevProcessingRef.current = isProcessingNow
+
+    if (isProcessingNow) {
+      const intervalId = window.setInterval(() => {
+        void refreshProcessingState()
+      }, 2000)
+      return () => window.clearInterval(intervalId)
+    }
+
+    if (wasProcessing && !isProcessingNow) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documents:processed'))
+      }
+    }
+  }, [processingState?.is_processing, refreshProcessingState])
+
+  const disableManualActions = isActionPending || Boolean(processingState?.is_processing)
+  const manualActionTitle = processingState?.is_processing
+    ? 'Processing is already running for another document'
+    : undefined
+
   const handleRelatedDocumentClick = useCallback(
     (doc: RelatedDocument) => {
       if (!doc.id) return
@@ -315,6 +434,22 @@ export default function DocumentView() {
 
         {!isLoading && !error && documentData && (
           <div className="space-y-6">
+            {actionMessage && (
+              <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">
+                {actionMessage}
+              </div>
+            )}
+            {actionError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                {actionError}
+              </div>
+            )}
+            {documentData.metadata?.processing_status === 'staged' && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-4 py-3 text-sm">
+                <p className="font-medium mb-1">Document ready to process</p>
+                <p>This document has been uploaded but not yet processed. Go to the <strong>Upload</strong> tab in the sidebar and click <strong>Process All</strong> to begin processing.</p>
+              </div>
+            )}
             <section className="bg-white rounded-lg shadow-sm border border-secondary-200 p-5">
               <h3 className="text-sm font-semibold text-secondary-900 mb-4">Overview</h3>
               <dl className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
@@ -359,93 +494,125 @@ export default function DocumentView() {
 
             <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
               <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
-                <h3 className="text-sm font-semibold text-secondary-900">Chunks</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-secondary-900">Chunks</h3>
+                  {documentData.chunks.length === 0 && documentData.metadata?.processing_status !== 'staged' && (
+                    <button
+                      type="button"
+                      onClick={handleReprocessChunks}
+                      className="button-primary text-xs"
+                      disabled={disableManualActions}
+                      title={manualActionTitle}
+                    >
+                      Process chunks
+                    </button>
+                  )}
+                </div>
                 <span className="text-xs text-secondary-500">{documentData.chunks.length} entries</span>
               </header>
               <div className="divide-y divide-secondary-200">
-                {(showAllChunks ? documentData.chunks : documentData.chunks.slice(0, CHUNKS_LIMIT)).map((chunk: DocumentChunk) => {
-                  const expanded = expandedChunks[chunk.id]
-                  const firstLine = (chunk.text || '').split(/\r?\n/)[0] || ''
-                  const previewLine = firstLine.trim() || 'No preview available'
-                  return (
-                    <article key={chunk.id} className="px-5 py-4">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-secondary-500">
-                            Chunk {typeof chunk.index === 'number' ? chunk.index + 1 : chunk.id}
-                          </p>
-                          <div className="relative overflow-hidden pr-8">
-                            {/* Allow preview line to wrap and break long words instead of truncating */}
-                            <p className="text-sm font-medium text-secondary-900 break-words break-all">
-                              {previewLine}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyChunk(chunk)}
-                            className="button-ghost text-xs flex items-center gap-1"
-                          >
-                            <ClipboardIcon className="w-4 h-4" />
-                            Copy
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleChunk(chunk)}
-                            className="button-secondary text-xs flex items-center gap-1"
-                          >
-                            {expanded ? (
-                              <ChevronUpIcon className="w-4 h-4" />
-                            ) : (
-                              <ChevronDownIcon className="w-4 h-4" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                      <AnimatePresence>
-                        {expanded && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.3, ease: 'easeInOut' }}
-                            className="mt-3 text-sm text-secondary-800 leading-relaxed overflow-hidden border-t border-secondary-200 pt-3"
-                          >
-                            {isMarkdownDocument ? (
-                              <ReactMarkdown
-                                className="prose prose-sm prose-slate max-w-none break-words"
-                                remarkPlugins={[remarkGfm, remarkBreaks]}
+                {documentData.chunks.length === 0 ? (
+                  <p className="px-5 py-4 text-sm text-secondary-500">No chunks processed yet.</p>
+                ) : (
+                  <>
+                    {(showAllChunks ? documentData.chunks : documentData.chunks.slice(0, CHUNKS_LIMIT)).map((chunk: DocumentChunk) => {
+                      const expanded = expandedChunks[chunk.id]
+                      const firstLine = (chunk.text || '').split(/\r?\n/)[0] || ''
+                      const previewLine = firstLine.trim() || 'No preview available'
+                      return (
+                        <article key={chunk.id} className="px-5 py-4">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-secondary-500">
+                                Chunk {typeof chunk.index === 'number' ? chunk.index + 1 : chunk.id}
+                              </p>
+                              <div className="relative overflow-hidden pr-8">
+                                {/* Allow preview line to wrap and break long words instead of truncating */}
+                                <p className="text-sm font-medium text-secondary-900 break-words break-all">
+                                  {previewLine}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyChunk(chunk)}
+                                className="button-ghost text-xs flex items-center gap-1"
                               >
-                                {chunk.text || ''}
-                              </ReactMarkdown>
-                            ) : (
-                              // Use whitespace-pre-wrap to preserve newlines but allow breaking long words
-                              <p className="whitespace-pre-wrap break-words">{chunk.text ?? ''}</p>
+                                <ClipboardIcon className="w-4 h-4" />
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleChunk(chunk)}
+                                className="button-secondary text-xs flex items-center gap-1"
+                              >
+                                {expanded ? (
+                                  <ChevronUpIcon className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDownIcon className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                          <AnimatePresence>
+                            {expanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                className="mt-3 text-sm text-secondary-800 leading-relaxed overflow-hidden border-t border-secondary-200 pt-3"
+                              >
+                                {isMarkdownDocument ? (
+                                  <ReactMarkdown
+                                    className="prose prose-sm prose-slate max-w-none break-words"
+                                    remarkPlugins={[remarkGfm, remarkBreaks]}
+                                  >
+                                    {chunk.text || ''}
+                                  </ReactMarkdown>
+                                ) : (
+                                  // Use whitespace-pre-wrap to preserve newlines but allow breaking long words
+                                  <p className="whitespace-pre-wrap break-words">{chunk.text ?? ''}</p>
+                                )}
+                              </motion.div>
                             )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </article>
-                  )
-                })}
-                {documentData.chunks.length > CHUNKS_LIMIT && (
-                  <div className="px-5 py-4 border-t border-secondary-200">
-                    <button
-                      type="button"
-                      onClick={() => setShowAllChunks(!showAllChunks)}
-                      className="button-secondary text-sm flex items-center gap-2"
-                    >
-                      {showAllChunks ? 'Show Less' : `Show ${documentData.chunks.length - CHUNKS_LIMIT} more Chunks`}
-                    </button>
-                  </div>
+                          </AnimatePresence>
+                        </article>
+                      )
+                    })}
+                    {documentData.chunks.length > CHUNKS_LIMIT && (
+                      <div className="px-5 py-4 border-t border-secondary-200">
+                        <button
+                          type="button"
+                          onClick={() => setShowAllChunks(!showAllChunks)}
+                          className="button-secondary text-sm flex items-center gap-2"
+                        >
+                          {showAllChunks ? 'Show Less' : `Show ${documentData.chunks.length - CHUNKS_LIMIT} more Chunks`}
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </section>
 
             <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
               <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
-                <h3 className="text-sm font-semibold text-secondary-900">Entities</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-secondary-900">Entities</h3>
+                  {documentData.entities.length === 0 && documentData.chunks.length > 0 && documentData.metadata?.processing_status !== 'staged' && (
+                    <button
+                      type="button"
+                      onClick={handleReprocessEntities}
+                      className="button-primary text-xs"
+                      disabled={disableManualActions}
+                      title={manualActionTitle}
+                    >
+                      Process entities
+                    </button>
+                  )}
+                </div>
                 <span className="text-xs text-secondary-500">
                   {documentData.entities.length > 0
                     ? `${documentData.entities.length} total`

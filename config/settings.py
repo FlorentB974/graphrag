@@ -48,10 +48,10 @@ class Settings(BaseSettings):
     embedding_concurrency: int = Field(default=3, description="Embedding concurrency")
     llm_concurrency: int = Field(default=2, description="LLM concurrency")
     # Rate limiting delays (in seconds)
-    embedding_delay_min: float = Field(default=0.3, description="Minimum delay between embedding requests")
-    embedding_delay_max: float = Field(default=0.6, description="Maximum delay between embedding requests")
-    llm_delay_min: float = Field(default=0.3, description="Minimum delay between LLM requests")
-    llm_delay_max: float = Field(default=0.6, description="Maximum delay between LLM requests")
+    embedding_delay_min: float = Field(default=0.5, description="Minimum delay between embedding requests")
+    embedding_delay_max: float = Field(default=1.0, description="Maximum delay between embedding requests")
+    llm_delay_min: float = Field(default=0.5, description="Minimum delay between LLM requests")
+    llm_delay_max: float = Field(default=1.0, description="Maximum delay between LLM requests")
 
     # Document Processing Configuration
     chunk_size: int = Field(default=1000, description="Document chunk size")

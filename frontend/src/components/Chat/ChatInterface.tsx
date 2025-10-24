@@ -7,7 +7,6 @@ import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
 import FollowUpQuestions from './FollowUpQuestions'
 import LoadingIndicator from './LoadingIndicator'
-import DocumentQueue from './DocumentQueue'
 import { PlusCircleIcon } from '@heroicons/react/24/outline'
 import { useChatStore } from '@/store/chatStore'
 
@@ -21,7 +20,6 @@ export default function ChatInterface() {
   const notifyHistoryRefresh = useChatStore((state) => state.notifyHistoryRefresh)
   const isHistoryLoading = useChatStore((state) => state.isHistoryLoading)
   const [isLoading, setIsLoading] = useState(false)
-  const [documentQueueKey, setDocumentQueueKey] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -286,11 +284,6 @@ export default function ChatInterface() {
     handleSendMessage(question, [], [])
   }
 
-  const handleFileUploaded = () => {
-    // Refresh the document queue
-    setDocumentQueueKey((prev) => prev + 1)
-  }
-
   // Get user messages for history navigation
   const userMessages = messages
     .filter((msg) => msg.role === 'user')
@@ -349,13 +342,11 @@ export default function ChatInterface() {
       </div>
 
       {/* Input */}
-      <DocumentQueue refreshKey={documentQueueKey} />
       <div className="border-t border-secondary-200 bg-white px-6 py-4">
         <div className="max-w-4xl mx-auto">
           <ChatInput
             onSend={handleSendMessage}
             onStop={handleStopStreaming}
-            onFileUploaded={handleFileUploaded}
             disabled={isHistoryLoading}
             isStreaming={isLoading}
             userMessages={userMessages}

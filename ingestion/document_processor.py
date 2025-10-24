@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from config.settings import settings
 from core.chunking import document_chunker
@@ -103,6 +103,16 @@ class DocumentProcessor:
         # Track entity extraction operation states for more robust status checking
         self._entity_extraction_operations: Dict[str, EntityExtractionStatus] = {}
         self._operations_lock = threading.Lock()
+
+    def compute_document_id(self, file_path: Path) -> str:
+        """Compute the deterministic document id for a given file path."""
+        return self._generate_document_id(file_path)
+
+    def build_metadata(
+        self, file_path: Path, original_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Build document metadata without mutating the database."""
+        return self._extract_metadata(file_path, original_filename)
 
     def _generate_document_id(self, file_path: Path) -> str:
         """Generate a unique document ID based on file path and modification time."""
@@ -385,6 +395,7 @@ class DocumentProcessor:
         original_filename: Optional[str] = None,
         progress_callback=None,
         enable_quality_filtering: Optional[bool] = None,
+        document_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Process a single file and store it in the graph database.
@@ -445,7 +456,7 @@ class DocumentProcessor:
                     return None
 
             # Generate document ID and extract metadata
-            doc_id = self._generate_document_id(file_path)
+            doc_id = document_id or self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
 
             # Add OCR metadata if available
@@ -902,6 +913,7 @@ class DocumentProcessor:
         original_filename: Optional[str] = None,
         progress_callback=None,
         enable_quality_filtering: Optional[bool] = None,
+        document_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Process a file for chunks only, without entity extraction.
@@ -936,7 +948,7 @@ class DocumentProcessor:
             loader = self.loaders.get(file_ext)
 
             # Generate document ID and extract metadata (needed for all cases)
-            doc_id = self._generate_document_id(file_path)
+            doc_id = document_id or self._generate_document_id(file_path)
             metadata = self._extract_metadata(file_path, original_filename)
 
             logger.info(f"Processing file chunks only: {file_path}")
@@ -1082,6 +1094,181 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Failed to process file {file_path} (chunks only): {e}")
             return {"file_path": str(file_path), "status": "error", "error": str(e)}
+
+    def extract_entities_for_document(
+        self,
+        doc_id: str,
+        file_name: str,
+        progress_callback: Optional[
+            Callable[[EntityExtractionState, float, Optional[str]], None]
+        ] = None,
+    ) -> Dict[str, Any]:
+        """Extract entities for an existing document synchronously."""
+
+        def _emit(state: EntityExtractionState, fraction: float, info: Optional[str] = None):
+            if progress_callback:
+                try:
+                    progress_callback(state, fraction, info)
+                except Exception as callback_exc:  # pragma: no cover - defensive
+                    logger.debug(
+                        "Entity progress callback failed for %s: %s", doc_id, callback_exc
+                    )
+
+        if not settings.enable_entity_extraction:
+            logger.info("Entity extraction disabled, skipping for %s", doc_id)
+            return {
+                "status": "skipped",
+                "reason": "entity_extraction_disabled",
+                "document_id": doc_id,
+                "entities_created": 0,
+                "relationships_created": 0,
+            }
+
+        if self.entity_extractor is None:
+            logger.info("Initializing entity extractor on-demand...")
+            self.entity_extractor = EntityExtractor()
+
+        extractor = self.entity_extractor
+        operation_id = self._start_entity_operation(doc_id, file_name)
+        _emit(EntityExtractionState.STARTING, 0.0, "Preparing entity extraction")
+
+        try:
+            chunks_for_extraction = graph_db.get_document_chunks(doc_id)
+            if not chunks_for_extraction:
+                raise ValueError("No chunks found for document")
+
+            # Phase 1: LLM extraction
+            self._update_entity_operation(
+                operation_id,
+                EntityExtractionState.LLM_EXTRACTION,
+                "Running LLM entity extraction",
+            )
+            _emit(
+                EntityExtractionState.LLM_EXTRACTION,
+                0.2,
+                "Generating entities from document chunks",
+            )
+            entity_dict, relationship_dict = asyncio.run(
+                extractor.extract_from_chunks(chunks_for_extraction)
+            )
+
+            # Phase 2: Embedding generation / database operations
+            entity_count_estimate = len(entity_dict)
+            self._update_entity_operation(
+                operation_id,
+                EntityExtractionState.EMBEDDING_GENERATION,
+                f"Generating embeddings for {entity_count_estimate} entities",
+            )
+            _emit(
+                EntityExtractionState.EMBEDDING_GENERATION,
+                0.45,
+                f"Embedding {entity_count_estimate} entities",
+            )
+
+            created_entities, created_relationships = asyncio.run(
+                self._create_entities_async(entity_dict, relationship_dict, doc_id)
+            )
+
+            # Phase 3: Relationship wiring
+            expected_rels = sum(len(rels) for rels in relationship_dict.values())
+            self._update_entity_operation(
+                operation_id,
+                EntityExtractionState.DATABASE_OPERATIONS,
+                f"Creating {expected_rels} relationships",
+            )
+            _emit(
+                EntityExtractionState.DATABASE_OPERATIONS,
+                0.7,
+                f"Linking {expected_rels} relationships",
+            )
+
+            for relationships in relationship_dict.values():
+                for relationship in relationships:
+                    try:
+                        source_id = self._generate_entity_id(relationship.source_entity)
+                        target_id = self._generate_entity_id(relationship.target_entity)
+                        graph_db.create_entity_relationship(
+                            entity_id1=source_id,
+                            entity_id2=target_id,
+                            relationship_type="RELATED_TO",
+                            description=relationship.description,
+                            strength=relationship.strength,
+                            source_chunks=relationship.source_chunks or [],
+                        )
+                        created_relationships += 1
+                    except Exception as rel_exc:  # pragma: no cover - defensive logging
+                        logger.debug(
+                            "Failed to persist relationship for doc %s: %s",
+                            doc_id,
+                            rel_exc,
+                        )
+
+            # Optional similarity generation
+            try:
+                graph_db.create_entity_similarities(doc_id)
+            except Exception as sim_exc:  # pragma: no cover
+                logger.debug(
+                    "Failed to create entity similarities for %s: %s", doc_id, sim_exc
+                )
+
+            # Phase 4: Validation
+            self._update_entity_operation(
+                operation_id,
+                EntityExtractionState.VALIDATION,
+                "Validating entity embeddings",
+            )
+            _emit(
+                EntityExtractionState.VALIDATION,
+                0.85,
+                "Validating entity embeddings",
+            )
+
+            try:
+                validation_results = graph_db.validate_entity_embeddings(doc_id)
+                if not validation_results["validation_passed"]:
+                    logger.warning(
+                        "Document %s has %s invalid entity embeddings",
+                        doc_id,
+                        validation_results["invalid_embeddings"],
+                    )
+            except Exception as validation_exc:  # pragma: no cover
+                logger.warning(
+                    "Failed to validate entity embeddings for %s: %s",
+                    doc_id,
+                    validation_exc,
+                )
+
+            self._update_entity_operation(
+                operation_id,
+                EntityExtractionState.COMPLETED,
+                "Entity extraction completed",
+            )
+            _emit(EntityExtractionState.COMPLETED, 1.0, "Entity extraction completed")
+
+            return {
+                "status": "success",
+                "document_id": doc_id,
+                "entities_created": created_entities,
+                "relationships_created": created_relationships,
+            }
+
+        except Exception as exc:  # pragma: no cover - high level error logging
+            logger.error("Entity extraction failed for %s: %s", doc_id, exc)
+            self._update_entity_operation(
+                operation_id,
+                EntityExtractionState.ERROR,
+                error_message=str(exc),
+            )
+            _emit(EntityExtractionState.ERROR, 1.0, str(exc))
+            return {
+                "status": "error",
+                "document_id": doc_id,
+                "error": str(exc),
+                "entities_created": 0,
+                "relationships_created": 0,
+            }
+        finally:
+            self._complete_entity_operation(operation_id)
 
     def process_batch_entities(
         self, processed_documents: List[Dict[str, Any]]

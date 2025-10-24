@@ -5,6 +5,7 @@ import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import { StopIcon, DocumentArrowUpIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { api } from '@/lib/api'
 import { DocumentSummary } from '@/types'
+import { showToast } from '@/components/Toast/ToastContainer'
 
 type SelectedDocMap = Record<string, { filename: string }>
 
@@ -13,7 +14,6 @@ interface ChatInputProps {
   disabled?: boolean
   isStreaming?: boolean
   onStop?: () => void
-  onFileUploaded?: () => void
   userMessages?: string[]
 }
 
@@ -22,7 +22,6 @@ export default function ChatInput({
   onStop,
   disabled,
   isStreaming,
-  onFileUploaded,
   userMessages = [],
 }: ChatInputProps) {
   const [input, setInput] = useState('')
@@ -285,14 +284,16 @@ export default function ChatInput({
 
       for (const file of fileArray) {
         await api.stageFile(file)
+        showToast('success', `${file.name} uploaded`, 'Document queued for processing')
       }
 
-      // Notify parent component that files were uploaded
-      if (onFileUploaded) {
-        onFileUploaded()
+      // Emit event to notify other components
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documents:uploaded'))
       }
     } catch (error) {
       console.error('Failed to stage file:', error)
+      showToast('error', 'Upload failed', error instanceof Error ? error.message : 'Failed to upload file')
     } finally {
       setUploadingFile(false)
     }

@@ -22,6 +22,7 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
     Record<string, ProcessProgress>
   >({})
   const [isProcessing, setIsProcessing] = useState(false)
+  const [shouldHideQueue, setShouldHideQueue] = useState(false)
 
   // Load staged documents
   const loadStagedDocuments = useCallback(async () => {
@@ -35,7 +36,7 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
 
   // Load on mount and when refreshKey changes
   useEffect(() => {
-    loadStagedDocuments()
+    void loadStagedDocuments()
   }, [loadStagedDocuments, refreshKey])
 
   // Poll for processing progress
@@ -46,6 +47,7 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
       try {
         const response = await api.getProcessingProgress()
         const progressList: ProcessProgress[] = response.progress || []
+        const globalState = response.global
 
         const progressMap: Record<string, ProcessProgress> = {}
         progressList.forEach((p) => {
@@ -53,6 +55,7 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
         })
 
         setProcessingProgress(progressMap)
+        setIsProcessing(Boolean(globalState?.is_processing))
 
         // Check if all processing is complete
         const allComplete = progressList.every(
@@ -61,9 +64,10 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
 
         if (allComplete && progressList.length > 0) {
           setIsProcessing(false)
+          setShouldHideQueue(true)
           // Reload staged documents to remove completed ones
           setTimeout(() => {
-            loadStagedDocuments()
+            void loadStagedDocuments()
             setProcessingProgress({})
             if (onRefresh) {
               onRefresh()
@@ -101,11 +105,16 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
 
     try {
       setIsProcessing(true)
+      setShouldHideQueue(true)
       const fileIds = stagedDocuments.map((doc) => doc.file_id)
       await api.processDocuments(fileIds)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documents:processing-updated'))
+      }
     } catch (error) {
       console.error('Failed to start processing:', error)
       setIsProcessing(false)
+      setShouldHideQueue(false)
     }
   }
 
@@ -115,8 +124,17 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  // Don't render if no documents
-  if (stagedDocuments.length === 0) {
+  useEffect(() => {
+    if (stagedDocuments.length > 0 && !isProcessing) {
+      setShouldHideQueue(false)
+    }
+  }, [stagedDocuments.length, isProcessing])
+
+  const hasDocuments = stagedDocuments.length > 0
+  const shouldRenderQueue = hasDocuments && !shouldHideQueue
+
+  // Don't render if no documents or queue is hidden
+  if (!shouldRenderQueue) {
     return null
   }
 
@@ -146,6 +164,7 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
           {stagedDocuments.map((doc) => {
             const progress = processingProgress[doc.file_id]
             const isDocProcessing = progress?.status === 'processing'
+            const isQueued = progress?.status === 'queued'
             const isCompleted = progress?.status === 'completed'
             const hasError = progress?.status === 'error'
 
@@ -173,6 +192,13 @@ export default function DocumentQueue({ refreshKey, onRefresh }: DocumentQueuePr
                     </button>
                   )}
                 </div>
+
+                {/* Queue State */}
+                {isQueued && (
+                  <div className="text-xs text-secondary-600">
+                    Processing queued
+                  </div>
+                )}
 
                 {/* Progress Bar */}
                 {isDocProcessing && progress && (

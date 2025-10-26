@@ -259,6 +259,18 @@ export const api = {
     return response
   },
 
+  async generateDocumentSummary(documentId: string) {
+    const response = await fetch(`${API_URL}/api/documents/${documentId}/generate-summary`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+
+    return response.json()
+  },
+
   async hasDocumentPreview(documentId: string): Promise<boolean> {
     // Try a HEAD request first to avoid downloading the full file.
     try {

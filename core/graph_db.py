@@ -92,6 +92,44 @@ class GraphDB:
                 metadata=metadata,
             )
 
+    def update_document_summary(
+        self,
+        doc_id: str,
+        summary: str,
+        document_type: str,
+        hashtags: List[str]
+    ) -> None:
+        """Update a document node with summary, document type, and hashtags."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                SET d.summary = $summary,
+                    d.document_type = $document_type,
+                    d.hashtags = $hashtags
+                """,
+                doc_id=doc_id,
+                summary=summary,
+                document_type=document_type,
+                hashtags=hashtags,
+            )
+
+    def get_documents_with_summaries(self) -> List[Dict[str, Any]]:
+        """Get all documents that have summaries."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WHERE d.summary IS NOT NULL AND d.summary <> ''
+                RETURN d.id as document_id,
+                       d.summary as summary,
+                       d.document_type as document_type,
+                       d.hashtags as hashtags,
+                       d.filename as filename
+                """
+            )
+            return [record.data() for record in result]
+
     def create_chunk_node(
         self,
         chunk_id: str,
@@ -1753,7 +1791,8 @@ class GraphDB:
               coalesce(d.processing_status, 'idle') as processing_status,
               coalesce(d.processing_stage, 'idle') as processing_stage,
               coalesce(d.processing_progress, 0.0) as processing_progress,
-              chunk_count
+              chunk_count,
+              d.document_type as document_type
                 ORDER BY d.created_at DESC
                 """
             )
@@ -1909,6 +1948,9 @@ class GraphDB:
                 "uploader_id",
                 "uploader_name",
                 "quality_scores",
+                "summary",
+                "document_type",
+                "hashtags",
             }
 
             metadata = {
@@ -1925,6 +1967,9 @@ class GraphDB:
                 "preview_url": doc_data.get("preview_url"),
                 "uploaded_at": uploaded_at,
                 "uploader": uploader_info,
+                "summary": doc_data.get("summary"),
+                "document_type": doc_data.get("document_type"),
+                "hashtags": doc_data.get("hashtags", []),
                 "chunks": chunks,
                 "entities": entities,
                 "quality_scores": doc_data.get("quality_scores"),

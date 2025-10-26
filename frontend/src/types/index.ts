@@ -112,6 +112,9 @@ export interface DocumentDetails {
   preview_url?: string
   uploaded_at?: string
   uploader?: UploaderInfo | null
+  summary?: string | null
+  document_type?: string | null
+  hashtags?: string[]
   chunks: DocumentChunk[]
   entities: DocumentEntity[]
   quality_scores?: Record<string, any> | null

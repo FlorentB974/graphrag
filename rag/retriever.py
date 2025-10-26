@@ -31,6 +31,13 @@ class DocumentRetriever:
         pass
 
     @staticmethod
+    def _extract_hashtags_from_query(query: str) -> List[str]:
+        """Extract hashtags from query (words starting with #)."""
+        import re
+        hashtags = re.findall(r'#\w+', query)
+        return hashtags
+
+    @staticmethod
     def _filter_chunks_by_documents(
         chunks: List[Dict[str, Any]],
         allowed_document_ids: Optional[List[str]],
@@ -84,6 +91,7 @@ class DocumentRetriever:
         query: str,
         top_k: int = 5,
         allowed_document_ids: Optional[List[str]] = None,
+        query_embedding: Optional[List[float]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Traditional chunk-based retrieval using vector similarity.
@@ -91,14 +99,17 @@ class DocumentRetriever:
         Args:
             query: User query
             top_k: Number of similar chunks to retrieve
+            allowed_document_ids: Optional list of document IDs to restrict retrieval
+            query_embedding: Pre-computed query embedding (to avoid recomputation)
 
         Returns:
             List of similar chunks with metadata
         """
         try:
-            # Generate query embedding
-            query_embedding = embedding_manager.get_embedding(query)
-
+            # Generate query embedding if not provided
+            if query_embedding is None:
+                query_embedding = embedding_manager.get_embedding(query)
+            
             # Perform vector similarity search with larger top_k to allow filtering
             search_limit = top_k * 3
             if allowed_document_ids:

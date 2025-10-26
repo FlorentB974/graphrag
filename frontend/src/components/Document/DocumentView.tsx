@@ -311,6 +311,28 @@ export default function DocumentView() {
     }
   }, [documentData?.id, refreshProcessingState])
 
+  const handleGenerateSummary = useCallback(async () => {
+    if (!documentData?.id) return
+    setIsActionPending(true)
+    setActionError(null)
+    setActionMessage(null)
+    try {
+      await api.generateDocumentSummary(documentData.id)
+      setActionMessage('Summary generated successfully')
+      // Refresh document data
+      const data = await api.getDocument(documentData.id)
+      setDocumentData(data)
+    } catch (summaryError) {
+      setActionError(
+        summaryError instanceof Error
+          ? summaryError.message
+          : 'Failed to generate summary'
+      )
+    } finally {
+      setIsActionPending(false)
+    }
+  }, [documentData?.id])
+
   useEffect(() => {
     if (!actionMessage) return
     const timer = window.setTimeout(() => setActionMessage(null), 4000)
@@ -328,9 +350,18 @@ export default function DocumentView() {
     const wasProcessing = prevProcessingRef.current
     prevProcessingRef.current = isProcessingNow
 
-    if (isProcessingNow) {
+    if (isProcessingNow && selectedDocumentId) {
       const intervalId = window.setInterval(() => {
+        // Poll both processing state and document data to refresh summary
         void refreshProcessingState()
+        void (async () => {
+          try {
+            const updatedDoc = await api.getDocument(selectedDocumentId)
+            setDocumentData(updatedDoc)
+          } catch (error) {
+            console.error('Failed to refresh document during processing:', error)
+          }
+        })()
       }, 2000)
       return () => window.clearInterval(intervalId)
     }
@@ -340,7 +371,7 @@ export default function DocumentView() {
         window.dispatchEvent(new CustomEvent('documents:processed'))
       }
     }
-  }, [processingState?.is_processing, refreshProcessingState])
+  }, [processingState?.is_processing, refreshProcessingState, selectedDocumentId])
 
   const disableManualActions = isActionPending || Boolean(processingState?.is_processing)
   const manualActionTitle = processingState?.is_processing
@@ -490,13 +521,67 @@ export default function DocumentView() {
                   </dd>
                 </div>
               </dl>
+              {documentData.hashtags && documentData.hashtags.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-secondary-200">
+                  <dt className="text-secondary-500 text-sm mb-2">Tags</dt>
+                  <div className="flex flex-wrap gap-2">
+                    {documentData.hashtags.map((tag, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
+
+            {(documentData.summary || documentData.chunks.length > 0 || documentData.metadata?.processing_status !== 'staged') && (
+              <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
+                <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-secondary-900">Summary</h3>
+                    {documentData.document_type && (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary-100 text-secondary-700">
+                        {documentData.document_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                      </span>
+                    )}
+                    {!documentData.summary && documentData.chunks.length > 0 && documentData.metadata?.processing_status !== 'staged' && (
+                      <button
+                        type="button"
+                        onClick={handleGenerateSummary}
+                        className="button-primary text-xs"
+                        disabled={disableManualActions}
+                        title={manualActionTitle}
+                      >
+                        Generate summary
+                      </button>
+                    )}
+                  </div>
+                </header>
+                <div className="px-5 py-4">
+                  {documentData.summary ? (
+                    <div className="prose prose-sm prose-slate max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                      >
+                        {documentData.summary}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-secondary-500">No summary generated yet.</p>
+                  )}
+                </div>
+              </section>
+            )}
 
             <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
               <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-secondary-900">Chunks</h3>
-                  {documentData.chunks.length === 0 && documentData.metadata?.processing_status !== 'staged' && (
+                  {documentData.chunks.length === 0 && documentData.metadata?.processing_status !== 'staged' && !processingState?.is_processing && (
                     <button
                       type="button"
                       onClick={handleReprocessChunks}
@@ -620,7 +705,7 @@ export default function DocumentView() {
                 </span>
               </header>
               {documentData.entities.length === 0 ? (
-                <p className="px-5 py-4 text-sm text-secondary-500">No entities extracted.</p>
+                <p className="px-5 py-4 text-sm text-secondary-500">No entities extracted yet.</p>
               ) : (
                 <div className="divide-y divide-secondary-100">
                   {Object.entries(groupedEntities).map(([type, entities]) => {

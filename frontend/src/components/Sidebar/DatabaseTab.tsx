@@ -3,19 +3,76 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '@/lib/api'
 import { DatabaseStats, ProcessingSummary } from '@/types'
-import { TrashIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, DocumentArrowUpIcon } from '@heroicons/react/24/outline'
 import { useChatStore } from '@/store/chatStore'
+import { showToast } from '@/components/Toast/ToastContainer'
 
 export default function DatabaseTab() {
   const [stats, setStats] = useState<DatabaseStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [processingState, setProcessingState] = useState<ProcessingSummary | null>(null)
   const [isStuck, setIsStuck] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadingFile, setUploadingFile] = useState(false)
   const wasProcessingRef = useRef(false)
   const lastUpdateTimestampRef = useRef<number>(Date.now())
   const selectDocument = useChatStore((state) => state.selectDocument)
   const clearSelectedDocument = useChatStore((state) => state.clearSelectedDocument)
   const selectedDocumentId = useChatStore((state) => state.selectedDocumentId)
+
+  const handleFiles = async (files: FileList | File[]) => {
+    setUploadingFile(true)
+
+    try {
+      const fileArray = Array.from(files)
+
+      for (const file of fileArray) {
+        await api.stageFile(file)
+        showToast('success', `${file.name} uploaded`, 'Document queued for processing')
+      }
+
+      // Emit event to notify other components
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('documents:uploaded'))
+      }
+    } catch (error) {
+      console.error('Failed to stage file:', error)
+      showToast('error', 'Upload failed', error instanceof Error ? error.message : 'Failed to upload file')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    await handleFiles(files)
+    e.target.value = ''
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      await handleFiles(files)
+    }
+  }
 
   useEffect(() => {
     loadStats()
@@ -70,7 +127,7 @@ export default function DatabaseTab() {
         lastUpdateTimestampRef.current = Date.now()
         setIsStuck(false)
         
-        // Also fetch updated stats to get real-time counts
+        // Also fetch updated stats to get real-time counts AND document_type updates
         const updatedStats = await api.getStats()
         
         // Update document progress in stats if we have them
@@ -79,26 +136,24 @@ export default function DatabaseTab() {
             const progressMatch = response.global.pending_documents.find(
               p => p.document_id === doc.document_id
             )
+            // Always get fresh data from updatedStats to ensure document_type and other fields are current
+            const freshDoc = updatedStats.documents.find((d: any) => d.document_id === doc.document_id)
             if (progressMatch) {
               return {
-                ...doc,
+                ...freshDoc,
                 processing_status: progressMatch.status,
                 processing_stage: progressMatch.stage || doc.processing_stage,
                 processing_progress: progressMatch.progress_percentage,
                 queue_position: progressMatch.queue_position
               }
             }
-            return doc
+            return freshDoc || doc
           })
           
           // Merge updated documents with their progress AND update global stats
           setStats({ 
             ...updatedStats,
-            documents: updatedDocs.map(doc => {
-              // Find matching document in updated stats to get chunk count
-              const freshDoc = updatedStats.documents.find((d: any) => d.document_id === doc.document_id)
-              return freshDoc ? { ...doc, chunk_count: freshDoc.chunk_count } : doc
-            }),
+            documents: updatedDocs,
             processing: response.global 
           })
         } else {
@@ -249,7 +304,43 @@ export default function DatabaseTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      className={`relative transition-all ${isDragging ? 'ring-2 ring-primary-500 rounded-lg' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 bg-primary-50 border-2 border-dashed border-primary-500 rounded-lg flex items-center justify-center z-10">
+          <div className="text-center">
+            <DocumentArrowUpIcon className="w-8 h-8 text-primary-600 mx-auto mb-2" />
+            <p className="text-sm font-medium text-primary-700">
+              Drop files to upload
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {/* Upload Button */}
+        <div className="flex gap-2">
+          <label className="flex-1 cursor-pointer">
+            <div className={`button-primary py-2 px-3 text-center text-sm flex items-center justify-center gap-2 ${
+              uploadingFile ? 'opacity-50 pointer-events-none' : ''
+            }`}>
+              <DocumentArrowUpIcon className="w-4 h-4" />
+              <span>{uploadingFile ? 'Uploading...' : 'Upload Files'}</span>
+            </div>
+            <input
+              type="file"
+              className="hidden"
+              onChange={handleFileInput}
+              disabled={uploadingFile}
+              accept=".pdf,.txt,.md,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+              multiple
+            />
+          </label>
+        </div>
       {/* Stats Cards */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-primary-50 rounded-lg p-4">
@@ -351,7 +442,9 @@ export default function DatabaseTab() {
                       <p className={`text-xs mt-1 ${isStuck && (status === 'queued' || status === 'staged') ? 'text-red-600' : 'text-secondary-600'}`}>
                         {status === 'queued' || status === 'staged' 
                           ? (isStuck ? 'Queue stuck - processing may have crashed' : 'Processing queued')
-                          : `${doc.chunk_count} chunks`}
+                          : (doc as any).document_type 
+                          ? (doc as any).document_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                          : 'Unknown type'}
                       </p>
                       {statusLabel && status !== 'queued' && status !== 'staged' && (
                         <p
@@ -410,6 +503,7 @@ export default function DatabaseTab() {
           <p className="text-xs mt-1">Upload documents to get started</p>
         </div>
       )}
+      </div>
     </div>
   )
 }

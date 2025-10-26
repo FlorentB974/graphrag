@@ -795,6 +795,12 @@ async def delete_staged_document(file_id: str):
         if file_id in _processing_progress:
             del _processing_progress[file_id]
 
+        # Remove from processing queue if exists
+        async with _queue_lock:
+            if file_id in _processing_queue:
+                _processing_queue.remove(file_id)
+                _update_queue_positions()
+
         return {"status": "success", "message": f"Staged document {file_id} deleted"}
 
     except HTTPException:

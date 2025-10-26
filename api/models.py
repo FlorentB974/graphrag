@@ -193,6 +193,9 @@ class DocumentMetadataResponse(BaseModel):
     preview_url: str | None = None
     uploaded_at: str | None = None
     uploader: UploaderInfo | None = None
+    summary: str | None = None
+    document_type: str | None = None
+    hashtags: List[str] = Field(default_factory=list)
     chunks: List[DocumentChunk] = Field(default_factory=list)
     entities: List[DocumentEntity] = Field(default_factory=list)
     quality_scores: Dict[str, Any] | None = None

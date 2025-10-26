@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from config.settings import settings
 from core.chunking import document_chunker
+from core.document_summarizer import document_summarizer
 from core.embeddings import embedding_manager
 from core.entity_extraction import EntityExtractor
 from core.graph_db import graph_db
@@ -485,6 +486,22 @@ class DocumentProcessor:
             else:
                 chunks = document_chunker.chunk_text(content, doc_id)
                 logger.info(f"Used standard chunking for {doc_id}")
+
+            # Extract document summary, type, and hashtags after chunking
+            logger.info(f"Extracting summary for document {doc_id}")
+            summary_data = document_summarizer.extract_summary(chunks)
+            
+            # Update document node with summary information
+            graph_db.update_document_summary(
+                doc_id=doc_id,
+                summary=summary_data.get("summary", ""),
+                document_type=summary_data.get("document_type", "other"),
+                hashtags=summary_data.get("hashtags", [])
+            )
+            logger.info(
+                f"Summary extracted for {doc_id}: type={summary_data.get('document_type')}, "
+                f"hashtags={len(summary_data.get('hashtags', []))}"
+            )
 
             # Process chunks asynchronously with configurable concurrency (embeddings + storing)
             try:
@@ -1007,6 +1024,22 @@ class DocumentProcessor:
             else:
                 chunks = document_chunker.chunk_text(content, doc_id)
                 logger.info(f"Used standard chunking for {doc_id}")
+
+            # Extract document summary, type, and hashtags after chunking
+            logger.info(f"Extracting summary for document {doc_id}")
+            summary_data = document_summarizer.extract_summary(chunks)
+            
+            # Update document node with summary information
+            graph_db.update_document_summary(
+                doc_id=doc_id,
+                summary=summary_data.get("summary", ""),
+                document_type=summary_data.get("document_type", "other"),
+                hashtags=summary_data.get("hashtags", [])
+            )
+            logger.info(
+                f"Summary extracted for {doc_id}: type={summary_data.get('document_type')}, "
+                f"hashtags={len(summary_data.get('hashtags', []))}"
+            )
 
             # Process chunks asynchronously with configurable concurrency (embeddings + storing)
             try:

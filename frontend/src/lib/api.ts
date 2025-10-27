@@ -214,6 +214,14 @@ export const api = {
     return response.json()
   },
 
+  async getHashtags() {
+    const response = await fetch(`${API_URL}/api/database/hashtags`)
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+    return response.json()
+  },
+
   async getDocument(documentId: string): Promise<DocumentDetails> {
     const response = await fetch(`${API_URL}/api/documents/${documentId}`)
     if (!response.ok) {

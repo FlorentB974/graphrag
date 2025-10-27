@@ -675,6 +675,23 @@ async def list_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/hashtags")
+async def list_hashtags():
+    """
+    List all unique hashtags from all documents.
+
+    Returns:
+        List of hashtags
+    """
+    try:
+        hashtags = graph_db.get_all_hashtags()
+        return {"hashtags": hashtags}
+
+    except Exception as e:
+        logger.error(f"Failed to list hashtags: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/stage", response_model=StageDocumentResponse)
 async def stage_document(file: UploadFile = File(...)):
     """

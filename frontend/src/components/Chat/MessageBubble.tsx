@@ -47,7 +47,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         {isUser && Array.isArray(message.context_documents) && message.context_documents.length > 0 && contextDocDisplay && contextDocDisplay.length > 0 && (
           <div className="mt-2">
             <span className="inline-flex flex-wrap items-center gap-1 rounded-full bg-white/15 px-3 py-1 text-xs text-white/90">
-              <span className="font-semibold uppercase tracking-wide text-white/70">Context:</span>
+              <span className="font-semibold uppercase tracking-wide text-white/70">
+                {message.context_hashtags && message.context_hashtags.length > 0 
+                  ? `${message.context_hashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(', ')}:` 
+                  : 'Context:'}
+              </span>
               <span
                 className="truncate"
                 title={contextDocDisplay.join(', ')}

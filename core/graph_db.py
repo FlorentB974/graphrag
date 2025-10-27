@@ -130,6 +130,20 @@ class GraphDB:
             )
             return [record.data() for record in result]
 
+    def get_all_hashtags(self) -> List[str]:
+        """Get all unique hashtags from all documents."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WHERE d.hashtags IS NOT NULL
+                UNWIND d.hashtags as hashtag
+                RETURN DISTINCT hashtag
+                ORDER BY hashtag
+                """
+            )
+            return [record["hashtag"] for record in result]
+
     def create_chunk_node(
         self,
         chunk_id: str,
@@ -1817,6 +1831,7 @@ class GraphDB:
                 RETURN d.id as document_id,
                        d.filename as filename,
                        d.created_at as created_at,
+                       d.hashtags as hashtags,
                        chunk_count
                 ORDER BY d.created_at DESC
                 """

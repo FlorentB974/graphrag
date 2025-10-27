@@ -64,7 +64,8 @@ export default function ChatInterface() {
   const handleSendMessage = async (
     message: string,
     contextDocuments: string[],
-    contextDocumentLabels: string[]
+    contextDocumentLabels: string[],
+    contextHashtags?: string[]
   ) => {
     if (!message.trim() || isLoading || isHistoryLoading) return
 
@@ -75,6 +76,7 @@ export default function ChatInterface() {
       timestamp: new Date().toISOString(),
       context_documents: contextDocuments,
       context_document_labels: contextDocumentLabels,
+      context_hashtags: contextHashtags,
     }
     addMessage(userMessage)
     setIsLoading(true)

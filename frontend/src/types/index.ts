@@ -10,6 +10,7 @@ export interface Message {
   isStreaming?: boolean
   context_documents?: string[]
   context_document_labels?: string[]
+  context_hashtags?: string[]
 }
 
 export interface Source {
@@ -65,6 +66,7 @@ export interface DocumentSummary {
   processing_stage?: string
   processing_progress?: number
   queue_position?: number | null
+  hashtags?: string[]
 }
 
 export interface ProcessingSummary {

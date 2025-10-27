@@ -10,7 +10,7 @@ import { showToast } from '@/components/Toast/ToastContainer'
 type SelectedDocMap = Record<string, { filename: string }>
 
 interface ChatInputProps {
-  onSend: (message: string, contextDocuments: string[], contextDocumentLabels: string[]) => void
+  onSend: (message: string, contextDocuments: string[], contextDocumentLabels: string[], contextHashtags?: string[]) => void
   disabled?: boolean
   isStreaming?: boolean
   onStop?: () => void
@@ -27,8 +27,11 @@ export default function ChatInput({
   const [input, setInput] = useState('')
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [documentsLoaded, setDocumentsLoaded] = useState(false)
+  const [hashtags, setHashtags] = useState<string[]>([])
+  const [hashtagsLoaded, setHashtagsLoaded] = useState(false)
   const [selectedDocs, setSelectedDocs] = useState<SelectedDocMap>({})
-  const [mentionState, setMentionState] = useState<{ start: number; query: string } | null>(null)
+  const [selectedHashtags, setSelectedHashtags] = useState<string[]>([])
+  const [mentionState, setMentionState] = useState<{ start: number; query: string; type: 'document' | 'hashtag' } | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [showMentionList, setShowMentionList] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -56,7 +59,24 @@ export default function ChatInput({
       }
     }
 
+    const fetchHashtags = async () => {
+      try {
+        const response = await api.getHashtags()
+        const tags = Array.isArray(response?.hashtags) ? response.hashtags : []
+        if (isMounted) {
+          setHashtags(tags)
+        }
+      } catch (error) {
+        console.error('Failed to fetch hashtags:', error)
+      } finally {
+        if (isMounted) {
+          setHashtagsLoaded(true)
+        }
+      }
+    }
+
     fetchDocuments()
+    fetchHashtags()
 
     return () => {
       isMounted = false
@@ -82,35 +102,44 @@ export default function ChatInput({
     [selectedDocs]
   )
 
-  const filteredDocuments = useMemo(() => {
-    const available = documents.filter(
-      (doc) => !selectedDocs[doc.document_id]
-    )
-
+  const filteredItems = useMemo(() => {
     if (!mentionState) {
-      return available.slice(0, 8)
+      // Return empty array when there's no active mention
+      return []
     }
 
     const normalized = mentionState.query.toLowerCase()
-    if (!normalized) {
-      return available.slice(0, 8)
-    }
 
-    return available
-      .filter((doc) => doc.filename.toLowerCase().includes(normalized))
-      .slice(0, 8)
-  }, [documents, mentionState, selectedDocs])
+    if (mentionState.type === 'hashtag') {
+      if (!normalized) {
+        return hashtags.slice(0, 8)
+      }
+      return hashtags
+        .filter((tag) => tag.toLowerCase().includes(normalized))
+        .slice(0, 8)
+    } else {
+      const available = documents.filter(
+        (doc) => !selectedDocs[doc.document_id]
+      )
+      if (!normalized) {
+        return available.slice(0, 8)
+      }
+      return available
+        .filter((doc) => doc.filename.toLowerCase().includes(normalized))
+        .slice(0, 8)
+    }
+  }, [documents, hashtags, mentionState, selectedDocs])
 
   useEffect(() => {
-    if (filteredDocuments.length === 0) {
+    if (filteredItems.length === 0) {
       setMentionIndex(0)
       return
     }
 
-    if (mentionIndex >= filteredDocuments.length) {
+    if (mentionIndex >= filteredItems.length) {
       setMentionIndex(0)
     }
-  }, [filteredDocuments, mentionIndex])
+  }, [filteredItems, mentionIndex])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value
@@ -119,17 +148,29 @@ export default function ChatInput({
     setInput(value)
 
     const beforeCaret = value.slice(0, caret)
+    const atIndex = beforeCaret.lastIndexOf('@')
     const hashIndex = beforeCaret.lastIndexOf('#')
 
-    let nextMention: { start: number; query: string } | null = null
+    let nextMention: { start: number; query: string; type: 'document' | 'hashtag' } | null = null
 
-    if (hashIndex !== -1) {
+    // Check for '@' (document mention)
+    if (atIndex !== -1 && atIndex > hashIndex) {
+      const charBefore = atIndex > 0 ? beforeCaret[atIndex - 1] : ''
+      const query = beforeCaret.slice(atIndex + 1)
+      const hasWhitespace = /\s/.test(query)
+
+      if ((charBefore === '' || /\s/.test(charBefore)) && !hasWhitespace && !query.includes('@')) {
+        nextMention = { start: atIndex, query, type: 'document' }
+      }
+    }
+    // Check for '#' (hashtag mention)
+    else if (hashIndex !== -1) {
       const charBefore = hashIndex > 0 ? beforeCaret[hashIndex - 1] : ''
       const query = beforeCaret.slice(hashIndex + 1)
       const hasWhitespace = /\s/.test(query)
 
       if ((charBefore === '' || /\s/.test(charBefore)) && !hasWhitespace && !query.includes('#')) {
-        nextMention = { start: hashIndex, query }
+        nextMention = { start: hashIndex, query, type: 'hashtag' }
       }
     }
 
@@ -175,6 +216,40 @@ export default function ChatInput({
     })
   }
 
+  const handleSelectHashtag = (hashtag: string) => {
+    if (!mentionState || !textareaRef.current) {
+      return
+    }
+
+    const value = input
+    const caret = textareaRef.current.selectionStart ?? value.length
+    const before = value.slice(0, mentionState.start)
+    const after = value.slice(caret)
+    const newValue = `${before}${after}`
+
+    setInput(newValue)
+    setSelectedHashtags((prev) => [...prev, hashtag])
+    setMentionState(null)
+    setShowMentionList(false)
+    setMentionIndex(0)
+
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        const nextCaretPosition = before.length
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCaretPosition, nextCaretPosition)
+      }
+    })
+  }
+
+  const handleSelectItem = (item: DocumentSummary | string) => {
+    if (mentionState?.type === 'hashtag' && typeof item === 'string') {
+      handleSelectHashtag(item)
+    } else if (typeof item === 'object') {
+      handleSelectDocument(item)
+    }
+  }
+
   const handleRemoveDoc = (docId: string) => {
     const info = selectedDocs[docId]
     if (!info) {
@@ -192,21 +267,46 @@ export default function ChatInput({
     setMentionIndex(0)
   }
 
+  const handleRemoveHashtag = (hashtag: string) => {
+    setSelectedHashtags((prev) => prev.filter((h) => h !== hashtag))
+    setMentionState(null)
+    setShowMentionList(false)
+    setMentionIndex(0)
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (isStreaming) {
       return
     }
     if (input.trim() && !disabled) {
+      // Start with explicitly selected documents
       const contextDocIds = Object.keys(selectedDocs)
       const contextDocLabels = contextDocIds
         .map((id) => selectedDocs[id]?.filename)
         .filter((label): label is string => Boolean(label))
-      onSend(input, contextDocIds, contextDocLabels)
+
+      // If hashtags are selected, add documents that have those hashtags
+      if (selectedHashtags.length > 0) {
+        const hashtagDocs = documents.filter((doc) => 
+          doc.hashtags && doc.hashtags.some((tag) => selectedHashtags.includes(tag))
+        )
+        
+        // Add these documents to the context if not already included
+        hashtagDocs.forEach((doc) => {
+          if (!contextDocIds.includes(doc.document_id)) {
+            contextDocIds.push(doc.document_id)
+            contextDocLabels.push(doc.filename)
+          }
+        })
+      }
+
+      onSend(input, contextDocIds, contextDocLabels, selectedHashtags.length > 0 ? selectedHashtags : undefined)
       setInput('')
       setHistoryIndex(-1)
       setSavedInput('')
       setSelectedDocs({})
+      setSelectedHashtags([])
       setMentionState(null)
       setShowMentionList(false)
       setMentionIndex(0)
@@ -215,27 +315,27 @@ export default function ChatInput({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (showMentionList) {
-      if (e.key === 'ArrowDown' && filteredDocuments.length > 0) {
+      if (e.key === 'ArrowDown' && filteredItems.length > 0) {
         e.preventDefault()
-        setMentionIndex((prev) => (prev + 1) % filteredDocuments.length)
+        setMentionIndex((prev) => (prev + 1) % filteredItems.length)
         return
       }
 
-      if (e.key === 'ArrowUp' && filteredDocuments.length > 0) {
+      if (e.key === 'ArrowUp' && filteredItems.length > 0) {
         e.preventDefault()
         setMentionIndex((prev) =>
-          prev === 0 ? filteredDocuments.length - 1 : prev - 1
+          prev === 0 ? filteredItems.length - 1 : prev - 1
         )
         return
       }
 
       if (
         (e.key === 'Enter' || e.key === 'Tab') &&
-        filteredDocuments.length > 0 &&
+        filteredItems.length > 0 &&
         mentionState
       ) {
         e.preventDefault()
-        handleSelectDocument(filteredDocuments[mentionIndex])
+        handleSelectItem(filteredItems[mentionIndex])
         return
       }
 
@@ -352,7 +452,7 @@ export default function ChatInput({
             </div>
           )}
 
-          {selectedDocEntries.length > 0 && (
+          {(selectedDocEntries.length > 0 || selectedHashtags.length > 0) && (
             <div className="mb-2 flex flex-wrap items-center gap-2 pr-24">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-secondary-500">
                 Force context
@@ -375,6 +475,24 @@ export default function ChatInput({
                   </button>
                 </span>
               ))}
+              {selectedHashtags.map((hashtag) => (
+                <span
+                  key={hashtag}
+                  className="inline-flex max-w-full items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-xs text-green-700"
+                >
+                  <span className="truncate" title={hashtag}>
+                    {hashtag.startsWith('#') ? hashtag : `#${hashtag}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveHashtag(hashtag)}
+                    className="rounded-full p-0.5 text-green-600 transition hover:bg-green-100 focus:outline-none focus:ring-1 focus:ring-green-400"
+                    aria-label={`Remove ${hashtag} from forced context`}
+                  >
+                    <XMarkIcon className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
             </div>
           )}
 
@@ -383,41 +501,75 @@ export default function ChatInput({
               className="absolute bottom-full left-0 right-24 mb-2 max-h-56 overflow-y-auto rounded-lg border border-secondary-200 bg-white shadow-lg z-20"
               role="listbox"
             >
-              {!documentsLoaded ? (
-                <div className="px-3 py-2 text-sm text-secondary-400">
-                  Loading documents...
-                </div>
-              ) : filteredDocuments.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-secondary-400">
-                  No matching documents
-                </div>
-              ) : (
-                filteredDocuments.map((doc, idx) => (
-                  <button
-                    key={doc.document_id}
-                    type="button"
-                    role="option"
-                    aria-selected={idx === mentionIndex}
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                      handleSelectDocument(doc)
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
-                      idx === mentionIndex
-                        ? 'bg-primary-50 text-primary-700'
-                        : 'hover:bg-secondary-100'
-                    }`}
-                  >
-                    <span className="truncate" title={doc.filename}>
-                      {doc.filename}
-                    </span>
-                    {typeof doc.chunk_count === 'number' && (
-                      <span className="text-xs text-secondary-400 whitespace-nowrap">
-                        {doc.chunk_count} chunks
+              {mentionState?.type === 'hashtag' ? (
+                !hashtagsLoaded ? (
+                  <div className="px-3 py-2 text-sm text-secondary-400">
+                    Loading hashtags...
+                  </div>
+                ) : filteredItems.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-secondary-400">
+                    No matching hashtags
+                  </div>
+                ) : (
+                  (filteredItems as string[]).map((tag, idx) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      role="option"
+                      aria-selected={idx === mentionIndex}
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleSelectHashtag(tag)
+                      }}
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition ${
+                        idx === mentionIndex
+                          ? 'bg-primary-50 text-primary-700'
+                          : 'hover:bg-secondary-100'
+                      }`}
+                    >
+                      <span className="truncate" title={tag}>
+                        {tag.startsWith('#') ? tag : `#${tag}`}
                       </span>
-                    )}
-                  </button>
-                ))
+                    </button>
+                  ))
+                )
+              ) : (
+                !documentsLoaded ? (
+                  <div className="px-3 py-2 text-sm text-secondary-400">
+                    Loading documents...
+                  </div>
+                ) : filteredItems.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-secondary-400">
+                    No matching documents
+                  </div>
+                ) : (
+                  (filteredItems as DocumentSummary[]).map((doc, idx) => (
+                    <button
+                      key={doc.document_id}
+                      type="button"
+                      role="option"
+                      aria-selected={idx === mentionIndex}
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        handleSelectDocument(doc)
+                      }}
+                      className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
+                        idx === mentionIndex
+                          ? 'bg-primary-50 text-primary-700'
+                          : 'hover:bg-secondary-100'
+                      }`}
+                    >
+                      <span className="truncate" title={doc.filename}>
+                        {doc.filename}
+                      </span>
+                      {typeof doc.chunk_count === 'number' && (
+                        <span className="text-xs text-secondary-400 whitespace-nowrap">
+                          {doc.chunk_count} chunks
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )
               )}
             </div>
           )}
@@ -427,7 +579,7 @@ export default function ChatInput({
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your documents... (add context with #)"
+            placeholder="Ask a question about your documents... (@ for documents, # for tags)"
             disabled={disabled || isStreaming || uploadingFile}
             rows={1}
             className="input-field pr-24 resize-none overflow-hidden"

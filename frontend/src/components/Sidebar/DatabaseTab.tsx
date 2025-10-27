@@ -425,11 +425,20 @@ export default function DatabaseTab() {
               return (
                 <div
                   key={index}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copy'
+                    e.dataTransfer.setData('application/json', JSON.stringify({
+                      type: 'document',
+                      document_id: doc.document_id,
+                      filename: doc.original_filename || doc.filename,
+                    }))
+                  }}
                   onClick={() => handleSelectDocument(doc.document_id)}
-                  className={`card p-3 flex flex-col gap-2 transition-all cursor-pointer group ${
+                  className={`card p-3 flex flex-col gap-2 transition-all cursor-move group ${
                     isActive
                       ? 'border-primary-300 shadow-primary-100 ring-1 ring-primary-100'
-                      : 'hover:shadow-md'
+                      : 'hover:shadow-md hover:cursor-grab active:cursor-grabbing'
                   }`}
                 >
                   <div className="flex w-full items-start justify-between gap-3">

@@ -425,6 +425,29 @@ export default function ChatInput({
     e.stopPropagation()
     setIsDragging(false)
 
+    // Check for dragged documents from database tab
+    const draggedData = e.dataTransfer.getData('application/json')
+    if (draggedData) {
+      try {
+        const data = JSON.parse(draggedData)
+        if (data.type === 'document' && data.document_id) {
+          // Add document to force context
+          setSelectedDocs((prev) => ({
+            ...prev,
+            [data.document_id]: {
+              filename: data.filename,
+              original_filename: data.filename,
+            },
+          }))
+          showToast('success', 'Document added to context', `${data.filename} will be used as context`)
+          return
+        }
+      } catch (error) {
+        console.error('Failed to parse dragged document:', error)
+      }
+    }
+
+    // Fall back to file upload if files were dragged
     const files = e.dataTransfer.files
     if (files && files.length > 0) {
       await handleFiles(files)
@@ -447,7 +470,7 @@ export default function ChatInput({
               <div className="text-center">
                 <DocumentArrowUpIcon className="w-8 h-8 text-primary-600 mx-auto mb-2" />
                 <p className="text-sm font-medium text-primary-700">
-                  Drop files to upload
+                  Drop files to upload, or drop documents to add to context
                 </p>
               </div>
             </div>
@@ -456,7 +479,7 @@ export default function ChatInput({
           {(selectedDocEntries.length > 0 || selectedHashtags.length > 0) && (
             <div className="mb-2 flex flex-wrap items-center gap-2 pr-24">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-secondary-500">
-                Force context
+                Context
               </span>
               {selectedDocEntries.map(([docId, info]) => (
                 <span

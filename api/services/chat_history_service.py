@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +10,59 @@ from api.models import ChatMessage, ConversationHistory, ConversationSession
 from core.graph_db import graph_db
 
 logger = logging.getLogger(__name__)
+
+
+def strip_markdown(text: str) -> str:
+    """
+    Remove markdown formatting from text.
+    
+    Args:
+        text: Text with markdown formatting
+        
+    Returns:
+        Plain text without markdown tags
+    """
+    if not text:
+        return text
+    
+    # Remove headers (# ## ### etc)
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove bold/italic (**text** or __text__ or *text* or _text_)
+    text = re.sub(r'\*\*\*(.+?)\*\*\*', r'\1', text)  # bold+italic
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # bold
+    text = re.sub(r'\*(.+?)\*', r'\1', text)  # italic
+    text = re.sub(r'___(.+?)___', r'\1', text)  # bold+italic
+    text = re.sub(r'__(.+?)__', r'\1', text)  # bold
+    text = re.sub(r'_(.+?)_', r'\1', text)  # italic
+    
+    # Remove strikethrough (~~text~~)
+    text = re.sub(r'~~(.+?)~~', r'\1', text)
+    
+    # Remove inline code (`text`)
+    text = re.sub(r'`(.+?)`', r'\1', text)
+    
+    # Remove links [text](url)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    
+    # Remove images ![alt](url)
+    text = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', r'\1', text)
+    
+    # Remove blockquotes (> text)
+    text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
+    
+    # Remove horizontal rules (---, ***, ___)
+    text = re.sub(r'^[\-\*_]{3,}\s*$', '', text, flags=re.MULTILINE)
+    
+    # Remove list markers (-, *, +, 1.)
+    text = re.sub(r'^\s*[\-\*\+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
+    
+    # Clean up excessive whitespace
+    text = re.sub(r'\n\s*\n', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
 
 
 class ChatHistoryService:
@@ -206,8 +260,11 @@ class ChatHistoryService:
             if result and result.records:
                 for record in result.records:
                     preview = record["preview"]
-                    if preview and len(preview) > 100:
-                        preview = preview[:100] + "..."
+                    if preview:
+                        # Strip markdown formatting from preview
+                        preview = strip_markdown(preview)
+                        if len(preview) > 100:
+                            preview = preview[:100] + "..."
 
                     # Normalize created_at / updated_at to ISO8601 strings.
                     def _normalize_ts(value):

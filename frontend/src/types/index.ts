@@ -21,6 +21,7 @@ export interface Source {
   similarity: number
   relevance_score?: number
   document_name: string
+  original_filename?: string
   document_id?: string
   filename: string
   chunk_index?: number
@@ -60,6 +61,7 @@ export interface DatabaseStats {
 export interface DocumentSummary {
   document_id: string
   filename: string
+  original_filename?: string
   created_at: string
   chunk_count: number
   processing_status?: string
@@ -110,6 +112,7 @@ export interface DocumentDetails {
   id: string
   title?: string
   file_name?: string
+  original_filename?: string
   mime_type?: string
   preview_url?: string
   uploaded_at?: string

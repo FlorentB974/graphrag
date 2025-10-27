@@ -203,6 +203,7 @@ class DocumentProcessor:
 
         return {
             "filename": filename,
+            "original_filename": original_filename if original_filename else file_path.name,
             "file_path": str(file_path),
             "file_size": file_path.stat().st_size,
             "file_extension": file_path.suffix,

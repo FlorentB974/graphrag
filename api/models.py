@@ -199,6 +199,7 @@ class DocumentMetadataResponse(BaseModel):
     id: str
     title: str | None = None
     file_name: str | None = None
+    original_filename: str | None = None
     mime_type: str | None = None
     preview_url: str | None = None
     uploaded_at: str | None = None

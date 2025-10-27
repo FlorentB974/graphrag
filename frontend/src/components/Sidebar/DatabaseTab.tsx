@@ -436,7 +436,7 @@ export default function DatabaseTab() {
                     <div className="flex-1 min-w-0">
                       <div className="relative">
                         <p className="text-sm font-medium text-secondary-900 truncate">
-                          {doc.filename}
+                          {doc.original_filename || doc.filename}
                         </p>
                       </div>
                       <p className={`text-xs mt-1 ${isStuck && (status === 'queued' || status === 'staged') ? 'text-red-600' : 'text-secondary-600'}`}>
@@ -466,7 +466,7 @@ export default function DatabaseTab() {
                         handleDeleteDocument(doc.document_id)
                       }}
                       className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
-                      title={`Delete ${doc.filename}`}
+                      title={`Delete ${doc.original_filename || doc.filename}`}
                     >
                       <TrashIcon className="w-4 h-4" />
                     </button>

@@ -417,10 +417,10 @@ export default function DocumentView() {
           <DocumentTextIcon className="w-6 h-6 text-primary-500" />
           <div>
             <h2 className="text-lg font-semibold text-secondary-900">
-              {documentData?.title || documentData?.file_name || 'Unnamed document'}
+              {documentData?.title || documentData?.original_filename || documentData?.file_name || 'Unnamed document'}
             </h2>
             <p className="text-xs text-secondary-500">
-              {documentData?.file_name} · {documentData?.mime_type || 'Unknown type'}
+              {documentData?.original_filename || documentData?.file_name} · {documentData?.mime_type || 'Unknown type'}
             </p>
           </div>
         </div>
@@ -486,7 +486,7 @@ export default function DocumentView() {
               <dl className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                 <div>
                   <dt className="text-secondary-500">File name</dt>
-                  <dd className="text-secondary-900">{documentData.file_name || 'Unknown'}</dd>
+                  <dd className="text-secondary-900">{documentData.original_filename || documentData.file_name || 'Unknown'}</dd>
                 </div>
                 <div>
                   <dt className="text-secondary-500">Mime type</dt>

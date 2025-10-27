@@ -28,9 +28,8 @@ export default function SourcesList({ sources }: SourcesListProps) {
     const groups = new Map<string, GroupedSource>()
 
     sources.forEach((source) => {
-      // Use document_name as the primary key for grouping to ensure chunks and entities 
-      // from the same document are grouped together
-      const docName = source.document_name || source.filename || 'Unknown Document'
+      // Use original_filename if available, fall back to document_name
+      const docName = source.original_filename || source.document_name || source.filename || 'Unknown Document'
       const docKey = docName // Use document name as the key
 
       if (!groups.has(docKey)) {

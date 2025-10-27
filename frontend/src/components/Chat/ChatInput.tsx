@@ -7,7 +7,7 @@ import { api } from '@/lib/api'
 import { DocumentSummary } from '@/types'
 import { showToast } from '@/components/Toast/ToastContainer'
 
-type SelectedDocMap = Record<string, { filename: string }>
+type SelectedDocMap = Record<string, { filename: string; original_filename?: string }>
 
 interface ChatInputProps {
   onSend: (message: string, contextDocuments: string[], contextDocumentLabels: string[], contextHashtags?: string[]) => void
@@ -125,7 +125,7 @@ export default function ChatInput({
         return available.slice(0, 8)
       }
       return available
-        .filter((doc) => doc.filename.toLowerCase().includes(normalized))
+        .filter((doc) => (doc.original_filename || doc.filename).toLowerCase().includes(normalized))
         .slice(0, 8)
     }
   }, [documents, hashtags, mentionState, selectedDocs])
@@ -201,6 +201,7 @@ export default function ChatInput({
       ...prev,
       [doc.document_id]: {
         filename: doc.filename,
+        original_filename: doc.original_filename,
       },
     }))
     setMentionState(null)
@@ -283,7 +284,7 @@ export default function ChatInput({
       // Start with explicitly selected documents
       const contextDocIds = Object.keys(selectedDocs)
       const contextDocLabels = contextDocIds
-        .map((id) => selectedDocs[id]?.filename)
+        .map((id) => selectedDocs[id]?.original_filename || selectedDocs[id]?.filename)
         .filter((label): label is string => Boolean(label))
 
       // If hashtags are selected, add documents that have those hashtags
@@ -296,7 +297,7 @@ export default function ChatInput({
         hashtagDocs.forEach((doc) => {
           if (!contextDocIds.includes(doc.document_id)) {
             contextDocIds.push(doc.document_id)
-            contextDocLabels.push(doc.filename)
+            contextDocLabels.push(doc.original_filename || doc.filename)
           }
         })
       }
@@ -462,14 +463,14 @@ export default function ChatInput({
                   key={docId}
                   className="inline-flex max-w-full items-center gap-2 rounded-full bg-primary-50 px-3 py-1 text-xs text-primary-700"
                 >
-                  <span className="truncate" title={info.filename}>
-                    {info.filename}
+                  <span className="truncate" title={info.original_filename || info.filename}>
+                    {info.original_filename || info.filename}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleRemoveDoc(docId)}
                     className="rounded-full p-0.5 text-primary-600 transition hover:bg-primary-100 focus:outline-none focus:ring-1 focus:ring-primary-400"
-                    aria-label={`Remove ${info.filename} from forced context`}
+                    aria-label={`Remove ${info.original_filename || info.filename} from forced context`}
                   >
                     <XMarkIcon className="h-3.5 w-3.5" />
                   </button>
@@ -559,8 +560,8 @@ export default function ChatInput({
                           : 'hover:bg-secondary-100'
                       }`}
                     >
-                      <span className="truncate" title={doc.filename}>
-                        {doc.filename}
+                      <span className="truncate" title={doc.original_filename || doc.filename}>
+                        {doc.original_filename || doc.filename}
                       </span>
                       {typeof doc.chunk_count === 'number' && (
                         <span className="text-xs text-secondary-400 whitespace-nowrap">

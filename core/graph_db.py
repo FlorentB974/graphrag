@@ -477,7 +477,7 @@ class GraphDB:
                 MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
                 WITH c, d, gds.similarity.cosine(c.embedding, $query_embedding) AS similarity
                 RETURN c.id as chunk_id, c.content as content, similarity,
-                       d.filename as document_name, d.id as document_id
+                       coalesce(d.original_filename, d.filename) as document_name, d.id as document_id
                 ORDER BY similarity DESC
                 LIMIT $top_k
                 """,
@@ -517,7 +517,7 @@ class GraphDB:
                              END
                      END as calculated_similarity
                 RETURN DISTINCT related.id as chunk_id, related.content as content,
-                       distance, d.filename as document_name, d.id as document_id,
+                       distance, coalesce(d.original_filename, d.filename) as document_name, d.id as document_id,
                        calculated_similarity as similarity
                 ORDER BY distance ASC, calculated_similarity DESC
                 """
@@ -1106,7 +1106,7 @@ class GraphDB:
                 WHERE e.id IN $entity_ids
                 OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(c)
                 RETURN DISTINCT c.id as chunk_id, c.content as content,
-                       d.filename as document_name, d.id as document_id,
+                       coalesce(d.original_filename, d.filename) as document_name, d.id as document_id,
                        collect(e.name) as contained_entities
                 """,
                 entity_ids=entity_ids,
@@ -1801,6 +1801,7 @@ class GraphDB:
                 WITH d, count(c) as chunk_count
                 RETURN d.id as document_id,
                        d.filename as filename,
+                       coalesce(d.original_filename, d.filename) as original_filename,
                        d.created_at as created_at,
               coalesce(d.processing_status, 'idle') as processing_status,
               coalesce(d.processing_stage, 'idle') as processing_stage,
@@ -1830,6 +1831,7 @@ class GraphDB:
                 WITH d, count(c) as chunk_count
                 RETURN d.id as document_id,
                        d.filename as filename,
+                       coalesce(d.original_filename, d.filename) as original_filename,
                        d.created_at as created_at,
                        d.hashtags as hashtags,
                        chunk_count
@@ -1955,6 +1957,7 @@ class GraphDB:
                 "id",
                 "title",
                 "filename",
+                "original_filename",
                 "mime_type",
                 "preview_url",
                 "uploaded_at",
@@ -1978,6 +1981,7 @@ class GraphDB:
                 "id": doc_data.get("id", doc_id),
                 "title": doc_data.get("title"),
                 "file_name": doc_data.get("filename"),
+                "original_filename": doc_data.get("original_filename"),
                 "mime_type": doc_data.get("mime_type"),
                 "preview_url": doc_data.get("preview_url"),
                 "uploaded_at": uploaded_at,

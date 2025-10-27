@@ -29,6 +29,7 @@ class RAGState:
         self.metadata: Dict[str, Any] = {}
         self.quality_score: Optional[Dict[str, Any]] = None
         self.context_documents: List[str] = []
+        self.stages: List[str] = []  # Track stages for UI
 
 
 class GraphRAG:
@@ -67,6 +68,15 @@ class GraphRAG:
             query = state.get("query", "")
             chat_history = state.get("chat_history", [])
             logger.info(f"Analyzing query: {query}")
+            
+            # Initialize stages list if not present
+            if "stages" not in state:
+                state["stages"] = []
+            
+            # Track stage
+            state["stages"].append("query_analysis")
+            logger.info(f"Stage query_analysis completed, current stages: {state['stages']}")
+            
             state["query_analysis"] = analyze_query(query, chat_history)
             return state
         except Exception as e:
@@ -78,6 +88,15 @@ class GraphRAG:
         """Retrieve relevant documents (dict-based state for LangGraph)."""
         try:
             logger.info("Retrieving relevant documents")
+            
+            # Initialize stages list if not present
+            if "stages" not in state:
+                state["stages"] = []
+            
+            # Track retrieval stage
+            state["stages"].append("retrieval")
+            logger.info(f"Stage retrieval completed, current stages: {state['stages']}")
+            
             # Pass additional retrieval tuning parameters from state
             chunk_weight = state.get("chunk_weight", 0.5)
             graph_expansion = state.get("graph_expansion", True)
@@ -93,6 +112,7 @@ class GraphRAG:
                 use_multi_hop=use_multi_hop,
                 context_documents=state.get("context_documents", []),
             )
+            
             return state
         except Exception as e:
             logger.error(f"Document retrieval failed: {e}")
@@ -103,6 +123,15 @@ class GraphRAG:
         """Perform graph-based reasoning (dict-based state for LangGraph)."""
         try:
             logger.info("Performing graph reasoning")
+            
+            # Initialize stages list if not present
+            if "stages" not in state:
+                state["stages"] = []
+            
+            # Track stage
+            state["stages"].append("graph_reasoning")
+            logger.info(f"Stage graph_reasoning completed, current stages: {state['stages']}")
+            
             state["graph_context"] = reason_with_graph(
                 state.get("query", ""),
                 state.get("retrieved_chunks", []),
@@ -119,6 +148,15 @@ class GraphRAG:
         """Generate the final response (dict-based state for LangGraph)."""
         try:
             logger.info("Generating response")
+            
+            # Initialize stages list if not present
+            if "stages" not in state:
+                state["stages"] = []
+            
+            # Track stage
+            state["stages"].append("generation")
+            logger.info(f"Stage generation completed, current stages: {state['stages']}")
+            
             response_data = generate_response(
                 state.get("query", ""),
                 state.get("graph_context", []),
@@ -213,6 +251,7 @@ class GraphRAG:
                 "metadata": getattr(final_state, "metadata", {}),
                 "quality_score": getattr(final_state, "quality_score", None),
                 "context_documents": context_docs,
+                "stages": getattr(final_state, "stages", []),
             }
 
         except Exception as e:
@@ -227,6 +266,7 @@ class GraphRAG:
                 "metadata": {"error": str(e)},
                 "quality_score": None,
                 "context_documents": context_documents or [],
+                "stages": [],
             }
 
     async def aquery(self, user_query: str) -> Dict[str, Any]:

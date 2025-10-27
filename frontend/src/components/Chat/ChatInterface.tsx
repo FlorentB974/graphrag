@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { flushSync } from 'react-dom'
 import { Message } from '@/types'
 import { api } from '@/lib/api'
 import MessageBubble from './MessageBubble'
@@ -22,6 +23,8 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const [currentStage, setCurrentStage] = useState<string>('query_analysis')
+  const [completedStages, setCompletedStages] = useState<string[]>([])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -41,6 +44,8 @@ export default function ChatInterface() {
     handleStopStreaming()
     // Current session is already saved to history automatically
     // Just clear the UI and reset session ID
+    setCurrentStage('query_analysis')
+    setCompletedStages([])
     clearChat()
   }, [clearChat])
 
@@ -68,6 +73,10 @@ export default function ChatInterface() {
     contextHashtags?: string[]
   ) => {
     if (!message.trim() || isLoading || isHistoryLoading) return
+
+    // Reset stage indicators for new query
+    setCurrentStage('query_analysis')
+    setCompletedStages([])
 
     // Add user message
     const userMessage: Message = {
@@ -176,11 +185,24 @@ export default function ChatInterface() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
+              console.log('Received SSE data:', data)
 
               if (data.type === 'token') {
                 accumulatedContent += data.content
                 // Add to buffer instead of updating immediately
                 contentBuffer.push(data.content)
+              } else if (data.type === 'stage') {
+                console.log('Received stage:', data.content)
+                flushSync(() => {
+                  setCurrentStage(data.content)
+                  // Track completed stages
+                  setCompletedStages((prev) => {
+                    if (!prev.includes(data.content)) {
+                      return [...prev, data.content]
+                    }
+                    return prev
+                  })
+                })
               } else if (data.type === 'sources') {
                 sources = data.content
               } else if (data.type === 'quality_score') {
@@ -337,9 +359,22 @@ export default function ChatInterface() {
                       onQuestionClick={handleFollowUpClick}
                     />
                   )}
+                {/* Show completed stages from the last assistant message */}
+                {message.role === 'assistant' &&
+                  !message.isStreaming &&
+                  index === messages.length - 1 &&
+                  completedStages.length > 0 && (
+                    <div className="mt-4">
+                      <LoadingIndicator 
+                        currentStage={completedStages[completedStages.length - 1]} 
+                        completedStages={completedStages} 
+                        isLoading={false}
+                      />
+                    </div>
+                  )}
               </div>
             ))}
-            {(isLoading || isHistoryLoading) && <LoadingIndicator />}
+            {(isLoading || isHistoryLoading) && <LoadingIndicator currentStage={currentStage} completedStages={completedStages} isLoading={isLoading || isHistoryLoading} />}
             <div ref={messagesEndRef} />
           </div>
         )}

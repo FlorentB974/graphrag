@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -24,10 +24,28 @@ router = APIRouter()
 
 async def stream_response_generator(
     result: dict, session_id: str, user_query: str, context_documents: List[str],
-    context_document_labels: List[str], context_hashtags: List[str]
+    context_document_labels: List[str], context_hashtags: List[str], stage_updates: Optional[List[str]] = None
 ) -> AsyncGenerator[str, None]:
     """Generate streaming response with SSE format."""
     try:
+        # Emit pipeline stages progressively with timing
+        # Map actual backend stages to what was executed
+        if stage_updates:
+            logger.info(f"Emitting pipeline stages: {stage_updates}")
+            
+            # Core pipeline stages that always execute
+            core_stages = ['query_analysis', 'retrieval', 'graph_reasoning', 'generation']
+            
+            for stage in core_stages:
+                if stage in stage_updates:
+                    logger.info(f"Emitting stage: {stage}")
+                    stage_data = {
+                        "type": "stage",
+                        "content": stage,
+                    }
+                    yield f"data: {json.dumps(stage_data)}\n\n"
+                    await asyncio.sleep(1.0)  # Pause to show each stage
+
         response_text = result.get("response", "")
 
         # Stream response with word-based buffering for smoother rendering
@@ -57,9 +75,17 @@ async def stream_response_generator(
                 yield f"data: {json.dumps(chunk_data)}\n\n"
                 await asyncio.sleep(0.015)  # Slightly faster for smoother feel
 
-        # Calculate quality score asynchronously
+        # NOW emit quality calculation stage (AFTER response is done)
         quality_score = None
         try:
+            # Emit quality calculation stage
+            stage_data = {
+                "type": "stage",
+                "content": "quality_calculation",
+            }
+            yield f"data: {json.dumps(stage_data)}\n\n"
+            await asyncio.sleep(0.05)
+
             context_chunks = result.get("graph_context", [])
             if not context_chunks:
                 context_chunks = result.get("retrieved_chunks", [])
@@ -79,9 +105,17 @@ async def stream_response_generator(
         except Exception as e:
             logger.warning(f"Quality scoring failed: {e}")
 
-        # Generate follow-up questions
+        # Generate follow-up questions and emit suggestions stage
         follow_up_questions = []
         try:
+            # Emit suggestions stage LAST
+            stage_data = {
+                "type": "stage",
+                "content": "suggestions",
+            }
+            yield f"data: {json.dumps(stage_data)}\n\n"
+            await asyncio.sleep(0.05)
+
             follow_up_questions = await follow_up_service.generate_follow_ups(
                 query=user_query,
                 response=response_text,
@@ -99,7 +133,6 @@ async def stream_response_generator(
                 content=user_query,
                 context_documents=context_documents,
                 context_document_labels=context_document_labels,
-                context_hashtags=context_hashtags,
             )
             await chat_history_service.save_message(
                 session_id=session_id,
@@ -203,13 +236,17 @@ async def chat_query(request: ChatRequest):
             chat_history=chat_history,
             context_documents=context_documents,
         )
+        
+        # Log the stages for debugging
+        stages = result.get("stages", [])
+        logger.info(f"RAG pipeline completed with stages: {stages}")
 
         # If streaming is requested, return SSE stream
         if request.stream:
             return StreamingResponse(
                 stream_response_generator(
                     result, session_id, request.message, context_documents,
-                    context_document_labels, context_hashtags
+                    context_document_labels, context_hashtags, stages
                 ),
                 media_type="text/event-stream",
                 headers={

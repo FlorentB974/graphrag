@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '@/lib/api'
 import { DatabaseStats, ProcessingSummary } from '@/types'
-import { TrashIcon, DocumentArrowUpIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, DocumentArrowUpIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useChatStore } from '@/store/chatStore'
 import { showToast } from '@/components/Toast/ToastContainer'
 
@@ -14,6 +14,9 @@ export default function DatabaseTab() {
   const [isStuck, setIsStuck] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
+  const [searchMode, setSearchMode] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const wasProcessingRef = useRef(false)
   const lastUpdateTimestampRef = useRef<number>(Date.now())
   const selectDocument = useChatStore((state) => state.selectDocument)
@@ -96,6 +99,13 @@ export default function DatabaseTab() {
       }
     }
   }, [])
+
+  // Focus search input when entering search mode
+  useEffect(() => {
+    if (searchMode && searchInputRef.current) {
+      searchInputRef.current.focus()
+    }
+  }, [searchMode])
 
   // Poll for processing updates when active (without refreshing entire stats)
   useEffect(() => {
@@ -278,6 +288,18 @@ export default function DatabaseTab() {
     await loadStats()
   }
 
+  const getFilteredDocuments = () => {
+    if (!stats?.documents) return []
+    if (!searchQuery.trim()) return stats.documents
+
+    const query = searchQuery.toLowerCase()
+    return stats.documents.filter(
+      (doc) =>
+        (doc.original_filename || doc.filename || '').toLowerCase().includes(query) ||
+        ((doc as any).document_type || '').toLowerCase().includes(query)
+    )
+  }
+
   if (loading) {
     return <div className="text-center text-secondary-600">Loading...</div>
   }
@@ -402,18 +424,59 @@ export default function DatabaseTab() {
       {/* Documents List */}
       {stats && stats.documents.length > 0 && (
         <>
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-secondary-900">Documents</h3>
-            <button
-              onClick={handleClearDatabase}
-              className="text-xs text-red-600 hover:text-red-700"
-            >
-              Clear All
-            </button>
-          </div>
+          {!searchMode ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-secondary-900">Documents</h3>
+                <button
+                  onClick={() => setSearchMode(true)}
+                  className="text-secondary-600 hover:text-secondary-900 p-1"
+                  title="Search documents"
+                >
+                  <MagnifyingGlassIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <button
+                onClick={handleClearDatabase}
+                className="text-xs text-red-600 hover:text-red-700"
+              >
+                Clear All
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 relative">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search documents..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearchMode(false)
+                      setSearchQuery('')
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-secondary-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setSearchMode(false)
+                  setSearchQuery('')
+                }}
+                className="text-secondary-600 hover:text-secondary-900 p-1"
+                title="Close search"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
 
           <div className="space-y-2">
-            {stats.documents.map((doc, index) => {
+            {getFilteredDocuments().map((doc, index) => {
               const isActive = doc.document_id === selectedDocumentId
               const statusLabel = formatStatus(doc)
               const status = doc.processing_status
@@ -502,6 +565,11 @@ export default function DatabaseTab() {
                 </div>
               )
             })}
+            {searchQuery.trim() && getFilteredDocuments().length === 0 && (
+              <div className="text-center text-secondary-600 py-6">
+                <p className="text-sm">No documents match &quot;{searchQuery}&quot;</p>
+              </div>
+            )}
           </div>
         </>
       )}

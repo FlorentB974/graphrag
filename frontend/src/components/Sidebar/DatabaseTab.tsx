@@ -16,6 +16,7 @@ export default function DatabaseTab() {
   const [uploadingFile, setUploadingFile] = useState(false)
   const [searchMode, setSearchMode] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [enableDeleteOps, setEnableDeleteOps] = useState(true)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const wasProcessingRef = useRef(false)
   const lastUpdateTimestampRef = useRef<number>(Date.now())
@@ -222,6 +223,7 @@ export default function DatabaseTab() {
       console.log('Loaded stats, is_processing:', data.processing?.is_processing, 'pending docs:', data.processing?.pending_documents?.length || 0)
       setStats(data)
       setProcessingState(data.processing || null)
+      setEnableDeleteOps(data.enable_delete_operations ?? true)
       return data
     } catch (error) {
       console.error('Failed to load stats:', error)
@@ -436,12 +438,14 @@ export default function DatabaseTab() {
                   <MagnifyingGlassIcon className="w-4 h-4" />
                 </button>
               </div>
-              <button
-                onClick={handleClearDatabase}
-                className="text-xs text-red-600 hover:text-red-700"
-              >
-                Clear All
-              </button>
+              {enableDeleteOps && (
+                <button
+                  onClick={handleClearDatabase}
+                  className="text-xs text-red-600 hover:text-red-700"
+                >
+                  Clear All
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2">
@@ -532,16 +536,18 @@ export default function DatabaseTab() {
                         </p>
                       )}
                     </div>
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handleDeleteDocument(doc.document_id)
-                      }}
-                      className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
-                      title={`Delete ${doc.original_filename || doc.filename}`}
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                    </button>
+                    {enableDeleteOps && (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleDeleteDocument(doc.document_id)
+                        }}
+                        className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
+                        title={`Delete ${doc.original_filename || doc.filename}`}
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
 
                   {status === 'processing' && progress !== null && (

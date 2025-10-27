@@ -21,6 +21,7 @@ from api.models import (
     ProcessDocumentsRequest,
     ProcessingSummary,
 )
+from config.settings import settings
 from core.graph_db import graph_db
 from ingestion.document_processor import EntityExtractionState, document_processor
 
@@ -547,6 +548,7 @@ async def get_database_stats():
             total_relationships=stats.get("total_relationships", 0),
             documents=documents,
             processing=processing_summary,
+            enable_delete_operations=settings.enable_delete_operations,
         )
 
     except Exception as e:
@@ -632,6 +634,12 @@ async def delete_document(document_id: str):
     Returns:
         Deletion result
     """
+    if not settings.enable_delete_operations:
+        raise HTTPException(
+            status_code=403,
+            detail="Delete operations are disabled in this configuration"
+        )
+    
     try:
         graph_db.delete_document(document_id)
         return {"status": "success", "message": f"Document {document_id} deleted"}
@@ -649,6 +657,12 @@ async def clear_database():
     Returns:
         Clear operation result
     """
+    if not settings.enable_delete_operations:
+        raise HTTPException(
+            status_code=403,
+            detail="Delete operations are disabled in this configuration"
+        )
+    
     try:
         graph_db.clear_database()
         return {"status": "success", "message": "Database cleared"}

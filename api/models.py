@@ -157,6 +157,7 @@ class DatabaseStats(BaseModel):
     total_relationships: int
     documents: List[Dict[str, Any]] = Field(default_factory=list)
     processing: Optional[ProcessingSummary] = None
+    enable_delete_operations: bool = Field(True, description="Whether delete operations are enabled")
 
 
 class DocumentChunk(BaseModel):

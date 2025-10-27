@@ -142,6 +142,11 @@ class Settings(BaseSettings):
         description="Weights for different quality score components",
     )
 
+    # Database Operations Configuration
+    enable_delete_operations: bool = Field(
+        default=False, description="Enable ability to delete documents and clear database"
+    )
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

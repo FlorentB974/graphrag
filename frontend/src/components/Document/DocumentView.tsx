@@ -430,15 +430,17 @@ export default function DocumentView() {
               Uploaded {new Date(documentData.uploaded_at).toLocaleString()}
             </span>
           )}
-          <button
-            type="button"
-            onClick={handleOpenPreview}
-            className="button-primary text-sm flex items-center gap-2"
-            disabled={previewState.isLoading}
-          >
-            <MagnifyingGlassIcon className="w-4 h-4" />
-            {previewState.isLoading ? 'Loading preview…' : 'Open preview'}
-          </button>
+          {(hasPreview === null ? documentData?.preview_url : hasPreview) && (
+            <button
+              type="button"
+              onClick={handleOpenPreview}
+              className="button-primary text-sm flex items-center gap-2"
+              disabled={previewState.isLoading}
+            >
+              <MagnifyingGlassIcon className="w-4 h-4" />
+              {previewState.isLoading ? 'Loading preview…' : 'Open preview'}
+            </button>
+          )}
           {previewState.error && (
             <span className="text-xs text-red-600">{previewState.error}</span>
           )}

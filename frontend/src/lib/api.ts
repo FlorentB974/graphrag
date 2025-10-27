@@ -17,6 +17,8 @@ export const api = {
       use_multi_hop?: boolean
       stream?: boolean
       context_documents?: string[]
+      context_document_labels?: string[]
+      context_hashtags?: string[]
       llm_overrides?: {
         model?: string
         temperature?: number

@@ -18,6 +18,8 @@ class ChatMessage(BaseModel):
     quality_score: Optional[Dict[str, Any]] = None
     follow_up_questions: Optional[List[str]] = None
     context_documents: Optional[List[str]] = None
+    context_document_labels: Optional[List[str]] = None
+    context_hashtags: Optional[List[str]] = None
 
 
 class ChatRequest(BaseModel):
@@ -33,6 +35,14 @@ class ChatRequest(BaseModel):
     context_documents: List[str] = Field(
         default_factory=list,
         description="List of document IDs to restrict retrieval context",
+    )
+    context_document_labels: List[str] = Field(
+        default_factory=list,
+        description="List of document labels/names for UI display",
+    )
+    context_hashtags: List[str] = Field(
+        default_factory=list,
+        description="List of hashtags used to filter documents",
     )
 
 

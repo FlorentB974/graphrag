@@ -149,6 +149,8 @@ export default function ChatInterface() {
           session_id: sessionId,
           stream: true,
           context_documents: contextDocuments,
+          context_document_labels: contextDocumentLabels,
+          context_hashtags: contextHashtags,
         },
         { signal: controller.signal }
       )

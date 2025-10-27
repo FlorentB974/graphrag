@@ -84,6 +84,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           isStreaming: false,
           context_documents: message.context_documents || undefined,
           context_document_labels: message.context_document_labels || undefined,
+          context_hashtags: message.context_hashtags || undefined,
         })
       )
 

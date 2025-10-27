@@ -23,6 +23,8 @@ class ChatHistoryService:
         quality_score: Optional[Dict[str, Any]] = None,
         follow_up_questions: Optional[List[str]] = None,
         context_documents: Optional[List[str]] = None,
+        context_document_labels: Optional[List[str]] = None,
+        context_hashtags: Optional[List[str]] = None,
     ) -> None:
         """
         Save a message to chat history.
@@ -34,6 +36,9 @@ class ChatHistoryService:
             sources: Optional sources for assistant messages
             quality_score: Optional quality score for assistant messages
             follow_up_questions: Optional follow-up questions
+            context_documents: Optional list of context document IDs
+            context_document_labels: Optional list of context document labels/names
+            context_hashtags: Optional list of context hashtags
         """
         try:
             # Use the machine's local timezone so frontend shows relative times in local context
@@ -55,7 +60,9 @@ class ChatHistoryService:
                 sources: $sources,
                 quality_score: $quality_score,
                 follow_up_questions: $follow_up_questions,
-                context_documents: $context_documents
+                context_documents: $context_documents,
+                context_document_labels: $context_document_labels,
+                context_hashtags: $context_hashtags
             })
             CREATE (s)-[:HAS_MESSAGE]->(m)
             """
@@ -70,6 +77,8 @@ class ChatHistoryService:
                 quality_score=json.dumps(quality_score or {}),
                 follow_up_questions=follow_up_questions or [],
                 context_documents=context_documents or [],
+                context_document_labels=context_document_labels or [],
+                context_hashtags=context_hashtags or [],
             )
 
             logger.info(f"Saved message to session {session_id}")
@@ -139,6 +148,8 @@ class ChatHistoryService:
                         quality_score=quality_data,
                         follow_up_questions=msg_node.get("follow_up_questions"),
                         context_documents=msg_node.get("context_documents"),
+                        context_document_labels=msg_node.get("context_document_labels"),
+                        context_hashtags=msg_node.get("context_hashtags"),
                     )
                 )
 

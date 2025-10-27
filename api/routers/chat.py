@@ -23,7 +23,8 @@ router = APIRouter()
 
 
 async def stream_response_generator(
-    result: dict, session_id: str, user_query: str, context_documents: List[str]
+    result: dict, session_id: str, user_query: str, context_documents: List[str],
+    context_document_labels: List[str], context_hashtags: List[str]
 ) -> AsyncGenerator[str, None]:
     """Generate streaming response with SSE format."""
     try:
@@ -97,6 +98,8 @@ async def stream_response_generator(
                 role="user",
                 content=user_query,
                 context_documents=context_documents,
+                context_document_labels=context_document_labels,
+                context_hashtags=context_hashtags,
             )
             await chat_history_service.save_message(
                 session_id=session_id,
@@ -106,6 +109,8 @@ async def stream_response_generator(
                 quality_score=quality_score,
                 follow_up_questions=follow_up_questions,
                 context_documents=context_documents,
+                context_document_labels=context_document_labels,
+                context_hashtags=context_hashtags,
             )
             logger.info(f"Saved chat to history for session: {session_id}")
         except Exception as e:
@@ -185,6 +190,8 @@ async def chat_query(request: ChatRequest):
                 logger.warning(f"Could not load chat history: {e}")
 
         context_documents = request.context_documents or []
+        context_document_labels = request.context_document_labels or []
+        context_hashtags = request.context_hashtags or []
 
         # Process query through RAG pipeline
         result = graph_rag.query(
@@ -201,7 +208,8 @@ async def chat_query(request: ChatRequest):
         if request.stream:
             return StreamingResponse(
                 stream_response_generator(
-                    result, session_id, request.message, context_documents
+                    result, session_id, request.message, context_documents,
+                    context_document_labels, context_hashtags
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -252,6 +260,8 @@ async def chat_query(request: ChatRequest):
                 role="user",
                 content=request.message,
                 context_documents=context_documents,
+                context_document_labels=context_document_labels,
+                context_hashtags=context_hashtags,
             )
             await chat_history_service.save_message(
                 session_id=session_id,
@@ -261,6 +271,8 @@ async def chat_query(request: ChatRequest):
                 quality_score=quality_score,
                 follow_up_questions=follow_up_questions,
                 context_documents=context_documents,
+                context_document_labels=context_document_labels,
+                context_hashtags=context_hashtags,
             )
         except Exception as e:
             logger.warning(f"Could not save to chat history: {e}")

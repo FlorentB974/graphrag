@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 
-from api.models import DocumentMetadataResponse
+from api.models import DocumentMetadataResponse, UpdateHashtagsRequest
 from core.document_summarizer import document_summarizer
 from core.graph_db import graph_db
 
@@ -66,6 +66,37 @@ async def generate_document_summary(document_id: str):
         raise HTTPException(
             status_code=500,
             detail="Failed to generate summary"
+        ) from exc
+
+
+@router.patch("/{document_id}/hashtags")
+async def update_document_hashtags(document_id: str, request: UpdateHashtagsRequest):
+    """Update the hashtags for a document."""
+    try:
+        # Verify document exists
+        try:
+            graph_db.get_document_details(document_id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Update hashtags
+        graph_db.update_document_hashtags(
+            doc_id=document_id,
+            hashtags=request.hashtags
+        )
+
+        return {
+            "document_id": document_id,
+            "hashtags": request.hashtags,
+            "status": "success"
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update hashtags for %s: %s", document_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update hashtags"
         ) from exc
 
 

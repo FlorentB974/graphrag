@@ -224,6 +224,15 @@ class ConversationSession(BaseModel):
     preview: Optional[str] = None
 
 
+class UpdateHashtagsRequest(BaseModel):
+    """Request model for updating document hashtags."""
+
+    hashtags: List[str] = Field(
+        ...,
+        description="List of hashtags to set for the document"
+    )
+
+
 class ConversationHistory(BaseModel):
     """Conversation history model."""
 

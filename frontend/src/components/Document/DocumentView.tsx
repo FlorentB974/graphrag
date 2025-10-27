@@ -61,6 +61,8 @@ export default function DocumentView() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [isActionPending, setIsActionPending] = useState(false)
   const prevProcessingRef = useRef(false)
+  const [isEditingHashtags, setIsEditingHashtags] = useState(false)
+  const [newHashtagInput, setNewHashtagInput] = useState('')
 
   const refreshProcessingState = useCallback(async () => {
     try {
@@ -333,6 +335,61 @@ export default function DocumentView() {
     }
   }, [documentData?.id])
 
+  const handleStartEditHashtags = useCallback(() => {
+    setNewHashtagInput('')
+    setIsEditingHashtags(true)
+  }, [])
+
+  const saveHashtags = useCallback(async (newHashtags: string[]) => {
+    if (!documentData?.id) return
+    setActionError(null)
+    try {
+      await api.updateDocumentHashtags(documentData.id, newHashtags)
+      // Refresh document data
+      const data = await api.getDocument(documentData.id)
+      setDocumentData(data)
+    } catch (updateError) {
+      setActionError(
+        updateError instanceof Error
+          ? updateError.message
+          : 'Failed to update hashtags'
+      )
+    }
+  }, [documentData?.id])
+
+  const handleRemoveHashtag = useCallback(async (tagToRemove: string) => {
+    if (!documentData?.hashtags) return
+    const newHashtags = documentData.hashtags.filter(tag => tag !== tagToRemove)
+    await saveHashtags(newHashtags)
+  }, [documentData?.hashtags, saveHashtags])
+
+  const handleAddHashtag = useCallback(async () => {
+    let trimmed = newHashtagInput.trim()
+    if (!trimmed) return
+    
+    // Automatically add # prefix if not present
+    if (!trimmed.startsWith('#')) {
+      trimmed = '#' + trimmed
+    }
+    
+    const currentHashtags = documentData?.hashtags || []
+    if (currentHashtags.includes(trimmed)) {
+      setNewHashtagInput('')
+      return
+    }
+    
+    const newHashtags = [...currentHashtags, trimmed]
+    await saveHashtags(newHashtags)
+    setNewHashtagInput('')
+  }, [newHashtagInput, documentData?.hashtags, saveHashtags])
+
+  const handleHashtagInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAddHashtag()
+    }
+  }, [handleAddHashtag])
+
   useEffect(() => {
     if (!actionMessage) return
     const timer = window.setTimeout(() => setActionMessage(null), 4000)
@@ -523,21 +580,81 @@ export default function DocumentView() {
                   </dd>
                 </div>
               </dl>
-              {documentData.hashtags && documentData.hashtags.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-secondary-200">
-                  <dt className="text-secondary-500 text-sm mb-2">Tags</dt>
-                  <div className="flex flex-wrap gap-2">
-                    {documentData.hashtags.map((tag, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+              <div className="mt-4 pt-4 border-t border-secondary-200">
+                <dt className="text-secondary-500 text-sm mb-2">Tags</dt>
+                <div 
+                  className="flex flex-wrap gap-2 cursor-pointer p-2 -m-2 rounded hover:bg-secondary-50 transition-colors"
+                  onClick={handleStartEditHashtags}
+                >
+                  {!isEditingHashtags ? (
+                    <>
+                      {(documentData.hashtags || []).map((tag, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {(!documentData.hashtags || documentData.hashtags.length === 0) && (
+                        <span className="text-sm text-secondary-400">Click to add tags</span>
+                      )}
+                    </>
+                  ) : (
+                    <div 
+                      className="flex flex-wrap gap-2 w-full"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {(documentData.hashtags || []).map((tag, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              handleRemoveHashtag(tag)
+                            }}
+                            className="hover:text-primary-900"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      ))}
+                      <div className="inline-flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={newHashtagInput}
+                          onChange={(e) => setNewHashtagInput(e.target.value)}
+                          onKeyDown={handleHashtagInputKeyDown}
+                          onBlur={() => setIsEditingHashtags(false)}
+                          placeholder="Add tag..."
+                          className="px-2.5 py-0.5 text-xs border border-secondary-300 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            handleAddHashtag()
+                          }}
+                          className="text-primary-600 hover:text-primary-700"
+                          disabled={!newHashtagInput.trim()}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </section>
 
             {(documentData.summary || documentData.chunks.length > 0 || documentData.metadata?.processing_status !== 'staged') && (

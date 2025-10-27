@@ -114,6 +114,22 @@ class GraphDB:
                 hashtags=hashtags,
             )
 
+    def update_document_hashtags(
+        self,
+        doc_id: str,
+        hashtags: List[str]
+    ) -> None:
+        """Update only the hashtags for a document."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                SET d.hashtags = $hashtags
+                """,
+                doc_id=doc_id,
+                hashtags=hashtags,
+            )
+
     def get_documents_with_summaries(self) -> List[Dict[str, Any]]:
         """Get all documents that have summaries."""
         with self.driver.session() as session:  # type: ignore

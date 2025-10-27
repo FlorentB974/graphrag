@@ -281,6 +281,22 @@ export const api = {
     return response.json()
   },
 
+  async updateDocumentHashtags(documentId: string, hashtags: string[]) {
+    const response = await fetch(`${API_URL}/api/documents/${documentId}/hashtags`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ hashtags }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+
+    return response.json()
+  },
+
   async hasDocumentPreview(documentId: string): Promise<boolean> {
     // Try a HEAD request first to avoid downloading the full file.
     try {

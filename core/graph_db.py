@@ -1935,10 +1935,10 @@ class GraphDB:
                 """
                 MATCH (d:Document {id: $doc_id})-[r:RELATED_TO|SIMILAR_TO]-(other:Document)
                 RETURN DISTINCT other.id as id,
-                                coalesce(other.title, other.filename) as title,
+                                other.filename as title,
                                 coalesce(other.link, '') as link,
                                 other.filename as filename
-                ORDER BY coalesce(other.title, other.filename) ASC
+                ORDER BY other.filename ASC
                 """,
                 doc_id=doc_id,
             )
@@ -2021,8 +2021,7 @@ class GraphDB:
                 MATCH (d:Document {id: $doc_id})
                 RETURN d.filename as file_name,
                        d.file_path as file_path,
-                       d.mime_type as mime_type,
-                       d.preview_url as preview_url
+                       d.mime_type as mime_type
                 """,
                 doc_id=doc_id,
             ).single()
@@ -2039,7 +2038,6 @@ class GraphDB:
                 "file_name": record["file_name"],
                 "file_path": file_path,
                 "mime_type": mime_type,
-                "preview_url": record["preview_url"],
             }
 
     def clear_database(self) -> None:

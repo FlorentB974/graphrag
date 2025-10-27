@@ -420,7 +420,7 @@ export default function DocumentView() {
               {documentData?.title || documentData?.original_filename || documentData?.file_name || 'Unnamed document'}
             </h2>
             <p className="text-xs text-secondary-500">
-              {documentData?.original_filename || documentData?.file_name} · {documentData?.mime_type || 'Unknown type'}
+              {documentData?.document_type ? documentData.document_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Unknown type'}
             </p>
           </div>
         </div>

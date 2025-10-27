@@ -50,7 +50,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               <span className="font-semibold uppercase tracking-wide text-white/70 shrink-0">
                 {message.context_hashtags && message.context_hashtags.length > 0 
                   ? `${message.context_hashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(', ')}:` 
-                  : 'Context:'}
+                  : (contextDocDisplay && contextDocDisplay.length > 1 ? 'Documents:' : 'Document:')}
               </span>
               <span
                 className="break-words"

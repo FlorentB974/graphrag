@@ -73,8 +73,6 @@ Added FastAPI REST API with the following endpoints:
 ### Removed Features
 
 - **Graph Visualization**: Removed to improve performance and simplify UI
-  - Still available in backend data
-  - Can be re-added as optional feature if needed
 
 ## File Structure
 

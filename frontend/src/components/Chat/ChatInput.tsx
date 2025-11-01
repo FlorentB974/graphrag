@@ -522,7 +522,7 @@ export default function ChatInput({
 
           {showMentionList && (
             <div
-              className="absolute bottom-full left-0 right-24 mb-2 max-h-56 overflow-y-auto rounded-lg border border-secondary-200 dark:border-secondary-600 bg-white dark:bg-secondary-800 dark:bg-secondary-800 shadow-lg z-20"
+              className="absolute bottom-full left-0 right-24 mb-2 max-h-56 overflow-y-auto rounded-lg border border-secondary-200 dark:border-secondary-600 bg-white dark:bg-secondary-800 shadow-lg z-20"
               role="listbox"
             >
               {mentionState?.type === 'hashtag' ? (

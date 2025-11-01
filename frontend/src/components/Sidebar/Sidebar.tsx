@@ -129,7 +129,7 @@ export default function Sidebar({
           <button
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden lg:flex absolute top-4 right-4 z-50 items-center justify-center p-2 rounded bg-white dark:bg-secondary-800 dark:bg-secondary-700 border border-secondary-200 dark:border-secondary-600 hover:bg-secondary-50 dark:hover:bg-secondary-600"
+            className="hidden lg:flex absolute top-4 right-4 z-50 items-center justify-center p-2 rounded bg-white dark:bg-secondary-700 border border-secondary-200 dark:border-secondary-600 hover:bg-secondary-50 dark:hover:bg-secondary-600"
           >
             {collapsed ? (
               <ChevronRightIcon className="w-5 h-5" />

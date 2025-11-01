@@ -141,9 +141,9 @@ export default function SourcesList({ sources }: SourcesListProps) {
                 </div>
                 <div>
                   {selectedDoc === doc.documentId ? (
-                    <ChevronUpIcon className="w-4 h-4 text-secondary-500 dark:text-secondary-400 dark:text-secondary-400" />
+                    <ChevronUpIcon className="w-4 h-4 text-secondary-500 dark:text-secondary-400" />
                   ) : (
-                    <ChevronDownIcon className="w-4 h-4 text-secondary-500 dark:text-secondary-400 dark:text-secondary-400" />
+                    <ChevronDownIcon className="w-4 h-4 text-secondary-500 dark:text-secondary-400" />
                   )}
                 </div>
               </div>

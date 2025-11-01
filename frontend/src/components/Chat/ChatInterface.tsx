@@ -339,7 +339,7 @@ export default function ChatInterface() {
             <h2 className="text-xl font-semibold text-secondary-700 dark:text-secondary-300 mb-2">
               Start a Conversation
             </h2>
-            <p className="text-secondary-500 dark:text-secondary-400 dark:text-secondary-400 max-w-md">
+            <p className="text-secondary-500 dark:text-secondary-400 max-w-md">
               Upload some documents and start asking questions. I&apos;ll help you find
               relevant information and provide intelligent answers.
             </p>
@@ -381,7 +381,7 @@ export default function ChatInterface() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-secondary-200 dark:border-secondary-700 bg-white dark:bg-secondary-800 dark:bg-secondary-800 px-6 py-4">
+      <div className="border-t border-secondary-200 dark:border-secondary-700 bg-white dark:bg-secondary-800 px-6 py-4">
         <div className="max-w-4xl mx-auto">
           <ChatInput
             onSend={handleSendMessage}

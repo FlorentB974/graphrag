@@ -22,7 +22,7 @@ export default function FollowUpQuestions({
           <button
             key={index}
             onClick={() => onQuestionClick(question)}
-            className="block w-full text-left px-4 py-3 bg-white dark:bg-secondary-800 dark:bg-secondary-800 border border-secondary-300 dark:border-secondary-600 rounded-lg hover:border-primary-500 dark:hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all duration-200 text-sm text-secondary-700 dark:text-secondary-300 hover:text-primary-700 dark:hover:text-primary-300 suggestion-shimmer"
+            className="block w-full text-left px-4 py-3 bg-white dark:bg-secondary-800 border border-secondary-300 dark:border-secondary-600 rounded-lg hover:border-primary-500 dark:hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all duration-200 text-sm text-secondary-700 dark:text-secondary-300 hover:text-primary-700 dark:hover:text-primary-300 suggestion-shimmer"
           >
             {question}
           </button>

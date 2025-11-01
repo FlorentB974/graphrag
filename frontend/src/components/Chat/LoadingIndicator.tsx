@@ -246,7 +246,7 @@ export default function LoadingIndicator({
         </div>
 
             {/* Processing indicator with animated dots */}
-        <div className="flex items-center justify-center gap-1 text-xs text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
+        <div className="flex items-center justify-center gap-1 text-xs text-secondary-500 dark:text-secondary-400">
           <span>Processing</span>
           <span className="inline-flex gap-0.5">
             <span className="animate-bounce" style={{ animationDelay: '0s' }}>

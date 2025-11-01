@@ -461,7 +461,7 @@ export default function DocumentView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="border-b border-secondary-200 dark:border-secondary-700 dark:border-secondary-700 bg-white dark:bg-secondary-800 dark:bg-secondary-800 px-6 py-4 flex items-center gap-4">
+      <div className="border-b border-secondary-200 dark:border-secondary-700 bg-white dark:bg-secondary-800 px-6 py-4 flex items-center gap-4">
         <button
           type="button"
           onClick={clearSelectedDocument}
@@ -473,17 +473,17 @@ export default function DocumentView() {
         <div className="flex items-center gap-3">
           <DocumentTextIcon className="w-6 h-6 text-primary-500" />
           <div>
-            <h2 className="text-lg font-semibold text-secondary-900 dark:text-secondary-50 dark:text-secondary-50">
+            <h2 className="text-lg font-semibold text-secondary-900 dark:text-secondary-50">
               {documentData?.title || documentData?.original_filename || documentData?.file_name || 'Unnamed document'}
             </h2>
-            <p className="text-xs text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
+            <p className="text-xs text-secondary-500 dark:text-secondary-400">
               {documentData?.document_type ? documentData.document_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Unknown type'}
             </p>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {documentData?.uploaded_at && (
-            <span className="text-xs text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
+            <span className="text-xs text-secondary-500 dark:text-secondary-400">
               Uploaded {new Date(documentData.uploaded_at).toLocaleString()}
             </span>
           )}
@@ -504,9 +504,9 @@ export default function DocumentView() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6 bg-secondary-50 dark:bg-secondary-900 dark:bg-secondary-900">
+      <div className="flex-1 overflow-y-auto px-6 py-6 bg-secondary-50 dark:bg-secondary-900">
         {isLoading && (
-          <div className="flex flex-col items-center justify-center py-20 text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
+          <div className="flex flex-col items-center justify-center py-20 text-secondary-500 dark:text-secondary-400">
             <Squares2X2Icon className="w-10 h-10 animate-spin" />
             <p className="mt-3 text-sm">Loading document metadata…</p>
           </div>
@@ -540,7 +540,7 @@ export default function DocumentView() {
                 <p>This document has been uploaded but not yet processed. Go to the <strong>Upload</strong> tab in the sidebar and click <strong>Process All</strong> to begin processing.</p>
               </div>
             )}
-            <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700 p-5">
+            <section className="bg-white dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700 p-5">
               <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50 mb-4">Overview</h3>
               <dl className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                 <div>
@@ -583,7 +583,7 @@ export default function DocumentView() {
               <div className="mt-4 pt-4 border-t border-secondary-200">
                 <dt className="text-secondary-500 dark:text-secondary-400 text-sm mb-2">Tags</dt>
                 <div 
-                  className="flex flex-wrap gap-2 cursor-pointer p-2 -m-2 rounded hover:bg-secondary-50 dark:bg-secondary-900 transition-colors"
+                  className="flex flex-wrap gap-2 cursor-pointer p-2 -m-2 rounded hover:bg-secondary-50 dark:hover:bg-secondary-900 transition-colors"
                   onClick={handleStartEditHashtags}
                 >
                   {!isEditingHashtags ? (
@@ -877,7 +877,7 @@ export default function DocumentView() {
                 <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50 mb-3">Related documents</h3>
                 <ul className="space-y-2">
                   {documentData.related_documents.map((doc) => (
-                    <li key={doc.id} className="flex items-center justify-between gap-3 p-3 border border-secondary-200 rounded-lg hover:bg-secondary-50 dark:bg-secondary-900 transition-colors">
+                    <li key={doc.id} className="flex items-center justify-between gap-3 p-3 border border-secondary-200 rounded-lg hover:bg-secondary-50 dark:hover:bg-secondary-900 transition-colors">
                       <div className="flex-1">
                         <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">
                           {doc.title || doc.link || doc.id}

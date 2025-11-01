@@ -52,7 +52,7 @@ export function applyTheme(theme: Theme, systemDark: boolean) {
 export function initializeTheme() {
   if (typeof window === 'undefined') return
   
-  const { theme, setIsDark } = useThemeStore.getState()
+  const { setIsDark } = useThemeStore.getState()
   
   // Check system preference
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches

@@ -144,7 +144,7 @@ class Settings(BaseSettings):
 
     # Database Operations Configuration
     enable_delete_operations: bool = Field(
-        default=False, description="Enable ability to delete documents and clear database"
+        default=True, description="Enable ability to delete documents and clear database"
     )
 
     model_config = {

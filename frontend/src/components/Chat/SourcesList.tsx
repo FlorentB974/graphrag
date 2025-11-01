@@ -82,7 +82,7 @@ export default function SourcesList({ sources }: SourcesListProps) {
     <div className="space-y-2">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center text-sm font-medium text-secondary-700 hover:text-secondary-900"
+        className="flex items-center text-sm font-medium text-secondary-700 dark:text-secondary-300 hover:text-secondary-900 dark:hover:text-secondary-100"
       >
         <DocumentTextIcon className="w-4 h-4 mr-1" />
         Sources ({groupedSources.length} {groupedSources.length === 1 ? 'document' : 'documents'})
@@ -110,7 +110,7 @@ export default function SourcesList({ sources }: SourcesListProps) {
           {visibleDocs.map((doc, index) => (
             <div
               key={doc.documentId}
-              className="bg-secondary-50 rounded-lg p-3 cursor-pointer hover:bg-secondary-100 transition-colors"
+              className="bg-secondary-50 dark:bg-secondary-800 rounded-lg p-3 cursor-pointer hover:bg-secondary-100 dark:hover:bg-secondary-700 transition-colors"
               onClick={() => setSelectedDoc(selectedDoc === doc.documentId ? null : doc.documentId)}
             >
               <div className="flex items-start justify-between">
@@ -118,22 +118,22 @@ export default function SourcesList({ sources }: SourcesListProps) {
                   <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
                     <div className="min-w-0 flex-1">
                       <span
-                        className="block truncate text-sm font-medium text-secondary-900"
+                        className="block truncate text-sm font-medium text-secondary-900 dark:text-secondary-50"
                         title={doc.documentName}
                       >
                         {doc.documentName}
                       </span>
                     </div>
                     {doc.avgSimilarity > 0 && (
-                      <span className="shrink-0 text-xs px-2 py-0.5 bg-primary-100 text-primary-700 rounded">
+                      <span className="shrink-0 text-xs px-2 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded">
                         {(doc.avgSimilarity * 100).toFixed(0)}% match
                       </span>
                     )}
-                    <span className="shrink-0 text-xs text-secondary-600">
+                    <span className="shrink-0 text-xs text-secondary-600 dark:text-secondary-400">
                       {doc.chunks.length} {doc.chunks.length === 1 ? 'chunk' : 'chunks'}
                     </span>
                     {doc.entityCount > 0 && (
-                      <span className="shrink-0 text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded">
+                      <span className="shrink-0 text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">
                         {doc.entityCount} {doc.entityCount === 1 ? 'entity' : 'entities'}
                       </span>
                     )}
@@ -141,9 +141,9 @@ export default function SourcesList({ sources }: SourcesListProps) {
                 </div>
                 <div>
                   {selectedDoc === doc.documentId ? (
-                    <ChevronUpIcon className="w-4 h-4 text-secondary-500" />
+                    <ChevronUpIcon className="w-4 h-4 text-secondary-500 dark:text-secondary-400" />
                   ) : (
-                    <ChevronDownIcon className="w-4 h-4 text-secondary-500" />
+                    <ChevronDownIcon className="w-4 h-4 text-secondary-500 dark:text-secondary-400" />
                   )}
                 </div>
               </div>
@@ -160,7 +160,7 @@ export default function SourcesList({ sources }: SourcesListProps) {
                       ease: [0.4, 0, 0.2, 1],
                       opacity: { duration: 0.2 }
                     }}
-                    className="mt-3 pt-3 border-t border-secondary-200 space-y-2 overflow-hidden"
+                    className="mt-3 pt-3 border-t border-secondary-200 dark:border-secondary-700 space-y-2 overflow-hidden"
                   >
                   {doc.chunks.map((chunk, chunkIndex) => {
                     const similarity = chunk.similarity || chunk.relevance_score || 0
@@ -174,28 +174,28 @@ export default function SourcesList({ sources }: SourcesListProps) {
                       }
                     }
                     return (
-                      <div key={chunkIndex} className="bg-white rounded p-2 text-sm cursor-pointer hover:bg-secondary-50 transition-colors" onClick={handleChunkClick}>
+                      <div key={chunkIndex} className="bg-white dark:bg-secondary-700 rounded p-2 text-sm cursor-pointer hover:bg-secondary-50 dark:hover:bg-secondary-600 transition-colors" onClick={handleChunkClick}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2 flex-wrap">
                             {chunk.entity_name ? (
-                              <span className="text-xs font-medium text-purple-700">
+                              <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
                                 🏷️ Entity: {chunk.entity_name}
                               </span>
                             ) : (
                               chunk.chunk_index !== undefined && (
-                                <span className="text-xs text-secondary-600">
+                                <span className="text-xs text-secondary-600 dark:text-secondary-400">
                                   Section {chunk.chunk_index + 1}
                                 </span>
                               )
                             )}
                             {!isNaN(similarity) && similarity > 0 && (
-                              <span className="text-xs text-secondary-600">
+                              <span className="text-xs text-secondary-600 dark:text-secondary-400">
                                 {(similarity * 100).toFixed(0)}% relevance
                               </span>
                             )}
                           </div>
                         </div>
-                        <p className="text-xs text-secondary-700 whitespace-pre-wrap break-words line-clamp-3">
+                        <p className="text-xs text-secondary-700 dark:text-secondary-300 whitespace-pre-wrap break-words line-clamp-3">
                           {chunk.content.substring(0, 200)}
                           {chunk.content.length > 200 && '...'}
                         </p>
@@ -204,13 +204,13 @@ export default function SourcesList({ sources }: SourcesListProps) {
                             {chunk.contained_entities.slice(0, 5).map((entity, i) => (
                               <span
                                 key={i}
-                                className="text-xs px-1.5 py-0.5 bg-secondary-200 text-secondary-700 rounded"
+                                className="text-xs px-1.5 py-0.5 bg-secondary-200 dark:bg-secondary-600 text-secondary-700 dark:text-secondary-200 rounded"
                               >
                                 {entity}
                               </span>
                             ))}
                             {chunk.contained_entities.length > 5 && (
-                              <span className="text-xs text-secondary-600">
+                              <span className="text-xs text-secondary-600 dark:text-secondary-400">
                                 +{chunk.contained_entities.length - 5} more
                               </span>
                             )}

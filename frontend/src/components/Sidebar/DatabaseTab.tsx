@@ -303,7 +303,7 @@ export default function DatabaseTab() {
   }
 
   if (loading) {
-    return <div className="text-center text-secondary-600">Loading...</div>
+    return <div className="text-center text-secondary-600 dark:text-secondary-400">Loading...</div>
   }
 
   // Use processingState which gets updated via polling, or fallback to stats.processing
@@ -367,37 +367,37 @@ export default function DatabaseTab() {
         </div>
       {/* Stats Cards */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-primary-50 rounded-lg p-4">
-          <div className="text-2xl font-bold text-primary-700">
+        <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-4">
+          <div className="text-2xl font-bold text-primary-700 dark:text-primary-400">
             {stats?.total_documents || 0}
           </div>
-          <div className="text-xs text-primary-600 mt-1">Documents</div>
+          <div className="text-xs text-primary-600 dark:text-primary-400 mt-1">Documents</div>
         </div>
-        <div className="bg-secondary-100 rounded-lg p-4">
-          <div className="text-2xl font-bold text-secondary-700">
+        <div className="bg-secondary-100 dark:bg-secondary-700 rounded-lg p-4">
+          <div className="text-2xl font-bold text-secondary-700 dark:text-secondary-200">
             {stats?.total_chunks || 0}
           </div>
-          <div className="text-xs text-secondary-600 mt-1">Chunks</div>
+          <div className="text-xs text-secondary-600 dark:text-secondary-400 mt-1">Chunks</div>
         </div>
-        <div className="bg-green-50 rounded-lg p-4">
-          <div className="text-2xl font-bold text-green-700">
+        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
+          <div className="text-2xl font-bold text-green-700 dark:text-green-400">
             {stats?.total_entities || 0}
           </div>
-          <div className="text-xs text-green-600 mt-1">Entities</div>
+          <div className="text-xs text-green-600 dark:text-green-400 mt-1">Entities</div>
         </div>
-        <div className="bg-purple-50 rounded-lg p-4">
-          <div className="text-2xl font-bold text-purple-700">
+        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4">
+          <div className="text-2xl font-bold text-purple-700 dark:text-purple-400">
             {stats?.total_relationships || 0}
           </div>
-          <div className="text-xs text-purple-600 mt-1">Relationships</div>
+          <div className="text-xs text-purple-600 dark:text-purple-400 mt-1">Relationships</div>
         </div>
       </div>
 
       {processingSummary?.is_processing && (
         <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-sm shadow-sm ${
           isStuck 
-            ? 'border-red-200 bg-red-50 text-red-700' 
-            : 'border-secondary-200 bg-white text-secondary-700'
+            ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-900/20 dark:text-red-400' 
+            : 'border-secondary-200 bg-white dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300'
         }`}>
           <span className={`inline-flex h-2 w-2 rounded-full ${
             isStuck ? 'bg-red-500' : 'bg-primary-500 animate-pulse'
@@ -429,10 +429,10 @@ export default function DatabaseTab() {
           {!searchMode ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium text-secondary-900">Documents</h3>
+                <h3 className="text-sm font-medium text-secondary-900 dark:text-secondary-50">Documents</h3>
                 <button
                   onClick={() => setSearchMode(true)}
-                  className="text-secondary-600 hover:text-secondary-900 p-1"
+                  className="text-secondary-600 dark:text-secondary-400 hover:text-secondary-900 dark:hover:text-secondary-200 p-1"
                   title="Search documents"
                 >
                   <MagnifyingGlassIcon className="w-4 h-4" />
@@ -470,7 +470,7 @@ export default function DatabaseTab() {
                   setSearchMode(false)
                   setSearchQuery('')
                 }}
-                className="text-secondary-600 hover:text-secondary-900 p-1"
+                className="text-secondary-600 hover:text-secondary-900 dark:text-secondary-400 dark:hover:text-secondary-200 p-1"
                 title="Close search"
               >
                 <XMarkIcon className="w-4 h-4" />
@@ -511,11 +511,11 @@ export default function DatabaseTab() {
                   <div className="flex w-full items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="relative">
-                        <p className="text-sm font-medium text-secondary-900 truncate">
+                        <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50 truncate">
                           {doc.original_filename || doc.filename}
                         </p>
                       </div>
-                      <p className={`text-xs mt-1 ${isStuck && (status === 'queued' || status === 'staged') ? 'text-red-600' : 'text-secondary-600'}`}>
+                      <p className={`text-xs mt-1 ${isStuck && (status === 'queued' || status === 'staged') ? 'text-red-600 dark:text-red-400' : 'text-secondary-600 dark:text-secondary-400'}`}>
                         {status === 'queued' || status === 'staged' 
                           ? (isStuck ? 'Queue stuck - processing may have crashed' : 'Processing queued')
                           : (doc as any).document_type 
@@ -529,7 +529,7 @@ export default function DatabaseTab() {
                               ? 'text-red-600'
                               : status === 'processing'
                               ? 'text-primary-600'
-                              : 'text-secondary-500'
+                              : 'text-secondary-500 dark:text-secondary-400'
                           }`}
                         >
                           {statusLabel}
@@ -553,10 +553,10 @@ export default function DatabaseTab() {
                   {status === 'processing' && progress !== null && (
                     <div className="w-full">
                       <div className="flex justify-between text-[10px] mb-1">
-                        <span className={isStuck ? 'text-red-600' : 'text-secondary-500'}>
+                        <span className={isStuck ? 'text-red-600' : 'text-secondary-500 dark:text-secondary-400'}>
                           {isStuck ? 'Stuck - may need manual refresh' : (doc.processing_stage || 'Processing')}
                         </span>
-                        <span className={isStuck ? 'text-red-600' : 'text-secondary-500'}>
+                        <span className={isStuck ? 'text-red-600' : 'text-secondary-500 dark:text-secondary-400'}>
                           {Math.round(progress)}%
                         </span>
                       </div>
@@ -572,7 +572,7 @@ export default function DatabaseTab() {
               )
             })}
             {searchQuery.trim() && getFilteredDocuments().length === 0 && (
-              <div className="text-center text-secondary-600 py-6">
+              <div className="text-center text-secondary-600 dark:text-secondary-400 py-6">
                 <p className="text-sm">No documents match &quot;{searchQuery}&quot;</p>
               </div>
             )}
@@ -581,7 +581,7 @@ export default function DatabaseTab() {
       )}
 
       {stats && stats.documents.length === 0 && (
-        <div className="text-center text-secondary-600 py-8">
+        <div className="text-center text-secondary-600 dark:text-secondary-400 py-8">
           <p>No documents in database</p>
           <p className="text-xs mt-1">Upload documents to get started</p>
         </div>

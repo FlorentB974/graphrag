@@ -4,7 +4,15 @@
 
 @layer base {
   body {
-    @apply bg-secondary-50 text-secondary-900 antialiased;
+    @apply bg-secondary-50 dark:bg-secondary-900 text-secondary-900 dark:text-secondary-50 antialiased;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 }
 
@@ -20,6 +28,10 @@
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   }
+
+  html.dark .chat-message:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
   
   .chat-message-user {
     @apply bg-primary-500 text-white ml-auto max-w-[80%];
@@ -31,7 +43,7 @@
   }
   
   .chat-message-assistant {
-    @apply bg-white border border-secondary-200 max-w-[85%];
+    @apply bg-white dark:bg-secondary-800 border border-secondary-200 dark:border-secondary-700 max-w-[85%];
   }
   
   .button-primary {
@@ -39,15 +51,15 @@
   }
   
   .button-secondary {
-    @apply bg-white hover:bg-secondary-50 text-secondary-700 font-medium py-2 px-4 rounded-lg border border-secondary-300 transition-colors duration-200;
+    @apply bg-white dark:bg-secondary-800 hover:bg-secondary-50 dark:hover:bg-secondary-700 text-secondary-700 dark:text-secondary-200 font-medium py-2 px-4 rounded-lg border border-secondary-300 dark:border-secondary-600 transition-colors duration-200;
   }
   
   .input-field {
-    @apply w-full px-4 py-3 border border-secondary-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply w-full px-4 py-3 border border-secondary-300 dark:border-secondary-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50;
   }
   
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-secondary-200 p-6;
+    @apply bg-white dark:bg-secondary-800 rounded-xl shadow-sm border border-secondary-200 dark:border-secondary-700 p-6;
   }
 
   .no-transition {
@@ -62,29 +74,29 @@
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-secondary-100;
+  @apply bg-secondary-100 dark:bg-secondary-800;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-secondary-400 rounded-full;
+  @apply bg-secondary-400 dark:bg-secondary-600 rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-secondary-500;
+  @apply bg-secondary-500 dark:bg-secondary-500;
 }
 
 /* Markdown content styling */
 .markdown-content {
-  @apply prose prose-sm prose-slate max-w-none;
-  @apply prose-headings:font-bold prose-headings:text-secondary-900;
-  @apply prose-p:text-secondary-700 prose-p:leading-relaxed;
-  @apply prose-a:text-primary-500 prose-a:no-underline hover:prose-a:underline;
-  @apply prose-strong:text-secondary-900 prose-strong:font-semibold;
-  @apply prose-code:bg-secondary-100 prose-code:text-secondary-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm;
-  @apply prose-pre:bg-secondary-900 prose-pre:text-secondary-100;
-  @apply prose-blockquote:border-l-primary-500 prose-blockquote:text-secondary-700;
-  @apply prose-ul:text-secondary-700 prose-ol:text-secondary-700;
-  @apply prose-li:text-secondary-700;
+  @apply prose prose-sm prose-slate dark:prose-invert max-w-none;
+  @apply prose-headings:font-bold prose-headings:text-secondary-900 dark:prose-headings:text-secondary-50;
+  @apply prose-p:text-secondary-700 dark:prose-p:text-secondary-300 prose-p:leading-relaxed;
+  @apply prose-a:text-primary-500 dark:prose-a:text-primary-400 prose-a:no-underline hover:prose-a:underline;
+  @apply prose-strong:text-secondary-900 dark:prose-strong:text-secondary-50 prose-strong:font-semibold;
+  @apply prose-code:bg-secondary-100 dark:prose-code:bg-secondary-700 prose-code:text-secondary-800 dark:prose-code:text-secondary-200 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm;
+  @apply prose-pre:bg-secondary-900 dark:prose-pre:bg-secondary-950 prose-pre:text-secondary-100 dark:prose-pre:text-secondary-100;
+  @apply prose-blockquote:border-l-primary-500 prose-blockquote:text-secondary-700 dark:prose-blockquote:text-secondary-300;
+  @apply prose-ul:text-secondary-700 dark:prose-ul:text-secondary-300 prose-ol:text-secondary-700 dark:prose-ol:text-secondary-300;
+  @apply prose-li:text-secondary-700 dark:prose-li:text-secondary-300;
 }
 
 /* Shimmer animation for suggestions */
@@ -110,6 +122,17 @@
   );
   background-size: 200% 100%;
   background-position: -200% center;
+}
+
+html.dark .suggestion-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 40%,
+    rgba(0, 0, 0, 0.3) 50%,
+    transparent 60%,
+    transparent 100%
+  );
 }
 
 .suggestion-shimmer:hover {

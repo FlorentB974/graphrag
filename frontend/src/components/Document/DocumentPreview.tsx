@@ -99,12 +99,12 @@ export default function DocumentPreview({ previewUrl, mimeType, onClose }: Docum
       if (isLoadingMarkdown) {
         return (
           <div className="flex items-center justify-center h-full">
-            <div className="text-secondary-600">Loading markdown...</div>
+            <div className="text-secondary-600 dark:text-secondary-400">Loading markdown...</div>
           </div>
         )
       }
       return (
-        <div className="prose prose-secondary max-w-none p-6 bg-white rounded-lg">
+        <div className="prose prose-secondary max-w-none p-6 bg-white dark:bg-secondary-800 rounded-lg">
           <ReactMarkdown 
             remarkPlugins={[remarkGfm, remarkBreaks]}
             components={{
@@ -112,7 +112,7 @@ export default function DocumentPreview({ previewUrl, mimeType, onClose }: Docum
               code({ className, children, ...props }) {
                 const isInline = !className?.includes('language-')
                 return isInline ? (
-                  <code className="px-1.5 py-0.5 rounded bg-secondary-100 text-secondary-800 text-sm font-mono" {...props}>
+                  <code className="px-1.5 py-0.5 rounded bg-secondary-100 dark:bg-secondary-700 text-secondary-800 dark:text-secondary-200 text-sm font-mono" {...props}>
                     {children}
                   </code>
                 ) : (
@@ -172,7 +172,7 @@ export default function DocumentPreview({ previewUrl, mimeType, onClose }: Docum
               <h3 className="text-lg font-medium text-secondary-900">
                 Microsoft Office Document
               </h3>
-              <p className="text-sm text-secondary-600 max-w-md">
+              <p className="text-sm text-secondary-600 dark:text-secondary-400 max-w-md">
                 Office documents (Word, Excel, PowerPoint) cannot be previewed directly in the browser 
                 for local files. Please download the file to view it.
               </p>
@@ -195,18 +195,18 @@ export default function DocumentPreview({ previewUrl, mimeType, onClose }: Docum
       <iframe
         src={previewUrl}
         title="Document preview"
-        className="w-full h-full rounded-lg border border-secondary-200 bg-white"
+        className="w-full h-full rounded-lg border border-secondary-200 dark:border-secondary-600 bg-white dark:bg-secondary-800"
       />
     )
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-      <div className="relative w-full max-w-5xl bg-white rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between border-b border-secondary-200 px-4 py-3 bg-secondary-50">
+      <div className="relative w-full max-w-5xl bg-white dark:bg-secondary-800 rounded-xl shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between border-b border-secondary-200 dark:border-secondary-700 px-4 py-3 bg-secondary-50 dark:bg-secondary-700">
           <div>
-            <p className="text-sm font-medium text-secondary-900">Document Preview</p>
-            <p className="text-xs text-secondary-500">Press Escape to close</p>
+            <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">Document Preview</p>
+            <p className="text-xs text-secondary-500 dark:text-secondary-400">Press Escape to close</p>
           </div>
           <div className="flex items-center gap-2">
             <a
@@ -229,7 +229,7 @@ export default function DocumentPreview({ previewUrl, mimeType, onClose }: Docum
           </div>
         </div>
 
-        <div className="h-[70vh] bg-secondary-100 p-4 overflow-auto">
+        <div className="h-[70vh] bg-secondary-100 dark:bg-secondary-900 p-4 overflow-auto">
           {renderPreviewContent()}
         </div>
       </div>

@@ -202,12 +202,12 @@ export default function LoadingIndicator({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-lg animate-bounce-smooth">{stage.emoji}</span>
-            <span className="text-sm font-medium text-secondary-700">{stage.label}</span>
+            <span className="text-sm font-medium text-secondary-700 dark:text-secondary-300">{stage.label}</span>
           </div>
         </div>
 
         {/* Progress bar with gradient */}
-        <div className="relative h-1 bg-secondary-200 rounded-full overflow-hidden">
+        <div className="relative h-1 bg-secondary-200 dark:bg-secondary-700 rounded-full overflow-hidden">
           <div
             className={`h-full bg-gradient-to-r ${stage.color} animate-shimmer transition-all duration-500 ease-out`}
             style={{
@@ -233,8 +233,8 @@ export default function LoadingIndicator({
                     isCompleted
                       ? 'bg-green-500 scale-100'
                       : isCurrent
-                        ? 'bg-primary-500 scale-125 animate-pulse-glow'
-                        : 'bg-secondary-300 scale-75'
+                        ? 'bg-primary-500 dark:bg-primary-400 scale-125 animate-pulse-glow'
+                        : 'bg-secondary-300 dark:bg-secondary-600 scale-75'
                   }`}
                 ></div>
                 <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-secondary-800 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
@@ -246,7 +246,7 @@ export default function LoadingIndicator({
         </div>
 
             {/* Processing indicator with animated dots */}
-        <div className="flex items-center justify-center gap-1 text-xs text-secondary-500">
+        <div className="flex items-center justify-center gap-1 text-xs text-secondary-500 dark:text-secondary-400">
           <span>Processing</span>
           <span className="inline-flex gap-0.5">
             <span className="animate-bounce" style={{ animationDelay: '0s' }}>

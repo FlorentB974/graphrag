@@ -17,6 +17,7 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 - **Dark Mode Ready**: Clean, modern interface
 - **Smooth Animations**: Polished user experience
 - **Accessibility**: Built with accessibility in mind
+- **Dark Mode**: Toggle between light and dark themes
 
 ### 📊 ALL NEW Conversation History
 - **Persistent Sessions**: Store and retrieve past conversations
@@ -348,7 +349,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) f
 - [x] Document preview
 - [ ] Advanced search
 - [ ] Export conversations
-- [ ] Dark mode
+- [x] Dark mode
 - [ ] Mobile apps
 - [ ] Plugin system
 - [ ] Analytics dashboard

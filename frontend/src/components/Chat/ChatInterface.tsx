@@ -321,9 +321,9 @@ export default function ChatInterface() {
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mb-4">
+            <div className="w-16 h-16 bg-primary-100 dark:bg-primary-900/40 rounded-full flex items-center justify-center mb-4">
               <svg
-                className="w-8 h-8 text-primary-500"
+                className="w-8 h-8 text-primary-500 dark:text-primary-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -336,10 +336,10 @@ export default function ChatInterface() {
                 />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-secondary-700 mb-2">
+            <h2 className="text-xl font-semibold text-secondary-700 dark:text-secondary-300 mb-2">
               Start a Conversation
             </h2>
-            <p className="text-secondary-500 max-w-md">
+            <p className="text-secondary-500 dark:text-secondary-400 max-w-md">
               Upload some documents and start asking questions. I&apos;ll help you find
               relevant information and provide intelligent answers.
             </p>
@@ -381,7 +381,7 @@ export default function ChatInterface() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-secondary-200 bg-white px-6 py-4">
+      <div className="border-t border-secondary-200 dark:border-secondary-700 bg-white dark:bg-secondary-800 px-6 py-4">
         <div className="max-w-4xl mx-auto">
           <ChatInput
             onSend={handleSendMessage}

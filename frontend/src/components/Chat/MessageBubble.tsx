@@ -34,7 +34,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         }`}
       >
 
-        <div className={isUser ? '' : 'prose prose-sm prose-slate max-w-none'}>
+        <div className={isUser ? '' : 'prose prose-sm prose-slate dark:prose-invert max-w-none dark:text-secondary-100'}>
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
@@ -46,7 +46,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
         {isUser && Array.isArray(message.context_documents) && message.context_documents.length > 0 && contextDocDisplay && contextDocDisplay.length > 0 && (
           <div className="mt-2">
-            <span className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-white/15 px-3 py-1 text-xs text-white/90 max-w-full">
+            <span className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-white dark:bg-secondary-800/15 px-3 py-1 text-xs text-white/90 max-w-full">
               <span className="font-semibold uppercase tracking-wide text-white/70 shrink-0">
                 {message.context_hashtags && message.context_hashtags.length > 0 
                   ? `${message.context_hashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(', ')}:` 
@@ -67,7 +67,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
-            className="flex items-center mt-2 text-secondary-500"
+            className="flex items-center mt-2 text-secondary-500 dark:text-secondary-400"
           >
             <motion.div
               animate={{

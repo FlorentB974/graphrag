@@ -8,9 +8,9 @@ interface QualityBadgeProps {
 
 export default function QualityBadge({ score }: QualityBadgeProps) {
   const getColor = (value: number) => {
-    if (value >= 80) return 'text-green-600 bg-green-50'
-    if (value >= 60) return 'text-yellow-600 bg-yellow-50'
-    return 'text-red-600 bg-red-50'
+    if (value >= 80) return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30'
+    if (value >= 60) return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/30'
+    return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30'
   }
 
   const getEmoji = (value: number) => {

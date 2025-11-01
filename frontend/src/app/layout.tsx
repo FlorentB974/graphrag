@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import ToastContainer from '@/components/Toast/ToastContainer'
+import { ThemeProvider } from '@/components/Theme/ThemeProvider'
 
 export const metadata: Metadata = {
   title: 'GraphRAG - Chat with Your Documents',
@@ -13,10 +14,12 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
-        {children}
-        <ToastContainer />
+        <ThemeProvider>
+          {children}
+          <ToastContainer />
+        </ThemeProvider>
       </body>
     </html>
   )

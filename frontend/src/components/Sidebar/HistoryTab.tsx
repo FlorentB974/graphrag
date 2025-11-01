@@ -64,7 +64,7 @@ export default function HistoryTab() {
   }
 
   if (loading) {
-    return <div className="text-center text-secondary-600">Loading...</div>
+    return <div className="text-center text-secondary-600 dark:text-secondary-400">Loading...</div>
   }
 
   return (
@@ -76,7 +76,7 @@ export default function HistoryTab() {
       )}
 
       {sessions.length === 0 ? (
-        <div className="text-center text-secondary-600 py-8">
+        <div className="text-center text-secondary-600 dark:text-secondary-400 py-8">
           <p>No conversation history yet</p>
         </div>
       ) : (
@@ -100,11 +100,11 @@ export default function HistoryTab() {
             >
               <div className="flex-1 min-w-0 pr-8">
                 <div className="relative">
-                  <p className="text-sm font-medium text-secondary-900 truncate">
+                  <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50 truncate">
                     {session.preview || 'New conversation'}
                   </p>
                 </div>
-                <p className="text-xs text-secondary-600 mt-1">
+                <p className="text-xs text-secondary-600 dark:text-secondary-400 mt-1">
                   {session.message_count} messages •{' '}
                   {formatDistanceToNow(new Date(session.updated_at), { addSuffix: true })}
                 </p>

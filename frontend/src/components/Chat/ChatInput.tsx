@@ -466,10 +466,10 @@ export default function ChatInput({
           onDrop={handleDrop}
         >
           {isDragging && (
-            <div className="absolute inset-0 bg-primary-50 border-2 border-dashed border-primary-500 rounded-lg flex items-center justify-center z-10">
+            <div className="absolute inset-0 bg-primary-50 dark:bg-primary-900/30 border-2 border-dashed border-primary-500 rounded-lg flex items-center justify-center z-10">
               <div className="text-center">
-                <DocumentArrowUpIcon className="w-8 h-8 text-primary-600 mx-auto mb-2" />
-                <p className="text-sm font-medium text-primary-700">
+                <DocumentArrowUpIcon className="w-8 h-8 text-primary-600 dark:text-primary-400 mx-auto mb-2" />
+                <p className="text-sm font-medium text-primary-700 dark:text-primary-300">
                   Drop files to upload, or drop documents to add to context
                 </p>
               </div>
@@ -478,13 +478,13 @@ export default function ChatInput({
 
           {(selectedDocEntries.length > 0 || selectedHashtags.length > 0) && (
             <div className="mb-2 flex flex-wrap items-center gap-2 pr-24">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-secondary-500">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-secondary-500 dark:text-secondary-400">
                 Context
               </span>
               {selectedDocEntries.map(([docId, info]) => (
                 <span
                   key={docId}
-                  className="inline-flex max-w-full items-center gap-2 rounded-full bg-primary-50 px-3 py-1 text-xs text-primary-700"
+                  className="inline-flex max-w-full items-center gap-2 rounded-full bg-primary-50 dark:bg-primary-900/30 px-3 py-1 text-xs text-primary-700 dark:text-primary-300"
                 >
                   <span className="truncate" title={info.original_filename || info.filename}>
                     {info.original_filename || info.filename}
@@ -492,7 +492,7 @@ export default function ChatInput({
                   <button
                     type="button"
                     onClick={() => handleRemoveDoc(docId)}
-                    className="rounded-full p-0.5 text-primary-600 transition hover:bg-primary-100 focus:outline-none focus:ring-1 focus:ring-primary-400"
+                    className="rounded-full p-0.5 text-primary-600 dark:text-primary-400 transition hover:bg-primary-100 dark:hover:bg-primary-900/50 focus:outline-none focus:ring-1 focus:ring-primary-400"
                     aria-label={`Remove ${info.original_filename || info.filename} from forced context`}
                   >
                     <XMarkIcon className="h-3.5 w-3.5" />
@@ -522,7 +522,7 @@ export default function ChatInput({
 
           {showMentionList && (
             <div
-              className="absolute bottom-full left-0 right-24 mb-2 max-h-56 overflow-y-auto rounded-lg border border-secondary-200 bg-white shadow-lg z-20"
+              className="absolute bottom-full left-0 right-24 mb-2 max-h-56 overflow-y-auto rounded-lg border border-secondary-200 dark:border-secondary-600 bg-white dark:bg-secondary-800 shadow-lg z-20"
               role="listbox"
             >
               {mentionState?.type === 'hashtag' ? (
@@ -547,7 +547,7 @@ export default function ChatInput({
                       }}
                       className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition ${
                         idx === mentionIndex
-                          ? 'bg-primary-50 text-primary-700'
+                          ? 'bg-primary-50 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300'
                           : 'hover:bg-secondary-100'
                       }`}
                     >
@@ -657,7 +657,7 @@ export default function ChatInput({
 
       {uploadingFile && (
         <div className="absolute -top-8 left-0 right-0 text-center">
-          <span className="text-xs text-secondary-600 bg-white px-2 py-1 rounded shadow-sm">
+          <span className="text-xs text-secondary-600 bg-white dark:bg-secondary-800 px-2 py-1 rounded shadow-sm">
             Uploading files...
           </span>
         </div>

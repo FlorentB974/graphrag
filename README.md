@@ -88,7 +88,7 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 ### One-Command Setup
 
 ```bash
-git clone https://github.com/yourusername/graphrag4.git
+git clone https://github.com/FlorentB974/graphrag4.git
 cd graphrag4
 ./setup.sh
 ```
@@ -353,8 +353,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) f
 ## 📞 Support
 
 - **Documentation**: Check the `/docs` directory
-- **Issues**: [GitHub Issues](https://github.com/yourusername/graphrag4/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/graphrag4/discussions)
+- **Issues**: [GitHub Issues](https://github.com/FlorentB974/graphrag4/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/FlorentB974/graphrag4/discussions)
 
 ## 🗺️ Roadmap
 

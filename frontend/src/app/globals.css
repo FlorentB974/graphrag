@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-secondary-50 text-secondary-900 antialiased;
+  }
+}
+
+@layer components {
+  .chat-message {
+    @apply rounded-2xl p-4 mb-3 animate-fade-in;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .chat-message:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+  
+  .chat-message-user {
+    @apply bg-primary-500 text-white ml-auto max-w-[80%];
+    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.2);
+  }
+  
+  .chat-message-user:hover {
+    box-shadow: 0 8px 24px rgba(14, 165, 233, 0.3);
+  }
+  
+  .chat-message-assistant {
+    @apply bg-white border border-secondary-200 max-w-[85%];
+  }
+  
+  .button-primary {
+    @apply bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .button-secondary {
+    @apply bg-white hover:bg-secondary-50 text-secondary-700 font-medium py-2 px-4 rounded-lg border border-secondary-300 transition-colors duration-200;
+  }
+  
+  .input-field {
+    @apply w-full px-4 py-3 border border-secondary-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-secondary-200 p-6;
+  }
+
+  .no-transition {
+    transition: none !important;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-secondary-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-secondary-400 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-secondary-500;
+}
+
+/* Markdown content styling */
+.markdown-content {
+  @apply prose prose-sm prose-slate max-w-none;
+  @apply prose-headings:font-bold prose-headings:text-secondary-900;
+  @apply prose-p:text-secondary-700 prose-p:leading-relaxed;
+  @apply prose-a:text-primary-500 prose-a:no-underline hover:prose-a:underline;
+  @apply prose-strong:text-secondary-900 prose-strong:font-semibold;
+  @apply prose-code:bg-secondary-100 prose-code:text-secondary-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm;
+  @apply prose-pre:bg-secondary-900 prose-pre:text-secondary-100;
+  @apply prose-blockquote:border-l-primary-500 prose-blockquote:text-secondary-700;
+  @apply prose-ul:text-secondary-700 prose-ol:text-secondary-700;
+  @apply prose-li:text-secondary-700;
+}
+
+/* Shimmer animation for suggestions */
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.suggestion-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 40%,
+    rgba(255, 255, 255, 0.6) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-position: -200% center;
+}
+
+.suggestion-shimmer:hover {
+  animation: shimmer 1.5s ease-in-out;
+}
+
+/* Tab content transitions */
+.tab-content {
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

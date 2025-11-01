@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # Number of concurrent embedding requests
     embedding_concurrency: int = Field(default=3, description="Embedding concurrency")
     llm_concurrency: int = Field(default=2, description="LLM concurrency")
+    # Rate limiting delays (in seconds)
+    embedding_delay_min: float = Field(default=0.5, description="Minimum delay between embedding requests")
+    embedding_delay_max: float = Field(default=1.0, description="Maximum delay between embedding requests")
+    llm_delay_min: float = Field(default=0.5, description="Minimum delay between LLM requests")
+    llm_delay_max: float = Field(default=1.0, description="Maximum delay between LLM requests")
 
     # Document Processing Configuration
     chunk_size: int = Field(default=1000, description="Document chunk size")
@@ -65,7 +70,7 @@ class Settings(BaseSettings):
 
     # OCR Configuration
     enable_ocr: bool = Field(
-        default=False, description="Enable OCR processing for scanned documents"
+        default=True, description="Enable OCR processing for scanned documents"
     )
     enable_quality_filtering: bool = Field(
         default=True, description="Enable chunk quality filtering"
@@ -135,6 +140,11 @@ class Settings(BaseSettings):
             "citation_quality": 0.10,
         },
         description="Weights for different quality score components",
+    )
+
+    # Database Operations Configuration
+    enable_delete_operations: bool = Field(
+        default=True, description="Enable ability to delete documents and clear database"
     )
 
     model_config = {

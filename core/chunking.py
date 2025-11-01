@@ -65,7 +65,17 @@ class DocumentChunker:
             processed_chunks = 0
             filtered_chunks = 0
 
+            # Track character offset for each chunk
+            current_offset = 0
+
             for i, chunk in enumerate(chunks):
+                # Calculate offset in the original text
+                # Find the chunk in the text starting from current position
+                chunk_offset = text.find(chunk, current_offset)
+                if chunk_offset == -1:
+                    # If exact match fails, use the current offset
+                    chunk_offset = current_offset
+                current_offset = chunk_offset + len(chunk)
                 # Assess chunk quality (only if quality filtering is enabled)
                 if use_quality_filtering:
                     quality_assessment = ocr_processor.assess_chunk_quality(chunk)
@@ -89,10 +99,12 @@ class DocumentChunker:
                     "chunk_id": f"{document_id}_chunk_{i}",
                     "content": chunk,
                     "chunk_index": i,
+                    "offset": chunk_offset,
                     "document_id": document_id,
                     "metadata": {
                         "chunk_size": len(chunk),
                         "chunk_index": i,
+                        "offset": chunk_offset,
                         "total_chunks": len(chunks),
                         "quality_score": quality_assessment["quality_score"],
                         "quality_reason": quality_assessment["reason"],

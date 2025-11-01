@@ -5,6 +5,8 @@ Neo4j graph database operations for the RAG pipeline.
 import asyncio
 import logging
 import math
+import mimetypes
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -90,6 +92,74 @@ class GraphDB:
                 metadata=metadata,
             )
 
+    def update_document_summary(
+        self,
+        doc_id: str,
+        summary: str,
+        document_type: str,
+        hashtags: List[str]
+    ) -> None:
+        """Update a document node with summary, document type, and hashtags."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                SET d.summary = $summary,
+                    d.document_type = $document_type,
+                    d.hashtags = $hashtags
+                """,
+                doc_id=doc_id,
+                summary=summary,
+                document_type=document_type,
+                hashtags=hashtags,
+            )
+
+    def update_document_hashtags(
+        self,
+        doc_id: str,
+        hashtags: List[str]
+    ) -> None:
+        """Update only the hashtags for a document."""
+        with self.driver.session() as session:  # type: ignore
+            session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                SET d.hashtags = $hashtags
+                """,
+                doc_id=doc_id,
+                hashtags=hashtags,
+            )
+
+    def get_documents_with_summaries(self) -> List[Dict[str, Any]]:
+        """Get all documents that have summaries."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WHERE d.summary IS NOT NULL AND d.summary <> ''
+                RETURN d.id as document_id,
+                       d.summary as summary,
+                       d.document_type as document_type,
+                       d.hashtags as hashtags,
+                       d.filename as filename
+                """
+            )
+            return [record.data() for record in result]
+
+    def get_all_hashtags(self) -> List[str]:
+        """Get all unique hashtags from all documents."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WHERE d.hashtags IS NOT NULL
+                UNWIND d.hashtags as hashtag
+                RETURN DISTINCT hashtag
+                ORDER BY hashtag
+                """
+            )
+            return [record["hashtag"] for record in result]
+
     def create_chunk_node(
         self,
         chunk_id: str,
@@ -105,6 +175,8 @@ class GraphDB:
                 MERGE (c:Chunk {id: $chunk_id})
                 SET c.content = $content,
                     c.embedding = $embedding,
+                    c.chunk_index = $chunk_index,
+                    c.offset = $offset,
                     c += $metadata
                 WITH c
                 MATCH (d:Document {id: $doc_id})
@@ -114,6 +186,8 @@ class GraphDB:
                 doc_id=doc_id,
                 content=content,
                 embedding=embedding,
+                chunk_index=metadata.get("chunk_index", 0),
+                offset=metadata.get("offset", 0),
                 metadata=metadata,
             )
 
@@ -419,7 +493,7 @@ class GraphDB:
                 MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
                 WITH c, d, gds.similarity.cosine(c.embedding, $query_embedding) AS similarity
                 RETURN c.id as chunk_id, c.content as content, similarity,
-                       d.filename as document_name, d.id as document_id
+                       coalesce(d.original_filename, d.filename) as document_name, d.id as document_id
                 ORDER BY similarity DESC
                 LIMIT $top_k
                 """,
@@ -459,7 +533,7 @@ class GraphDB:
                              END
                      END as calculated_similarity
                 RETURN DISTINCT related.id as chunk_id, related.content as content,
-                       distance, d.filename as document_name, d.id as document_id,
+                       distance, coalesce(d.original_filename, d.filename) as document_name, d.id as document_id,
                        calculated_similarity as similarity
                 ORDER BY distance ASC, calculated_similarity DESC
                 """
@@ -804,7 +878,7 @@ class GraphDB:
                 async with sem:
                     try:
                         # Add small delay to prevent API flooding
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(0.3)
                         entity_text = f"{name}: {description}" if description else name
                         embedding = await embedding_manager.aget_embedding(entity_text)
                     except Exception as e:
@@ -1048,7 +1122,7 @@ class GraphDB:
                 WHERE e.id IN $entity_ids
                 OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(c)
                 RETURN DISTINCT c.id as chunk_id, c.content as content,
-                       d.filename as document_name, d.id as document_id,
+                       coalesce(d.original_filename, d.filename) as document_name, d.id as document_id,
                        collect(e.name) as contained_entities
                 """,
                 entity_ids=entity_ids,
@@ -1335,7 +1409,7 @@ class GraphDB:
 
                         if content:
                             # Add small delay to prevent API flooding
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(0.3)
                             # Generate new embedding
                             embedding = await embedding_manager.aget_embedding(content)
 
@@ -1386,7 +1460,7 @@ class GraphDB:
 
                         if entity_data:
                             # Add small delay to prevent API flooding
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(0.3)
                             # Use entity name + description for embedding
                             text = (
                                 f"{entity_data['name']}: {entity_data['description']}"
@@ -1715,6 +1789,263 @@ class GraphDB:
         except Exception as e:
             logger.error(f"Path finding failed: {e}")
             return []
+
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get comprehensive database statistics for the API."""
+        with self.driver.session() as session:  # type: ignore
+            # Get basic stats
+            result = session.run(
+                """
+                MATCH (d:Document)
+                WITH count(d) AS total_documents
+                OPTIONAL MATCH (c:Chunk)
+                WITH total_documents, count(c) AS total_chunks
+                OPTIONAL MATCH (e:Entity)
+                WITH total_documents, total_chunks, count(e) AS total_entities
+                OPTIONAL MATCH ()-[r]->()
+                RETURN total_documents, total_chunks, total_entities, count(r) AS total_relationships
+                """
+            )
+            record = result.single()
+            stats = record.data() if record else {}
+
+            # Get document list
+            doc_result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       coalesce(d.original_filename, d.filename) as original_filename,
+                       d.created_at as created_at,
+              coalesce(d.processing_status, 'idle') as processing_status,
+              coalesce(d.processing_stage, 'idle') as processing_stage,
+              coalesce(d.processing_progress, 0.0) as processing_progress,
+              chunk_count,
+              d.document_type as document_type
+                ORDER BY d.created_at DESC
+                """
+            )
+            documents = [record.data() for record in doc_result]
+
+            return {
+                "total_documents": stats.get("total_documents", 0),
+                "total_chunks": stats.get("total_chunks", 0),
+                "total_entities": stats.get("total_entities", 0),
+                "total_relationships": stats.get("total_relationships", 0),
+                "documents": documents,
+            }
+
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """List all documents in the database."""
+        with self.driver.session() as session:  # type: ignore
+            result = session.run(
+                """
+                MATCH (d:Document)
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                WITH d, count(c) as chunk_count
+                RETURN d.id as document_id,
+                       d.filename as filename,
+                       coalesce(d.original_filename, d.filename) as original_filename,
+                       d.created_at as created_at,
+                       d.hashtags as hashtags,
+                       chunk_count
+                ORDER BY d.created_at DESC
+                """
+            )
+            return [record.data() for record in result]
+
+    def get_document_details(self, doc_id: str) -> Dict[str, Any]:
+        """Retrieve detailed metadata for a document."""
+
+        def _timestamp_to_iso(value: Any) -> Optional[str]:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+            if isinstance(value, str):
+                try:
+                    numeric = float(value)
+                    return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
+                except ValueError:
+                    return value
+            return str(value)
+
+        with self.driver.session() as session:  # type: ignore
+            doc_record = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                RETURN d
+                """,
+                doc_id=doc_id,
+            ).single()
+
+            if doc_record is None:
+                raise ValueError("Document not found")
+
+            doc_node = doc_record["d"]
+            doc_data = dict(doc_node)
+
+            chunk_records = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)
+                RETURN c.id as id,
+                       c.content as text,
+                       c.chunk_index as index,
+                       coalesce(c.offset, 0) as offset,
+                       c.score as score
+                ORDER BY coalesce(c.chunk_index, 0) ASC, c.id ASC
+                """,
+                doc_id=doc_id,
+            )
+            chunks = [
+                {
+                    "id": record["id"],
+                    "text": record["text"] or "",
+                    "index": record["index"],
+                    "offset": record["offset"],
+                    "score": record["score"],
+                }
+                for record in chunk_records
+            ]
+
+            entity_records = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
+                RETURN e.type as type,
+                       e.name as text,
+                       count(*) as count,
+                       collect(DISTINCT c.chunk_index) as positions
+                ORDER BY type ASC, text ASC
+                """,
+                doc_id=doc_id,
+            )
+            entities = [
+                {
+                    "type": record["type"],
+                    "text": record["text"],
+                    "count": record["count"],
+                    "positions": [pos for pos in (record["positions"] or []) if pos is not None],
+                }
+                for record in entity_records
+            ]
+
+            related_records = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})-[r:RELATED_TO|SIMILAR_TO]-(other:Document)
+                RETURN DISTINCT other.id as id,
+                                other.filename as title,
+                                coalesce(other.link, '') as link,
+                                other.filename as filename
+                ORDER BY other.filename ASC
+                """,
+                doc_id=doc_id,
+            )
+            related_documents = [
+                {
+                    "id": record["id"],
+                    "title": record["title"] or record["filename"],
+                    "link": record["link"] if record["link"] else None,
+                }
+                for record in related_records
+            ]
+
+            uploader_info: Optional[Dict[str, Any]] = None
+            uploader_value = doc_data.get("uploader")
+            if isinstance(uploader_value, dict):
+                uploader_info = {
+                    "id": uploader_value.get("id"),
+                    "name": uploader_value.get("name"),
+                }
+            else:
+                uploader_id = doc_data.get("uploader_id")
+                uploader_name = doc_data.get("uploader_name")
+                if uploader_id or uploader_name:
+                    uploader_info = {"id": uploader_id, "name": uploader_name}
+
+            uploaded_at = (
+                _timestamp_to_iso(doc_data.get("uploaded_at"))
+                or _timestamp_to_iso(doc_data.get("created_at"))
+            )
+
+            known_keys = {
+                "id",
+                "title",
+                "filename",
+                "original_filename",
+                "mime_type",
+                "preview_url",
+                "uploaded_at",
+                "created_at",
+                "uploader",
+                "uploader_id",
+                "uploader_name",
+                "quality_scores",
+                "summary",
+                "document_type",
+                "hashtags",
+            }
+
+            metadata = {
+                key: value
+                for key, value in doc_data.items()
+                if key not in known_keys
+            }
+
+            return {
+                "id": doc_data.get("id", doc_id),
+                "title": doc_data.get("title"),
+                "file_name": doc_data.get("filename"),
+                "original_filename": doc_data.get("original_filename"),
+                "mime_type": doc_data.get("mime_type"),
+                "preview_url": doc_data.get("preview_url"),
+                "uploaded_at": uploaded_at,
+                "uploader": uploader_info,
+                "summary": doc_data.get("summary"),
+                "document_type": doc_data.get("document_type"),
+                "hashtags": doc_data.get("hashtags", []),
+                "chunks": chunks,
+                "entities": entities,
+                "quality_scores": doc_data.get("quality_scores"),
+                "related_documents": related_documents or None,
+                "metadata": metadata or None,
+            }
+
+    def get_document_file_info(self, doc_id: str) -> Dict[str, Any]:
+        """Return file metadata for previewing a document."""
+
+        with self.driver.session() as session:  # type: ignore
+            record = session.run(
+                """
+                MATCH (d:Document {id: $doc_id})
+                RETURN d.filename as file_name,
+                       d.file_path as file_path,
+                       d.mime_type as mime_type
+                """,
+                doc_id=doc_id,
+            ).single()
+
+            if record is None:
+                raise ValueError("Document not found")
+
+            file_path = record["file_path"]
+            mime_type = record["mime_type"]
+            if not mime_type and file_path:
+                mime_type = mimetypes.guess_type(file_path)[0]
+
+            return {
+                "file_name": record["file_name"],
+                "file_path": file_path,
+                "mime_type": mime_type,
+            }
+
+    def clear_database(self) -> None:
+        """Clear all data from the database."""
+        with self.driver.session() as session:  # type: ignore
+            # Delete all nodes and relationships
+            session.run("MATCH (n) DETACH DELETE n")
+            logger.info("Database cleared")
 
 
 # Global database instance

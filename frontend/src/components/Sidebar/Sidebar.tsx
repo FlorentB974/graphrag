@@ -119,7 +119,7 @@ export default function Sidebar({
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 w-80 bg-white dark:bg-secondary-800 dark:bg-secondary-800 border-r border-secondary-200 dark:border-secondary-700 transform transition-all duration-300 ease-in-out ${
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-80 bg-white dark:bg-secondary-800 border-r border-secondary-200 dark:border-secondary-700 transform transition-all duration-300 ease-in-out ${
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${isResizing ? 'no-transition' : ''} relative`}
         style={{ width: `${collapsed ? 72 : width}px` }}

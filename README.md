@@ -306,25 +306,10 @@ npm run build
 
 ## 🐳 Docker Deployment
 
-### Backend
-
-```bash
-docker build -t graphrag-backend .
-docker run -d -p 8000:8000 --env-file .env graphrag-backend
-```
-
-### Frontend
-
-```bash
-cd frontend
-docker build -t graphrag-frontend .
-docker run -d -p 3000:3000 graphrag-frontend
-```
-
 ### Docker Compose
 
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
 
 ## 🤝 Contributing

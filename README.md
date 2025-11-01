@@ -15,30 +15,33 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 ## ✨ Features
 
 ### 💬 Intelligent Chat
+- **NEW Follow-up Questions**: AI-generated suggestions to continue the conversation
 - **Real-time Streaming**: Token-by-token response generation with SSE
 - **Context-Aware**: Leverages graph relationships for accurate answers
 - **Quality Scoring**: Real-time assessment of answer quality
-- **Follow-up Questions**: AI-generated suggestions to continue the conversation
 
 ### 📚 Document Management
+- **NEW Summary extraction**: Automatic summary extraction during ingestion
+- **NEW In-app Document View**: Inspect metadata, chunks, entities, and live previews
+- **NEW Tags extraction**: Automatic tags extraction during ingestion (editable)
 - **Multi-format Support**: PDF, DOCX, TXT, MD, PPT, XLS
 - **Smart Chunking**: Intelligent document segmentation
 - **Entity Extraction**: Automatic identification of key entities
 - **Graph Relationships**: Connects related concepts across documents
-- **In-app Document View**: Inspect metadata, chunks, entities, and live previews
 
 ### 🔍 Advanced Retrieval
+- **NEW Context Restriction**: Rectrict context by specifying documents or tags in chat
 - **Hybrid Search**: Combines vector similarity and graph traversal
 - **Multi-hop Reasoning**: Connects information across multiple documents
 - **Relevance Scoring**: Transparent source ranking
 - **Entity-Enhanced**: Leverages extracted entities for better context
 
 ### 📊 Conversation History
-- **Persistent Sessions**: Store and retrieve past conversations
-- **Session Management**: View, search, and delete conversations
-- **Context Preservation**: Maintain conversation context across sessions
+- **NEW Persistent Sessions**: Store and retrieve past conversations
+- **NEW Session Management**: View, search, and delete conversations
+- **NEW Context Preservation**: Maintain conversation context across sessions
 
-### 🎨 Modern UI
+### 🎨 ALL NEW Modern UI
 - **Responsive Design**: Works on desktop, tablet, and mobile
 - **Dark Mode Ready**: Clean, modern interface
 - **Smooth Animations**: Polished user experience
@@ -347,6 +350,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) f
 - Graph database by [Neo4j](https://neo4j.com/)
 - Frontend framework by [Next.js](https://nextjs.org/)
 - Styled with [Tailwind CSS](https://tailwindcss.com/)
+- Tested with [Akash Chat API](https://chatapi.akash.network/documentation) 
 
 ## 📞 Support
 
@@ -365,14 +369,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) f
 - [ ] Mobile apps
 - [ ] Plugin system
 - [ ] Analytics dashboard
-- [ ] Optional graph visualization
-
-## ⭐ Star History
-
-If you find this project useful, please consider giving it a star!
-
----
-
-**Version**: 2.0.0  
-**Last Updated**: October 10, 2025  
-**Status**: Production Ready ✅

@@ -10,9 +10,18 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 [![Next.js 14](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
 
-![GraphRAG Interface](https://via.placeholder.com/1200x600/0ea5e9/ffffff?text=GraphRAG+v2.0)
-
 ## ✨ Features
+
+### 🎨 ALL NEW Modern UI
+- **Responsive Design**: Works on desktop, tablet, and mobile
+- **Dark Mode Ready**: Clean, modern interface
+- **Smooth Animations**: Polished user experience
+- **Accessibility**: Built with accessibility in mind
+
+### 📊 ALL NEW Conversation History
+- **Persistent Sessions**: Store and retrieve past conversations
+- **Session Management**: View, search, and delete conversations
+- **Context Preservation**: Maintain conversation context across sessions
 
 ### 💬 Intelligent Chat
 - **NEW Follow-up Questions**: AI-generated suggestions to continue the conversation
@@ -35,17 +44,6 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 - **Multi-hop Reasoning**: Connects information across multiple documents
 - **Relevance Scoring**: Transparent source ranking
 - **Entity-Enhanced**: Leverages extracted entities for better context
-
-### 📊 Conversation History
-- **NEW Persistent Sessions**: Store and retrieve past conversations
-- **NEW Session Management**: View, search, and delete conversations
-- **NEW Context Preservation**: Maintain conversation context across sessions
-
-### 🎨 ALL NEW Modern UI
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **Dark Mode Ready**: Clean, modern interface
-- **Smooth Animations**: Polished user experience
-- **Accessibility**: Built with accessibility in mind
 
 ## 🏗️ Architecture
 

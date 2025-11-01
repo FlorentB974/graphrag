@@ -173,7 +173,6 @@ app_ui/                         # Old Streamlit UI components (keep for referenc
 - ✅ **Existing entities**: Entity extraction compatible
 - ✅ **Existing embeddings**: Vector embeddings compatible
 - ✅ **Configuration**: Same .env variables
-- ❌ **UI sessions**: Old Streamlit sessions not migrated (fresh start for conversations)
 
 ### Running Both Versions
 

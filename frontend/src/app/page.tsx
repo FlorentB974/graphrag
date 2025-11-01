@@ -3,6 +3,7 @@
 import ChatInterface from '@/components/Chat/ChatInterface'
 import DocumentView from '@/components/Document/DocumentView'
 import Sidebar from '@/components/Sidebar/Sidebar'
+import { ThemeToggle } from '@/components/Theme/ThemeToggle'
 import { useEffect, useState } from 'react'
 import { useChatStore } from '@/store/chatStore'
 
@@ -33,7 +34,7 @@ export default function Home() {
   const clampWidth = (next: number) => Math.min(Math.max(next, MIN_WIDTH), MAX_WIDTH)
 
   return (
-    <div className="flex h-screen bg-secondary-50">
+    <div className="flex h-screen bg-secondary-50 dark:bg-secondary-900">
       {/* Sidebar */}
       <Sidebar
         open={sidebarOpen}
@@ -48,6 +49,9 @@ export default function Home() {
       <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-0' : 'ml-0'}`}>
         {activeView === 'document' ? <DocumentView /> : <ChatInterface />}
       </main>
+
+      {/* Theme Toggle */}
+      <ThemeToggle />
     </div>
   )
 }

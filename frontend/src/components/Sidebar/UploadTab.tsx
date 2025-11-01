@@ -102,12 +102,12 @@ export default function UploadTab() {
           className="cursor-pointer flex flex-col items-center"
         >
           <CloudArrowUpIcon className="w-12 h-12 text-secondary-400 mb-3" />
-          <span className="text-sm font-medium text-secondary-700">
+          <span className="text-sm font-medium text-secondary-700 dark:text-secondary-300">
             {isDragging
               ? 'Drop files here'
               : 'Click to upload or drag and drop'}
           </span>
-          <span className="text-xs text-secondary-500 mt-1">
+          <span className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
             PDF, DOCX, TXT, MD, PPT, XLS, Images
           </span>
         </label>
@@ -130,7 +130,7 @@ export default function UploadTab() {
       )}
 
       {/* Info Section */}
-      <div className="text-xs text-secondary-600 space-y-1">
+      <div className="text-xs text-secondary-600 dark:text-secondary-400 space-y-1">
         <p className="font-medium">How it works:</p>
         <ul className="list-disc list-inside space-y-0.5 ml-2">
           <li>Upload documents here or in the chat</li>

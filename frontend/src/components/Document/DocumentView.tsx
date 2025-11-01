@@ -452,7 +452,7 @@ export default function DocumentView() {
 
   if (!selectedDocumentId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-secondary-600">
+      <div className="flex-1 flex flex-col items-center justify-center text-secondary-600 dark:text-secondary-400">
         <DocumentTextIcon className="w-16 h-16 text-secondary-300 mb-4" />
         <p className="text-base font-medium">Select a document to view its details.</p>
       </div>
@@ -461,7 +461,7 @@ export default function DocumentView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="border-b border-secondary-200 bg-white px-6 py-4 flex items-center gap-4">
+      <div className="border-b border-secondary-200 dark:border-secondary-700 dark:border-secondary-700 bg-white dark:bg-secondary-800 dark:bg-secondary-800 px-6 py-4 flex items-center gap-4">
         <button
           type="button"
           onClick={clearSelectedDocument}
@@ -473,17 +473,17 @@ export default function DocumentView() {
         <div className="flex items-center gap-3">
           <DocumentTextIcon className="w-6 h-6 text-primary-500" />
           <div>
-            <h2 className="text-lg font-semibold text-secondary-900">
+            <h2 className="text-lg font-semibold text-secondary-900 dark:text-secondary-50 dark:text-secondary-50">
               {documentData?.title || documentData?.original_filename || documentData?.file_name || 'Unnamed document'}
             </h2>
-            <p className="text-xs text-secondary-500">
+            <p className="text-xs text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
               {documentData?.document_type ? documentData.document_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Unknown type'}
             </p>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {documentData?.uploaded_at && (
-            <span className="text-xs text-secondary-500">
+            <span className="text-xs text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
               Uploaded {new Date(documentData.uploaded_at).toLocaleString()}
             </span>
           )}
@@ -499,14 +499,14 @@ export default function DocumentView() {
             </button>
           )}
           {previewState.error && (
-            <span className="text-xs text-red-600">{previewState.error}</span>
+            <span className="text-xs text-red-600 dark:text-red-400">{previewState.error}</span>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6 bg-secondary-50">
+      <div className="flex-1 overflow-y-auto px-6 py-6 bg-secondary-50 dark:bg-secondary-900 dark:bg-secondary-900">
         {isLoading && (
-          <div className="flex flex-col items-center justify-center py-20 text-secondary-500">
+          <div className="flex flex-col items-center justify-center py-20 text-secondary-500 dark:text-secondary-400 dark:text-secondary-400">
             <Squares2X2Icon className="w-10 h-10 animate-spin" />
             <p className="mt-3 text-sm">Loading document metadata…</p>
           </div>
@@ -540,38 +540,38 @@ export default function DocumentView() {
                 <p>This document has been uploaded but not yet processed. Go to the <strong>Upload</strong> tab in the sidebar and click <strong>Process All</strong> to begin processing.</p>
               </div>
             )}
-            <section className="bg-white rounded-lg shadow-sm border border-secondary-200 p-5">
-              <h3 className="text-sm font-semibold text-secondary-900 mb-4">Overview</h3>
+            <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700 p-5">
+              <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50 mb-4">Overview</h3>
               <dl className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                 <div>
-                  <dt className="text-secondary-500">File name</dt>
-                  <dd className="text-secondary-900">{documentData.original_filename || documentData.file_name || 'Unknown'}</dd>
+                  <dt className="text-secondary-500 dark:text-secondary-400">File name</dt>
+                  <dd className="text-secondary-900 dark:text-secondary-50">{documentData.original_filename || documentData.file_name || 'Unknown'}</dd>
                 </div>
                 <div>
-                  <dt className="text-secondary-500">Mime type</dt>
-                  <dd className="text-secondary-900">{documentData.mime_type || 'Unknown'}</dd>
+                  <dt className="text-secondary-500 dark:text-secondary-400">Mime type</dt>
+                  <dd className="text-secondary-900 dark:text-secondary-50">{documentData.mime_type || 'Unknown'}</dd>
                 </div>
                 <div>
-                  <dt className="text-secondary-500">Uploader</dt>
-                  <dd className="text-secondary-900">
+                  <dt className="text-secondary-500 dark:text-secondary-400">Uploader</dt>
+                  <dd className="text-secondary-900 dark:text-secondary-50">
                     {documentData.uploader?.name || documentData.uploader?.id || 'Unknown'}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-secondary-500">Uploaded at</dt>
-                  <dd className="text-secondary-900">
+                  <dt className="text-secondary-500 dark:text-secondary-400">Uploaded at</dt>
+                  <dd className="text-secondary-900 dark:text-secondary-50">
                     {documentData.uploaded_at
                       ? new Date(documentData.uploaded_at).toLocaleString()
                       : 'Unknown'}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-secondary-500">Chunk count</dt>
-                  <dd className="text-secondary-900">{documentData.chunks.length}</dd>
+                  <dt className="text-secondary-500 dark:text-secondary-400">Chunk count</dt>
+                  <dd className="text-secondary-900 dark:text-secondary-50">{documentData.chunks.length}</dd>
                 </div>
                 <div>
-                  <dt className="text-secondary-500">Preview available</dt>
-                  <dd className="text-secondary-900">
+                  <dt className="text-secondary-500 dark:text-secondary-400">Preview available</dt>
+                  <dd className="text-secondary-900 dark:text-secondary-50">
                     {hasPreview === null
                       ? (documentData.preview_url ? 'Yes' : 'No')
                       : hasPreview
@@ -581,9 +581,9 @@ export default function DocumentView() {
                 </div>
               </dl>
               <div className="mt-4 pt-4 border-t border-secondary-200">
-                <dt className="text-secondary-500 text-sm mb-2">Tags</dt>
+                <dt className="text-secondary-500 dark:text-secondary-400 text-sm mb-2">Tags</dt>
                 <div 
-                  className="flex flex-wrap gap-2 cursor-pointer p-2 -m-2 rounded hover:bg-secondary-50 transition-colors"
+                  className="flex flex-wrap gap-2 cursor-pointer p-2 -m-2 rounded hover:bg-secondary-50 dark:bg-secondary-900 transition-colors"
                   onClick={handleStartEditHashtags}
                 >
                   {!isEditingHashtags ? (
@@ -591,7 +591,7 @@ export default function DocumentView() {
                       {(documentData.hashtags || []).map((tag, index) => (
                         <span
                           key={index}
-                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-800 dark:text-primary-300"
                         >
                           {tag}
                         </span>
@@ -608,7 +608,7 @@ export default function DocumentView() {
                       {(documentData.hashtags || []).map((tag, index) => (
                         <span
                           key={index}
-                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800"
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-800 dark:text-primary-300"
                         >
                           {tag}
                           <button
@@ -658,12 +658,12 @@ export default function DocumentView() {
             </section>
 
             {(documentData.summary || documentData.chunks.length > 0 || documentData.metadata?.processing_status !== 'staged') && (
-              <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
-                <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
+              <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700">
+                <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200 dark:border-secondary-700">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-secondary-900">Summary</h3>
+                    <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50">Summary</h3>
                     {documentData.document_type && (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary-100 text-secondary-700">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary-100 dark:bg-secondary-700 text-secondary-700 dark:text-secondary-200">
                         {documentData.document_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                       </span>
                     )}
@@ -682,7 +682,7 @@ export default function DocumentView() {
                 </header>
                 <div className="px-5 py-4">
                   {documentData.summary ? (
-                    <div className="prose prose-sm prose-slate max-w-none">
+                    <div className="prose prose-sm prose-slate dark:prose-invert dark:text-secondary-200 max-w-none">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkBreaks]}
                       >
@@ -690,16 +690,16 @@ export default function DocumentView() {
                       </ReactMarkdown>
                     </div>
                   ) : (
-                    <p className="text-sm text-secondary-500">No summary generated yet.</p>
+                    <p className="text-sm text-secondary-500 dark:text-secondary-400">No summary generated yet.</p>
                   )}
                 </div>
               </section>
             )}
 
-            <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
-              <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
+            <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700">
+              <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200 dark:border-secondary-700">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-secondary-900">Chunks</h3>
+                  <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50">Chunks</h3>
                   {documentData.chunks.length === 0 && documentData.metadata?.processing_status !== 'staged' && !processingState?.is_processing && (
                     <button
                       type="button"
@@ -712,11 +712,11 @@ export default function DocumentView() {
                     </button>
                   )}
                 </div>
-                <span className="text-xs text-secondary-500">{documentData.chunks.length} entries</span>
+                <span className="text-xs text-secondary-500 dark:text-secondary-400">{documentData.chunks.length} entries</span>
               </header>
               <div className="divide-y divide-secondary-200">
                 {documentData.chunks.length === 0 ? (
-                  <p className="px-5 py-4 text-sm text-secondary-500">No chunks processed yet.</p>
+                  <p className="px-5 py-4 text-sm text-secondary-500 dark:text-secondary-400">No chunks processed yet.</p>
                 ) : (
                   <>
                     {(showAllChunks ? documentData.chunks : documentData.chunks.slice(0, CHUNKS_LIMIT)).map((chunk: DocumentChunk) => {
@@ -727,12 +727,12 @@ export default function DocumentView() {
                         <article key={chunk.id} className="px-5 py-4">
                           <div className="flex flex-wrap items-center gap-3">
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-secondary-500">
+                              <p className="text-xs text-secondary-500 dark:text-secondary-400">
                                 Chunk {typeof chunk.index === 'number' ? chunk.index + 1 : chunk.id}
                               </p>
                               <div className="relative overflow-hidden pr-8">
                                 {/* Allow preview line to wrap and break long words instead of truncating */}
-                                <p className="text-sm font-medium text-secondary-900 break-words break-all">
+                                <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50 break-words break-all">
                                   {previewLine}
                                 </p>
                               </div>
@@ -766,11 +766,11 @@ export default function DocumentView() {
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
                                 transition={{ duration: 0.3, ease: 'easeInOut' }}
-                                className="mt-3 text-sm text-secondary-800 leading-relaxed overflow-hidden border-t border-secondary-200 pt-3"
+                                className="mt-3 text-sm text-secondary-800 dark:text-secondary-200 leading-relaxed overflow-hidden border-t border-secondary-200 dark:border-secondary-700 pt-3"
                               >
                                 {isMarkdownDocument ? (
                                   <ReactMarkdown
-                                    className="prose prose-sm prose-slate max-w-none break-words"
+                                    className="prose prose-sm prose-slate dark:prose-invert dark:text-secondary-100 max-w-none break-words"
                                     remarkPlugins={[remarkGfm, remarkBreaks]}
                                   >
                                     {chunk.text || ''}
@@ -801,10 +801,10 @@ export default function DocumentView() {
               </div>
             </section>
 
-            <section className="bg-white rounded-lg shadow-sm border border-secondary-200">
-              <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200">
+            <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700">
+              <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200 dark:border-secondary-700">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-secondary-900">Entities</h3>
+                  <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50">Entities</h3>
                   {documentData.entities.length === 0 && documentData.chunks.length > 0 && documentData.metadata?.processing_status !== 'staged' && (
                     <button
                       type="button"
@@ -817,14 +817,14 @@ export default function DocumentView() {
                     </button>
                   )}
                 </div>
-                <span className="text-xs text-secondary-500">
+                <span className="text-xs text-secondary-500 dark:text-secondary-400">
                   {documentData.entities.length > 0
                     ? `${documentData.entities.length} total`
                     : 'No entities'}
                 </span>
               </header>
               {documentData.entities.length === 0 ? (
-                <p className="px-5 py-4 text-sm text-secondary-500">No entities extracted yet.</p>
+                <p className="px-5 py-4 text-sm text-secondary-500 dark:text-secondary-400">No entities extracted yet.</p>
               ) : (
                 <div className="divide-y divide-secondary-100">
                   {Object.entries(groupedEntities).map(([type, entities]) => {
@@ -834,14 +834,14 @@ export default function DocumentView() {
 
                     return (
                       <div key={type} className="px-5 py-4 space-y-2">
-                        <h4 className="text-xs font-semibold text-secondary-500 uppercase tracking-wide">
+                        <h4 className="text-xs font-semibold text-secondary-500 dark:text-secondary-400 uppercase tracking-wide">
                           {type}
                         </h4>
                         <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           {displayedEntities.map((entity) => (
                             <li key={`${type}-${entity.text}`} className="border border-secondary-200 rounded-lg px-3 py-2">
-                              <p className="text-sm font-medium text-secondary-900">{entity.text}</p>
-                              <p className="text-xs text-secondary-500">
+                              <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{entity.text}</p>
+                              <p className="text-xs text-secondary-500 dark:text-secondary-400">
                                 Count: {entity.count ?? '—'} · Positions: {entity.positions?.join(', ') || '—'}
                               </p>
                             </li>
@@ -864,8 +864,8 @@ export default function DocumentView() {
             </section>
 
             {documentData.quality_scores && (
-              <section className="bg-white rounded-lg shadow-sm border border-secondary-200 p-5">
-                <h3 className="text-sm font-semibold text-secondary-900 mb-3">Quality scores</h3>
+              <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700 p-5">
+                <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50 mb-3">Quality scores</h3>
                 <pre className="bg-secondary-900 text-secondary-50 text-xs rounded-lg p-4 overflow-auto">
                   {JSON.stringify(documentData.quality_scores, null, 2)}
                 </pre>
@@ -873,13 +873,13 @@ export default function DocumentView() {
             )}
 
             {documentData.related_documents && documentData.related_documents.length > 0 && (
-              <section className="bg-white rounded-lg shadow-sm border border-secondary-200 p-5">
-                <h3 className="text-sm font-semibold text-secondary-900 mb-3">Related documents</h3>
+              <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700 p-5">
+                <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50 mb-3">Related documents</h3>
                 <ul className="space-y-2">
                   {documentData.related_documents.map((doc) => (
-                    <li key={doc.id} className="flex items-center justify-between gap-3 p-3 border border-secondary-200 rounded-lg hover:bg-secondary-50 transition-colors">
+                    <li key={doc.id} className="flex items-center justify-between gap-3 p-3 border border-secondary-200 rounded-lg hover:bg-secondary-50 dark:bg-secondary-900 transition-colors">
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-secondary-900">
+                        <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">
                           {doc.title || doc.link || doc.id}
                         </p>
                         {doc.link && (
@@ -910,8 +910,8 @@ export default function DocumentView() {
             )}
 
             {documentData.metadata && (
-              <section className="bg-white rounded-lg shadow-sm border border-secondary-200 p-5">
-                <h3 className="text-sm font-semibold text-secondary-900 mb-3">Metadata</h3>
+              <section className="bg-white dark:bg-secondary-800 dark:bg-secondary-800 rounded-lg shadow-sm border border-secondary-200 dark:border-secondary-700 p-5">
+                <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50 mb-3">Metadata</h3>
                 <pre className="bg-secondary-900 text-secondary-50 text-xs rounded-lg p-4 overflow-auto">
                   {JSON.stringify(documentData.metadata, null, 2)}
                 </pre>

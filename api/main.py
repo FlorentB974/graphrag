@@ -54,6 +54,7 @@ async def health_check():
         "version": "2.0.0",
         "llm_provider": settings.llm_provider,
         "enable_entity_extraction": settings.enable_entity_extraction,
+        "enable_quality_scoring": settings.enable_quality_scoring,
     }
 
 

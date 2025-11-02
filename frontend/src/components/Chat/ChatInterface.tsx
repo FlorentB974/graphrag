@@ -25,6 +25,7 @@ export default function ChatInterface() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const [currentStage, setCurrentStage] = useState<string>('query_analysis')
   const [completedStages, setCompletedStages] = useState<string[]>([])
+  const [settings, setSettings] = useState<any>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -33,6 +34,19 @@ export default function ChatInterface() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Fetch settings on mount
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await api.getSettings()
+        setSettings(response)
+      } catch (error) {
+        console.error('Failed to fetch settings:', error)
+      }
+    }
+    fetchSettings()
+  }, [])
 
   const handleStopStreaming = () => {
     if (abortControllerRef.current) {
@@ -369,12 +383,13 @@ export default function ChatInterface() {
                         currentStage={completedStages[completedStages.length - 1]} 
                         completedStages={completedStages} 
                         isLoading={false}
+                        enableQualityScoring={settings?.enable_quality_scoring ?? true}
                       />
                     </div>
                   )}
               </div>
             ))}
-            {(isLoading || isHistoryLoading) && <LoadingIndicator currentStage={currentStage} completedStages={completedStages} isLoading={isLoading || isHistoryLoading} />}
+            {(isLoading || isHistoryLoading) && <LoadingIndicator currentStage={currentStage} completedStages={completedStages} isLoading={isLoading || isHistoryLoading} enableQualityScoring={settings?.enable_quality_scoring ?? true} />}
             <div ref={messagesEndRef} />
           </div>
         )}

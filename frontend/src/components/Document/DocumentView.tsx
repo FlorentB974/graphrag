@@ -63,6 +63,7 @@ export default function DocumentView() {
   const prevProcessingRef = useRef(false)
   const [isEditingHashtags, setIsEditingHashtags] = useState(false)
   const [newHashtagInput, setNewHashtagInput] = useState('')
+  const [settings, setSettings] = useState<{ enable_entity_extraction?: boolean } | null>(null)
 
   const refreshProcessingState = useCallback(async () => {
     try {
@@ -70,6 +71,15 @@ export default function DocumentView() {
       setProcessingState(response.global)
     } catch (stateError) {
       console.error('Failed to load processing state', stateError)
+    }
+  }, [])
+
+  const refreshSettings = useCallback(async () => {
+    try {
+      const response = await api.getSettings()
+      setSettings(response)
+    } catch (settingsError) {
+      console.error('Failed to load settings', settingsError)
     }
   }, [])
 
@@ -107,6 +117,7 @@ export default function DocumentView() {
     if (selectedDocumentId) {
       void fetchDocument(selectedDocumentId)
       void refreshProcessingState()
+      void refreshSettings()
     } else {
       setDocumentData(null)
       setPreviewState(initialPreviewState)
@@ -114,6 +125,7 @@ export default function DocumentView() {
       setShowAllEntities({})
       setHasPreview(null)
       setProcessingState(null)
+      setSettings(null)
     }
 
     const handleProcessed = () => {
@@ -139,7 +151,7 @@ export default function DocumentView() {
         window.removeEventListener('documents:processing-updated', handleProcessingUpdated)
       }
     }
-  }, [refreshProcessingState, selectedDocumentId])
+  }, [refreshProcessingState, refreshSettings, selectedDocumentId])
 
   useEffect(() => {
     let isSubscribed = true
@@ -434,6 +446,12 @@ export default function DocumentView() {
   const manualActionTitle = processingState?.is_processing
     ? 'Processing is already running for another document'
     : undefined
+
+  const isEntityExtractionDisabled = settings?.enable_entity_extraction === false
+  const entityButtonDisabled = disableManualActions || isEntityExtractionDisabled
+  const entityButtonTitle = isEntityExtractionDisabled
+    ? 'Entity extraction is deactivated in settings'
+    : manualActionTitle
 
   const handleRelatedDocumentClick = useCallback(
     (doc: RelatedDocument) => {
@@ -805,13 +823,13 @@ export default function DocumentView() {
               <header className="flex items-center justify-between px-5 py-4 border-b border-secondary-200 dark:border-secondary-700">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50">Entities</h3>
-                  {documentData.entities.length === 0 && documentData.chunks.length > 0 && documentData.metadata?.processing_status !== 'staged' && (
+                  {documentData.entities.length === 0 && documentData.chunks.length > 0 && documentData.metadata?.processing_status !== 'staged' && !processingState?.is_processing && (
                     <button
                       type="button"
                       onClick={handleReprocessEntities}
-                      className="button-primary text-xs"
-                      disabled={disableManualActions}
-                      title={manualActionTitle}
+                      className={`button-primary text-xs ${isEntityExtractionDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      disabled={entityButtonDisabled}
+                      title={entityButtonTitle}
                     >
                       Process entities
                     </button>

@@ -93,7 +93,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               </div>
             ) : null}
 
-            {message.quality_score && (
+            {message.quality_score && message.quality_score.total !== undefined && (
               // If sources are present, anchor badge to the top-right of the sources block
               // so it stays on the same horizontal line as the Sources header when expanded.
               // Otherwise, position it at the bubble's bottom-right.

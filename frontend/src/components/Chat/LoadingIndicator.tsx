@@ -52,12 +52,14 @@ interface LoadingIndicatorProps {
   currentStage?: string
   completedStages?: string[]
   isLoading?: boolean
+  enableQualityScoring?: boolean
 }
 
 export default function LoadingIndicator({ 
   currentStage = 'query_analysis',
   completedStages = [],
-  isLoading = true
+  isLoading = true,
+  enableQualityScoring = true
 }: LoadingIndicatorProps) {
   const [displayedStage, setDisplayedStage] = useState<string>(currentStage)
   const [stageHistory, setStageHistory] = useState<string[]>(completedStages)
@@ -84,6 +86,13 @@ export default function LoadingIndicator({
     }
   }, [completedStages, isLoading])
 
+  const isStageCompleted = (stageId: string) => {
+    if (stageId === 'quality_calculation' && !enableQualityScoring) {
+      return false
+    }
+    return stageHistory.includes(stageId)
+  }
+
   const stage = STAGES[displayedStage] || STAGES.query_analysis
   const completedStagesCount = isLoading ? stageHistory.slice(0, -1).length : stageHistory.length
   
@@ -104,7 +113,7 @@ export default function LoadingIndicator({
         {/* Stage history dots - all completed are green, skipped are grey */}
         <div className="flex gap-2 items-center justify-center py-2">
           {Object.values(STAGES).map((s) => {
-            const isCompleted = stageHistory.includes(s.id)
+            const isCompleted = isStageCompleted(s.id)
             return (
               <div
                 key={s.id}
@@ -219,7 +228,7 @@ export default function LoadingIndicator({
         {/* Stage history dots */}
         <div className="flex gap-2 items-center justify-center py-2">
           {Object.values(STAGES).map((s) => {
-            const isCompleted = stageHistory.includes(s.id)
+            const isCompleted = isStageCompleted(s.id)
             const isCurrent = s.id === displayedStage
 
             return (

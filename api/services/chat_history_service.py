@@ -128,7 +128,7 @@ class ChatHistoryService:
                 content=content,
                 timestamp=timestamp,
                 sources=json.dumps(sources or []),
-                quality_score=json.dumps(quality_score or {}),
+                quality_score=json.dumps(quality_score) if quality_score else None,
                 follow_up_questions=follow_up_questions or [],
                 context_documents=context_documents or [],
                 context_document_labels=context_document_labels or [],

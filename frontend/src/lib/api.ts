@@ -325,4 +325,12 @@ export const api = {
     }
   },
 
+  async getSettings() {
+    const response = await fetch(`${API_URL}/api/health`)
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+    return response.json()
+  },
+
 }

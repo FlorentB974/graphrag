@@ -53,6 +53,7 @@ async def health_check():
         "status": "healthy",
         "version": "2.0.0",
         "llm_provider": settings.llm_provider,
+        "enable_entity_extraction": settings.enable_entity_extraction,
     }
 
 

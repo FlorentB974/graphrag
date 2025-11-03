@@ -333,4 +333,21 @@ export const api = {
     return response.json()
   },
 
+  async checkHealth(): Promise<boolean> {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
+      
+      const response = await fetch(`${API_URL}/api/health`, {
+        method: 'GET',
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      return response.ok
+    } catch (error) {
+      return false
+    }
+  },
+
 }

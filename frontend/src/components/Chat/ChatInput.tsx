@@ -6,6 +6,7 @@ import { StopIcon, DocumentArrowUpIcon, XMarkIcon } from '@heroicons/react/24/ou
 import { api } from '@/lib/api'
 import { DocumentSummary } from '@/types'
 import { showToast } from '@/components/Toast/ToastContainer'
+import { useChatStore } from '@/store/chatStore'
 
 type SelectedDocMap = Record<string, { filename: string; original_filename?: string }>
 
@@ -24,6 +25,7 @@ export default function ChatInput({
   isStreaming,
   userMessages = [],
 }: ChatInputProps) {
+  const isConnected = useChatStore((state) => state.isConnected)
   const [input, setInput] = useState('')
   const [documents, setDocuments] = useState<DocumentSummary[]>([])
   const [documentsLoaded, setDocumentsLoaded] = useState(false)
@@ -411,7 +413,10 @@ export default function ChatInput({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsDragging(true)
+    // Only show drag feedback if server is connected
+    if (isConnected) {
+      setIsDragging(true)
+    }
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -424,6 +429,11 @@ export default function ChatInput({
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
+
+    // Don't allow file operations when server is disconnected
+    if (!isConnected) {
+      return
+    }
 
     // Check for dragged documents from database tab
     const draggedData = e.dataTransfer.getData('application/json')
@@ -603,10 +613,10 @@ export default function ChatInput({
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your documents... (@ for documents, # for tags)"
-            disabled={disabled || isStreaming || uploadingFile}
+            placeholder={isConnected ? "Ask a question about your documents... (@ for documents, # for tags)" : "Server is offline - chat unavailable"}
+            disabled={disabled || isStreaming || uploadingFile || !isConnected}
             rows={1}
-            className="input-field pr-24 resize-none overflow-hidden"
+            className="input-field pr-24 resize-none overflow-hidden disabled:opacity-50"
           />
 
           <div
@@ -616,7 +626,7 @@ export default function ChatInput({
             {/* File Upload Button */}
             <label
               className={`cursor-pointer p-2 text-secondary-400 hover:text-primary-600 transition-colors ${
-                disabled || isStreaming || uploadingFile
+                disabled || isStreaming || uploadingFile || !isConnected
                   ? 'opacity-50 pointer-events-none'
                   : ''
               }`}
@@ -625,7 +635,7 @@ export default function ChatInput({
                 type="file"
                 className="hidden"
                 onChange={handleFileInput}
-                disabled={disabled || isStreaming || uploadingFile}
+                disabled={disabled || isStreaming || uploadingFile || !isConnected}
                 accept=".pdf,.txt,.md,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
                 multiple
               />
@@ -645,7 +655,7 @@ export default function ChatInput({
             ) : (
               <button
                 type="submit"
-                disabled={disabled || !input.trim() || uploadingFile}
+                disabled={disabled || !input.trim() || uploadingFile || !isConnected}
                 className="button-primary p-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PaperAirplaneIcon className="w-4 h-4" />

@@ -11,6 +11,7 @@ import {
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 import HistoryTab from './HistoryTab'
 import DatabaseTab from './DatabaseTab'
+import { useChatStore } from '@/store/chatStore'
 
 interface SidebarProps {
   open: boolean
@@ -32,6 +33,7 @@ export default function Sidebar({
   const [activeTab, setActiveTab] = useState<'history' | 'database'>('history')
   const [isResizing, setIsResizing] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const isConnected = useChatStore((state) => state.isConnected)
 
   const tabs = [
     { id: 'history' as const, label: 'History', icon: ClockIcon },
@@ -148,7 +150,9 @@ export default function Sidebar({
               </div>
 
               {/* Tabs */}
-              <div className="flex border-b border-secondary-200 dark:border-secondary-700">
+              <div className={`flex border-b border-secondary-200 dark:border-secondary-700 transition-all duration-300 ${
+                !isConnected ? 'blur-sm pointer-events-none' : ''
+              }`}>
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -166,7 +170,9 @@ export default function Sidebar({
               </div>
 
               {/* Tab Content */}
-              <div className="flex-1 overflow-y-auto p-6">
+              <div className={`flex-1 overflow-y-auto p-6 transition-all duration-300 ${
+                !isConnected ? 'blur-sm pointer-events-none' : ''
+              }`}>
                 <div key={activeTab} className="tab-content">
                   {activeTab === 'history' && <HistoryTab />}
                   {activeTab === 'database' && <DatabaseTab />}

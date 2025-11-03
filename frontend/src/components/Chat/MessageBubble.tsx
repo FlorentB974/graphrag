@@ -86,7 +86,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* bottom area: sources list (left) and quality badge (anchored) */}
         {!isUser && ( (message.sources && message.sources.length > 0) || message.quality_score ) && (
-          <div className="mt-4 pt-4 border-t border-secondary-200 relative">
+          <div className="mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-700 relative">
             {message.sources && message.sources.length > 0 ? (
               <div className="min-w-0">
                 <SourcesList sources={message.sources} />

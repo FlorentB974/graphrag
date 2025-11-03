@@ -598,7 +598,7 @@ export default function DocumentView() {
                   </dd>
                 </div>
               </dl>
-              <div className="mt-4 pt-4 border-t border-secondary-200">
+              <div className="mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-700">
                 <dt className="text-secondary-500 dark:text-secondary-400 text-sm mb-2">Tags</dt>
                 <div 
                   className="flex flex-wrap gap-2 cursor-pointer p-2 -m-2 rounded hover:bg-secondary-50 dark:hover:bg-secondary-900 transition-colors"
@@ -732,7 +732,7 @@ export default function DocumentView() {
                 </div>
                 <span className="text-xs text-secondary-500 dark:text-secondary-400">{documentData.chunks.length} entries</span>
               </header>
-              <div className="divide-y divide-secondary-200">
+              <div className="divide-y divide-secondary-200 dark:divide-secondary-700">
                 {documentData.chunks.length === 0 ? (
                   <p className="px-5 py-4 text-sm text-secondary-500 dark:text-secondary-400">No chunks processed yet.</p>
                 ) : (
@@ -844,7 +844,7 @@ export default function DocumentView() {
               {documentData.entities.length === 0 ? (
                 <p className="px-5 py-4 text-sm text-secondary-500 dark:text-secondary-400">No entities extracted yet.</p>
               ) : (
-                <div className="divide-y divide-secondary-100">
+                <div className="divide-y divide-secondary-100 dark:divide-secondary-700">
                   {Object.entries(groupedEntities).map(([type, entities]) => {
                     const showAll = showAllEntities[type] || false
                     const displayedEntities = showAll ? entities : entities.slice(0, ENTITIES_PER_TYPE_LIMIT)
@@ -857,7 +857,7 @@ export default function DocumentView() {
                         </h4>
                         <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           {displayedEntities.map((entity) => (
-                            <li key={`${type}-${entity.text}`} className="border border-secondary-200 rounded-lg px-3 py-2">
+                            <li key={`${type}-${entity.text}`} className="border border-secondary-200 dark:border-secondary-700 rounded-lg px-3 py-2">
                               <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{entity.text}</p>
                               <p className="text-xs text-secondary-500 dark:text-secondary-400">
                                 Count: {entity.count ?? '—'} · Positions: {entity.positions?.join(', ') || '—'}

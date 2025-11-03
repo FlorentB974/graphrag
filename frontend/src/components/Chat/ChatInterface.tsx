@@ -52,24 +52,35 @@ export default function ChatInterface() {
     fetchSettings()
   }, [])
 
-  // Health check monitoring
+  // Health check monitoring with adaptive interval
   useEffect(() => {
-    const checkHealth = async () => {
-      const isHealthy = await api.checkHealth()
-      setIsConnected(isHealthy)
+    let isUnmounted = false;
+
+    const HEALTHY_INTERVAL = 30000; // 30 seconds when connected
+    const UNHEALTHY_INTERVAL = 5000; // 5 seconds when disconnected
+
+    const scheduleNextCheck = (delay: number) => {
+      if (healthCheckIntervalRef.current) {
+        clearTimeout(healthCheckIntervalRef.current as unknown as number)
+      }
+      healthCheckIntervalRef.current = setTimeout(runHealthCheck, delay)
     }
 
-    // Check health immediately on mount
-    checkHealth()
+    const runHealthCheck = async () => {
+      if (isUnmounted) return;
+      const isHealthy = await api.checkHealth()
+      setIsConnected(isHealthy)
+      // Schedule next check based on health
+      scheduleNextCheck(isHealthy ? HEALTHY_INTERVAL : UNHEALTHY_INTERVAL)
+    }
 
-    // Set up interval to check health every 5 seconds
-    healthCheckIntervalRef.current = setInterval(() => {
-      checkHealth()
-    }, 5000)
+    // Start health check loop
+    runHealthCheck()
 
     return () => {
+      isUnmounted = true;
       if (healthCheckIntervalRef.current) {
-        clearInterval(healthCheckIntervalRef.current)
+        clearTimeout(healthCheckIntervalRef.current as unknown as number)
       }
     }
   }, [setIsConnected])

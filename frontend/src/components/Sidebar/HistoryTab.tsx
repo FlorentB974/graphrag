@@ -57,6 +57,7 @@ export default function HistoryTab() {
 
     try {
       await api.clearHistory()
+      clearChat()
       await loadSessions()
     } catch (error) {
       console.error('Failed to clear history:', error)

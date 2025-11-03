@@ -413,7 +413,10 @@ export default function ChatInput({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsDragging(true)
+    // Only show drag feedback if server is connected
+    if (isConnected) {
+      setIsDragging(true)
+    }
   }
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -426,6 +429,11 @@ export default function ChatInput({
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
+
+    // Don't allow file operations when server is disconnected
+    if (!isConnected) {
+      return
+    }
 
     // Check for dragged documents from database tab
     const draggedData = e.dataTransfer.getData('application/json')
@@ -618,7 +626,7 @@ export default function ChatInput({
             {/* File Upload Button */}
             <label
               className={`cursor-pointer p-2 text-secondary-400 hover:text-primary-600 transition-colors ${
-                disabled || isStreaming || uploadingFile
+                disabled || isStreaming || uploadingFile || !isConnected
                   ? 'opacity-50 pointer-events-none'
                   : ''
               }`}
@@ -627,7 +635,7 @@ export default function ChatInput({
                 type="file"
                 className="hidden"
                 onChange={handleFileInput}
-                disabled={disabled || isStreaming || uploadingFile}
+                disabled={disabled || isStreaming || uploadingFile || !isConnected}
                 accept=".pdf,.txt,.md,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
                 multiple
               />

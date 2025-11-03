@@ -13,6 +13,8 @@ interface ChatStore {
   activeView: ActiveView
   selectedDocumentId: string | null
   selectedChunkId: string | number | null
+  isConnected: boolean
+  setIsConnected: (connected: boolean) => void
   notifyHistoryRefresh: () => void
   setSessionId: (sessionId: string) => void
   setActiveView: (view: ActiveView) => void
@@ -35,6 +37,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   activeView: 'chat',
   selectedDocumentId: null,
   selectedChunkId: null,
+  isConnected: true,
+  setIsConnected: (connected) => set({ isConnected: connected }),
   setSessionId: (sessionId) => set({ sessionId }),
   setActiveView: (view) => set({ activeView: view }),
   notifyHistoryRefresh: () => set((state) => ({ historyRefreshKey: state.historyRefreshKey + 1 })),

@@ -29,6 +29,20 @@ export default function HistoryTab() {
     }
   }, [historyRefreshKey])
 
+  // Reload history when server reconnects
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleReconnect = () => {
+      loadSessions()
+    }
+
+    window.addEventListener('server:reconnected', handleReconnect)
+    return () => {
+      window.removeEventListener('server:reconnected', handleReconnect)
+    }
+  }, [])
+
   const loadSessions = async () => {
     try {
       setLoading(true)

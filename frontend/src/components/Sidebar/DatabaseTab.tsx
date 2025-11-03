@@ -90,6 +90,7 @@ export default function DatabaseTab() {
       window.addEventListener('documents:processed', handler)
       window.addEventListener('documents:processing-updated', handler)
       window.addEventListener('documents:uploaded', handler)
+      window.addEventListener('server:reconnected', handler)
     }
 
     return () => {
@@ -97,6 +98,7 @@ export default function DatabaseTab() {
         window.removeEventListener('documents:processed', handler)
         window.removeEventListener('documents:processing-updated', handler)
         window.removeEventListener('documents:uploaded', handler)
+        window.removeEventListener('server:reconnected', handler)
       }
     }
   }, [])

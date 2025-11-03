@@ -8,6 +8,7 @@ import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
 import FollowUpQuestions from './FollowUpQuestions'
 import LoadingIndicator from './LoadingIndicator'
+import ConnectionStatus from './ConnectionStatus'
 import { PlusCircleIcon } from '@heroicons/react/24/outline'
 import { useChatStore } from '@/store/chatStore'
 
@@ -20,12 +21,15 @@ export default function ChatInterface() {
   const clearChat = useChatStore((state) => state.clearChat)
   const notifyHistoryRefresh = useChatStore((state) => state.notifyHistoryRefresh)
   const isHistoryLoading = useChatStore((state) => state.isHistoryLoading)
+  const isConnected = useChatStore((state) => state.isConnected)
+  const setIsConnected = useChatStore((state) => state.setIsConnected)
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const [currentStage, setCurrentStage] = useState<string>('query_analysis')
   const [completedStages, setCompletedStages] = useState<string[]>([])
   const [settings, setSettings] = useState<any>(null)
+  const healthCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -47,6 +51,38 @@ export default function ChatInterface() {
     }
     fetchSettings()
   }, [])
+
+  // Health check monitoring
+  useEffect(() => {
+    const checkHealth = async () => {
+      const isHealthy = await api.checkHealth()
+      setIsConnected(isHealthy)
+    }
+
+    // Check health immediately on mount
+    checkHealth()
+
+    // Set up interval to check health every 5 seconds
+    healthCheckIntervalRef.current = setInterval(() => {
+      checkHealth()
+    }, 5000)
+
+    return () => {
+      if (healthCheckIntervalRef.current) {
+        clearInterval(healthCheckIntervalRef.current)
+      }
+    }
+  }, [setIsConnected])
+
+  // Trigger refresh when connection is restored
+  useEffect(() => {
+    if (isConnected && typeof window !== 'undefined') {
+      // Only emit refresh event if we were previously disconnected
+      if (window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('server:reconnected'))
+      }
+    }
+  }, [isConnected])
 
   const handleStopStreaming = () => {
     if (abortControllerRef.current) {
@@ -331,6 +367,9 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Connection Status Alert */}
+      <ConnectionStatus />
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (

@@ -396,7 +396,7 @@ export default function DatabaseTab() {
       </div>
 
       {processingSummary?.is_processing && (
-        <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-sm shadow-sm ${
+        <div className={`flex items-center gap-3 rounded-lg border dark:border-secondary-700 px-4 py-3 text-sm shadow-sm ${
           isStuck 
             ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-900/20 dark:text-red-400' 
             : 'border-secondary-200 bg-white dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300'

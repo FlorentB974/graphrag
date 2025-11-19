@@ -32,6 +32,10 @@ def test_marker_pdf_loader_returns_content(tmp_path: Path, monkeypatch: pytest.M
         fake_text_from_rendered,
     )
 
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
     loader = MarkerPdfLoader(converter=dummy_converter)
     result = loader.load_with_metadata(sample_pdf_path)
 
@@ -41,5 +45,31 @@ def test_marker_pdf_loader_returns_content(tmp_path: Path, monkeypatch: pytest.M
     assert metadata["parser"] == "marker"
     assert metadata["source"].endswith("sample.pdf")
     assert metadata["images_count"] == 1
+    assert metadata["use_llm"] is True
+    assert metadata["llm_provider"] == "openai"
+    assert metadata["llm_configured"] is True
     # Ensure fallback load() helper returns the same text
     assert loader.load(sample_pdf_path) == result["content"]
+
+
+def test_marker_pdf_loader_prefers_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-123")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    loader = MarkerPdfLoader(converter=DummyConverter())
+
+    assert loader.llm_provider == "gemini"
+    assert loader.llm_api_key == "gem-123"
+    assert loader.llm_configured is True
+
+
+def test_marker_pdf_loader_disables_llm_without_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    loader = MarkerPdfLoader(converter=DummyConverter())
+
+    assert loader.llm_provider is None
+    assert loader.llm_api_key is None
+    assert loader.llm_configured is False

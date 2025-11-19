@@ -20,10 +20,10 @@ The system can detect and process:
 ### 3. Smart Processing Pipeline
 
 #### For PDF Documents:
-1. **Page Analysis**: Each page is analyzed for text quality
-2. **Readable Text Preservation**: High-quality text is used directly
-3. **Selective OCR**: Only poor-quality or image content gets OCR processing
-4. **Content Type Specific OCR**: Different OCR configurations for different content types
+1. **Marker Conversion**: Marker renders the PDF and converts it to Markdown
+2. **Layout Preservation**: Structured Markdown maintains logical reading order
+3. **Image Tracking**: Embedded images are counted and metadata recorded for downstream use
+4. **Device Awareness**: Conversion honors the configured `TORCH_DEVICE` setting when available
 
 #### For Image Files:
 1. **Content Detection**: Analyzes image to determine if it contains processable text
@@ -40,10 +40,10 @@ The system can detect and process:
 - Detects image content types using computer vision techniques
 - Applies content-specific OCR configurations
 
-#### 2. PDFLoader (`ingestion/loaders/pdf_loader.py`)
-- Replaces the old PDF loader with intelligent processing
-- Uses SmartOCRProcessor to analyze and process PDF pages
-- Preserves readable text while applying OCR to problematic content
+#### 2. MarkerPdfLoader (`ingestion/loaders/marker_pdf_loader.py`)
+- Uses Marker to convert PDFs directly into Markdown
+- Preserves layout and captures image metadata for downstream processing
+- Provides consistent metadata to indicate Marker-based parsing
 
 #### 3. ImageLoader (`ingestion/loaders/image_loader.py`)
 - Processes standalone image files intelligently
@@ -151,7 +151,7 @@ New fields added to document nodes:
 ### From Old System
 - OCR checkbox removed from UI
 - All OCR processing now automatic
-- Legacy PDF loader replaced with PDFLoader
+- Legacy PDF loader replaced with MarkerPdfLoader
 - Image processing enhanced with content detection
 
 ### Backward Compatibility

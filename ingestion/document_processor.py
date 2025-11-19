@@ -21,7 +21,7 @@ from core.graph_db import graph_db
 from ingestion.loaders.csv_loader import CSVLoader
 from ingestion.loaders.docx_loader import DOCXLoader
 from ingestion.loaders.image_loader import ImageLoader
-from ingestion.loaders.pdf_loader import PDFLoader
+from ingestion.loaders.marker_pdf_loader import MarkerPdfLoader
 from ingestion.loaders.pptx_loader import PPTXLoader
 from ingestion.loaders.text_loader import TextLoader
 from ingestion.loaders.xlsx_loader import XLSXLoader
@@ -62,8 +62,9 @@ class DocumentProcessor:
         """Initialize the document processor."""
         # Initialize loaders with intelligent OCR support
         image_loader = ImageLoader()
+        pdf_loader = MarkerPdfLoader()
         self.loaders = {
-            ".pdf": PDFLoader(),  # PDF loader with intelligent OCR
+            ".pdf": pdf_loader,
             ".docx": DOCXLoader(),
             ".txt": TextLoader(),
             ".md": TextLoader(),
@@ -438,8 +439,8 @@ class DocumentProcessor:
                     return None
                 content = result["content"]
                 ocr_metadata = result.get("metadata", {})
-            elif isinstance(loader, PDFLoader):
-                logger.info(f"Processing PDF file with intelligent OCR: {file_path}")
+            elif isinstance(loader, MarkerPdfLoader):
+                logger.info(f"Processing PDF file with Marker: {file_path}")
                 result = loader.load_with_metadata(file_path)
                 if not result or not result["content"]:
                     logger.warning(f"No content extracted from PDF: {file_path}")
@@ -971,7 +972,7 @@ class DocumentProcessor:
 
             logger.info(f"Processing file chunks only: {file_path}")
 
-            # Handle image and PDF files with intelligent OCR
+            # Handle image files with intelligent OCR and PDFs with Marker
             ocr_metadata = {}
             if isinstance(loader, ImageLoader):
                 logger.info(f"Processing image file with intelligent OCR: {file_path}")
@@ -981,8 +982,8 @@ class DocumentProcessor:
                     return None
                 content = result["content"]
                 ocr_metadata = result.get("metadata", {})
-            elif isinstance(loader, PDFLoader):
-                logger.info(f"Processing PDF file with intelligent OCR: {file_path}")
+            elif isinstance(loader, MarkerPdfLoader):
+                logger.info(f"Processing PDF file with Marker: {file_path}")
                 result = loader.load_with_metadata(file_path)
                 if not result or not result["content"]:
                     logger.warning(f"No content extracted from PDF: {file_path}")

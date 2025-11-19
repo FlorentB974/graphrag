@@ -9,7 +9,13 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import cv2
+try:
+    import cv2  # type: ignore
+    _cv2_import_error: Optional[Exception] = None
+except Exception as exc:  # pragma: no cover - optional dependency handling
+    cv2 = None  # type: ignore
+    _cv2_import_error = exc
+
 import numpy as np
 import pytesseract
 from pdf2image import convert_from_path
@@ -36,6 +42,12 @@ class OCRProcessor:
         # Ensure poppler is available in PATH
         self._setup_poppler_path()
 
+        if cv2 is None:
+            logger.warning(
+                "OpenCV is not available (%s). Image-based OCR features are disabled until the dependency is installed.",
+                _cv2_import_error,
+            )
+
         # Content detection thresholds
         self.MIN_TEXT_RATIO = 0.15  # Minimum ratio of alphanumeric chars to total chars
         self.MAX_WHITESPACE_RATIO = 0.65  # Maximum ratio of whitespace characters
@@ -57,6 +69,14 @@ class OCRProcessor:
             logger.warning("langdetect not available - language detection disabled. Install with: pip install langdetect")
 
         logger.info("Smart OCR processor initialized with language support")
+
+    def _ensure_cv2_available(self) -> None:
+        """Raise a clear error if OpenCV-dependent functionality is requested without cv2."""
+        if cv2 is None:
+            raise RuntimeError(
+                "OpenCV is required for this OCR operation but is not available. "
+                "Install the 'opencv-python-headless' package and necessary system libraries."
+            )
 
     def _setup_poppler_path(self):
         """Ensure poppler utilities are available in PATH."""
@@ -340,6 +360,7 @@ class OCRProcessor:
             Dictionary with content type analysis
         """
         try:
+            self._ensure_cv2_available()
             # Convert to grayscale if needed
             if len(image.shape) == 3:
                 gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -464,6 +485,7 @@ class OCRProcessor:
             Enhanced image as numpy array
         """
         try:
+            self._ensure_cv2_available()
             # Convert to grayscale if needed
             if len(image.shape) == 3:
                 gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)

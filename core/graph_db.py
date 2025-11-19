@@ -58,10 +58,16 @@ class GraphDB:
     def __init__(self):
         """Initialize Neo4j connection."""
         self.driver: Optional[Driver] = None
+        if not settings.neo4j_enabled:
+            logger.warning("Neo4j connectivity disabled via configuration")
+            return
         self.connect()
 
     def connect(self) -> None:
         """Establish connection to Neo4j database."""
+        if not settings.neo4j_enabled:
+            logger.warning("Skipping Neo4j connection because it is disabled")
+            return
         try:
             self.driver = GraphDatabase.driver(
                 settings.neo4j_uri,

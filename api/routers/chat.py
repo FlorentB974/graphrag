@@ -5,8 +5,9 @@ Chat router for handling chat requests and responses.
 import asyncio
 import json
 import logging
+import time
 import uuid
-from typing import AsyncGenerator, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from api.models import ChatRequest, ChatResponse, FollowUpRequest, FollowUpResponse
 from api.services.chat_history_service import chat_history_service
 from api.services.follow_up_service import follow_up_service
+from api.services.stats_service import append_stage_timing, build_message_stats
 from core.quality_scorer import quality_scorer
 from rag.graph_rag import graph_rag
 
@@ -23,11 +25,20 @@ router = APIRouter()
 
 
 async def stream_response_generator(
-    result: dict, session_id: str, user_query: str, context_documents: List[str],
-    context_document_labels: List[str], context_hashtags: List[str], stage_updates: Optional[List[str]] = None
+    result: dict,
+    session_id: str,
+    user_query: str,
+    context_documents: List[str],
+    context_document_labels: List[str],
+    context_hashtags: List[str],
+    stage_updates: Optional[List[str]] = None,
+    message_stats: Optional[Dict[str, Any]] = None,
 ) -> AsyncGenerator[str, None]:
     """Generate streaming response with SSE format."""
     try:
+        stats_payload = message_stats or {}
+        pipeline_stats = stats_payload.setdefault("pipeline", {})
+        pipeline_stats.setdefault("stage_timings", pipeline_stats.get("stage_timings", []))
         # Emit pipeline stages progressively with timing
         # Map actual backend stages to what was executed
         if stage_updates:
@@ -77,6 +88,7 @@ async def stream_response_generator(
 
         # NOW emit quality calculation stage (AFTER response is done)
         quality_score = None
+        quality_start = time.perf_counter()
         try:
             # Emit quality calculation stage
             stage_data = {
@@ -104,9 +116,17 @@ async def stream_response_generator(
             )
         except Exception as e:
             logger.warning(f"Quality scoring failed: {e}")
+        finally:
+            append_stage_timing(
+                stats_payload,
+                "quality_calculation",
+                (time.perf_counter() - quality_start) * 1000,
+                timestamp=time.time(),
+            )
 
         # Generate follow-up questions and emit suggestions stage
         follow_up_questions = []
+        suggestions_start = time.perf_counter()
         try:
             # Emit suggestions stage LAST
             stage_data = {
@@ -124,6 +144,13 @@ async def stream_response_generator(
             )
         except Exception as e:
             logger.warning(f"Follow-up generation failed: {e}")
+        finally:
+            append_stage_timing(
+                stats_payload,
+                "suggestions",
+                (time.perf_counter() - suggestions_start) * 1000,
+                timestamp=time.time(),
+            )
 
         # Save to chat history
         try:
@@ -144,6 +171,7 @@ async def stream_response_generator(
                 context_documents=context_documents,
                 context_document_labels=context_document_labels,
                 context_hashtags=context_hashtags,
+                stats=stats_payload,
             )
             logger.info(f"Saved chat to history for session: {session_id}")
         except Exception as e:
@@ -179,6 +207,7 @@ async def stream_response_generator(
                 "session_id": session_id,
                 "metadata": result.get("metadata", {}),
                 "context_documents": result.get("context_documents", []),
+                "stats": stats_payload,
             },
         }
         yield f"data: {json.dumps(metadata_data)}\n\n"
@@ -241,12 +270,26 @@ async def chat_query(request: ChatRequest):
         stages = result.get("stages", [])
         logger.info(f"RAG pipeline completed with stages: {stages}")
 
+        request_payload = request.dict()
+        message_stats = build_message_stats(
+            result,
+            request_payload,
+            context_documents,
+            chat_history,
+        )
+
         # If streaming is requested, return SSE stream
         if request.stream:
             return StreamingResponse(
                 stream_response_generator(
-                    result, session_id, request.message, context_documents,
-                    context_document_labels, context_hashtags, stages
+                    result,
+                    session_id,
+                    request.message,
+                    context_documents,
+                    context_document_labels,
+                    context_hashtags,
+                    stages,
+                    message_stats=message_stats,
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -258,6 +301,7 @@ async def chat_query(request: ChatRequest):
 
         # Calculate quality score
         quality_score = None
+        quality_start = time.perf_counter()
         try:
             context_chunks = result.get("graph_context", [])
             if not context_chunks:
@@ -277,9 +321,17 @@ async def chat_query(request: ChatRequest):
             )
         except Exception as e:
             logger.warning(f"Quality scoring failed: {e}")
+        finally:
+            append_stage_timing(
+                message_stats,
+                "quality_calculation",
+                (time.perf_counter() - quality_start) * 1000,
+                timestamp=time.time(),
+            )
 
         # Generate follow-up questions
         follow_up_questions = []
+        suggestions_start = time.perf_counter()
         try:
             follow_up_questions = await follow_up_service.generate_follow_ups(
                 query=request.message,
@@ -289,6 +341,13 @@ async def chat_query(request: ChatRequest):
             )
         except Exception as e:
             logger.warning(f"Follow-up generation failed: {e}")
+        finally:
+            append_stage_timing(
+                message_stats,
+                "suggestions",
+                (time.perf_counter() - suggestions_start) * 1000,
+                timestamp=time.time(),
+            )
 
         # Save to chat history
         try:
@@ -310,6 +369,7 @@ async def chat_query(request: ChatRequest):
                 context_documents=context_documents,
                 context_document_labels=context_document_labels,
                 context_hashtags=context_hashtags,
+                stats=message_stats,
             )
         except Exception as e:
             logger.warning(f"Could not save to chat history: {e}")
@@ -322,6 +382,7 @@ async def chat_query(request: ChatRequest):
             session_id=session_id,
             metadata=result.get("metadata", {}),
             context_documents=result.get("context_documents", context_documents),
+            stats=message_stats,
         )
 
     except Exception as e:

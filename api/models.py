@@ -20,6 +20,10 @@ class ChatMessage(BaseModel):
     context_documents: Optional[List[str]] = None
     context_document_labels: Optional[List[str]] = None
     context_hashtags: Optional[List[str]] = None
+    stats: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Per-message telemetry such as tokens, timings, and cost",
+    )
 
 
 class ChatRequest(BaseModel):
@@ -58,6 +62,10 @@ class ChatResponse(BaseModel):
     context_documents: List[str] = Field(
         default_factory=list,
         description="Document IDs used to constrain retrieval",
+    )
+    stats: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Per-response telemetry for display and analytics",
     )
 
 
@@ -241,3 +249,6 @@ class ConversationHistory(BaseModel):
     messages: List[ChatMessage]
     created_at: str
     updated_at: str
+    session_stats: Optional[Dict[str, Any]] = Field(
+        default=None, description="Aggregated stats for the full session"
+    )

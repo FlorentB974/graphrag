@@ -4,13 +4,14 @@ OpenAI LLM integration for the RAG pipeline.
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import openai
 import requests
 
 from config.settings import settings
+from core.costs import estimate_cost
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ class LLMManager:
         system_message: Optional[str] = None,
         temperature: float = 0.1,
         max_tokens: int = 1000,
-    ) -> str:
+        collect_metrics: bool = False,
+    ) -> Any:
         """
         Generate a response using the configured LLM.
 
@@ -56,13 +58,25 @@ class LLMManager:
         """
         try:
             if self.provider == "ollama":
-                return self._generate_ollama_response(
-                    prompt, system_message, temperature, max_tokens
+                response_text, metadata = self._generate_ollama_response(
+                    prompt,
+                    system_message,
+                    temperature,
+                    max_tokens,
+                    collect_metrics=collect_metrics,
                 )
             else:
-                return self._generate_openai_response(
-                    prompt, system_message, temperature, max_tokens
+                response_text, metadata = self._generate_openai_response(
+                    prompt,
+                    system_message,
+                    temperature,
+                    max_tokens,
+                    collect_metrics=collect_metrics,
                 )
+
+            if collect_metrics:
+                return response_text, metadata
+            return response_text
 
         except Exception as e:
             logger.error(f"Failed to generate LLM response: {e}")
@@ -74,7 +88,9 @@ class LLMManager:
         system_message: Optional[str],
         temperature: float,
         max_tokens: int,
-    ) -> str:
+        *,
+        collect_metrics: bool = False,
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Generate response using OpenAI with retry logic."""
         messages = []
         if system_message:
@@ -86,13 +102,43 @@ class LLMManager:
 
         for attempt in range(max_retries):
             try:
+                start_time = time.perf_counter() if collect_metrics else None
                 response = openai.chat.completions.create(
                     model=str(self.model),
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                return response.choices[0].message.content or ""
+                response_text = response.choices[0].message.content or ""
+
+                metadata: Optional[Dict[str, Any]] = None
+                if collect_metrics:
+                    latency_ms = (
+                        (time.perf_counter() - start_time) * 1000
+                        if start_time is not None
+                        else None
+                    )
+                    usage = getattr(response, "usage", None)
+                    usage_dict = {
+                        "prompt_tokens": getattr(usage, "prompt_tokens", None)
+                        if usage
+                        else None,
+                        "completion_tokens": getattr(usage, "completion_tokens", None)
+                        if usage
+                        else None,
+                        "total_tokens": getattr(usage, "total_tokens", None)
+                        if usage
+                        else None,
+                    }
+                    metadata = {
+                        "provider": "openai",
+                        "model": response.model,
+                        "latency_ms": round(latency_ms, 2) if latency_ms else None,
+                        "usage": usage_dict,
+                        "request_id": getattr(response, "id", None),
+                    }
+
+                return response_text, metadata
             except openai.RateLimitError:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2**attempt)
@@ -128,8 +174,9 @@ class LLMManager:
                 else:
                     logger.error(f"LLM call failed after {max_retries} attempts: {e}")
                     raise
+
         # Should not reach here, but return empty string as a safe fallback
-        return ""
+        return "", None
 
     def _generate_ollama_response(
         self,
@@ -137,13 +184,16 @@ class LLMManager:
         system_message: Optional[str],
         temperature: float,
         max_tokens: int,
-    ) -> str:
+        *,
+        collect_metrics: bool = False,
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Generate response using Ollama."""
         full_prompt = ""
         if system_message:
             full_prompt += f"System: {system_message}\n\n"
         full_prompt += f"Human: {prompt}\n\nAssistant:"
 
+        start_time = time.perf_counter() if collect_metrics else None
         response = requests.post(
             f"{self.ollama_base_url}/api/generate",
             json={
@@ -155,7 +205,72 @@ class LLMManager:
             timeout=120,
         )
         response.raise_for_status()
-        return response.json().get("response", "")
+        result_text = response.json().get("response", "")
+
+        metadata: Optional[Dict[str, Any]] = None
+        if collect_metrics:
+            from core.token_manager import token_manager
+
+            latency_ms = (
+                (time.perf_counter() - start_time) * 1000
+                if start_time is not None
+                else None
+            )
+            prompt_tokens = token_manager.count_tokens(full_prompt)
+            completion_tokens = token_manager.count_tokens(result_text)
+            metadata = {
+                "provider": "ollama",
+                "model": self.model,
+                "latency_ms": round(latency_ms, 2) if latency_ms else None,
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
+                "request_id": None,
+            }
+
+        return result_text, metadata
+
+    def _build_llm_stats(
+        self,
+        call_metadata: List[Optional[Dict[str, Any]]],
+        temperature: float,
+        max_output_tokens: Optional[int],
+    ) -> Optional[Dict[str, Any]]:
+        """Aggregate per-call metadata into a single stats dictionary."""
+        valid = [entry for entry in call_metadata if entry]
+        if not valid:
+            return None
+
+        prompt_tokens = 0
+        completion_tokens = 0
+        latency_total = 0.0
+
+        for entry in valid:
+            usage = entry.get("usage", {}) if isinstance(entry, dict) else {}
+            prompt_tokens += int(usage.get("prompt_tokens") or 0)
+            completion_tokens += int(usage.get("completion_tokens") or 0)
+            latency_total += float(entry.get("latency_ms") or 0.0)
+
+        total_tokens = prompt_tokens + completion_tokens
+        avg_latency = latency_total / len(valid) if latency_total and valid else None
+        cost = estimate_cost(self.model, prompt_tokens, completion_tokens)
+
+        stats: Dict[str, Any] = {
+            "provider": self.provider,
+            "model": self.model,
+            "temperature": temperature,
+            "max_output_tokens": max_output_tokens,
+            "prompt_tokens": prompt_tokens or None,
+            "completion_tokens": completion_tokens or None,
+            "total_tokens": total_tokens or None,
+            "latency_ms": round(latency_total, 2) if latency_total else None,
+            "avg_latency_ms": round(avg_latency, 2) if avg_latency else None,
+            "calls": len(valid),
+        }
+        stats.update(cost)
+        return stats
 
     def generate_rag_response(
         self,
@@ -163,7 +278,7 @@ class LLMManager:
         context_chunks: list,
         include_sources: bool = True,
         temperature: float = 0.3,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Generate a RAG response using retrieved context chunks.
@@ -227,7 +342,7 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
         system_message: str,
         include_sources: bool,
         temperature: float,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Generate RAG response for a single request that fits within token limits."""
         try:
@@ -277,11 +392,12 @@ Please provide a comprehensive answer based on the context provided above."""
             cap = getattr(settings, "max_response_tokens", 2000)
             max_out = min(available, cap)
 
-            response = self.generate_response(
+            response, call_metadata = self.generate_response(
                 prompt=prompt,
                 system_message=system_message,
                 temperature=temperature,
                 max_tokens=max_out,
+                collect_metrics=True,
             )
 
             # If response looks truncated, try a short continuation
@@ -290,12 +406,15 @@ Please provide a comprehensive answer based on the context provided above."""
             # Post-processing: remove HTML tags like <br> and strip LaTeX wrappers
             cleaned = self._clean_response_text(response)
 
+            llm_stats = self._build_llm_stats([call_metadata], temperature, max_out)
+
             result = {
                 "answer": cleaned,
                 "query": query,
                 "context_chunks": context_chunks if include_sources else [],
                 "num_chunks_used": len(context_chunks),
                 "split_responses": False,
+                "llm_stats": llm_stats,
             }
 
             return result
@@ -311,7 +430,7 @@ Please provide a comprehensive answer based on the context provided above."""
         system_message: str,
         include_sources: bool,
         temperature: float,
-        chat_history: list = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Generate RAG response by splitting the request into multiple parts."""
         try:
@@ -325,6 +444,8 @@ Please provide a comprehensive answer based on the context provided above."""
 
             responses = []
             total_chunks_used = 0
+            call_metadata_entries: List[Optional[Dict[str, Any]]] = []
+            batch_max_tokens: List[int] = []
 
             # Build conversation history context if provided
             history_context = ""
@@ -381,11 +502,12 @@ Please provide a comprehensive answer based on the context provided above."""
                 cap = getattr(settings, "max_response_tokens", 2000)
                 max_out = min(available, cap)
 
-                batch_response = self.generate_response(
+                batch_response, batch_meta = self.generate_response(
                     prompt=batch_prompt,
                     system_message=system_message,
                     temperature=temperature,
                     max_tokens=max_out,
+                    collect_metrics=True,
                 )
 
                 # Attempt to continue if truncated
@@ -395,6 +517,8 @@ Please provide a comprehensive answer based on the context provided above."""
 
                 responses.append(batch_response)
                 total_chunks_used += len(batch_chunks)
+                call_metadata_entries.append(batch_meta)
+                batch_max_tokens.append(max_out)
 
             # Merge responses intelligently using LLM to remove duplicates and parts
             if not responses:
@@ -412,6 +536,12 @@ Please provide a comprehensive answer based on the context provided above."""
             # Clean the merged response
             cleaned = self._clean_response_text(merged_response)
 
+            llm_stats = self._build_llm_stats(
+                call_metadata_entries,
+                temperature,
+                max(batch_max_tokens) if batch_max_tokens else None,
+            )
+
             result = {
                 "answer": cleaned,
                 "query": query,
@@ -419,6 +549,7 @@ Please provide a comprehensive answer based on the context provided above."""
                 "num_chunks_used": total_chunks_used,
                 "split_responses": True,
                 "num_batches": len(batches),
+                "llm_stats": llm_stats,
             }
 
             return result

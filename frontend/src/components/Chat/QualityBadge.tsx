@@ -20,10 +20,7 @@ export default function QualityBadge({ score }: QualityBadgeProps) {
   }
 
   return (
-    <div
-      className="inline-flex items-center space-x-2 text-xs"
-      style={{ transform: 'translateY(-5px)' }}
-    >
+    <div className="inline-flex items-center space-x-2 text-xs">
       <span>{getEmoji(score.total)}</span>
       <span className={`px-2 py-1 rounded-full font-medium ${getColor(score.total)}`}>
         Quality: {score.total.toFixed(0)}%

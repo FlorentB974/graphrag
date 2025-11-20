@@ -3,6 +3,7 @@ LangGraph-based RAG pipeline implementation.
 """
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
@@ -30,6 +31,7 @@ class RAGState:
         self.quality_score: Optional[Dict[str, Any]] = None
         self.context_documents: List[str] = []
         self.stages: List[str] = []  # Track stages for UI
+        self.metrics: Dict[str, Any] = {}
 
 
 class GraphRAG:
@@ -62,8 +64,21 @@ class GraphRAG:
 
         return workflow.compile()
 
+    def _record_stage_metric(self, state: Dict[str, Any], stage: str, duration_ms: float) -> None:
+        """Store duration metrics for a pipeline stage."""
+        metrics = state.setdefault("metrics", {})
+        timings = metrics.setdefault("stage_timings", [])
+        timings.append(
+            {
+                "stage": stage,
+                "duration_ms": round(duration_ms, 2),
+                "timestamp": time.time(),
+            }
+        )
+
     def _analyze_query_node(self, state) -> Any:
         """Analyze the user query (dict-based state for LangGraph)."""
+        start_time = time.perf_counter()
         try:
             query = state.get("query", "")
             chat_history = state.get("chat_history", [])
@@ -83,9 +98,13 @@ class GraphRAG:
             logger.error(f"Query analysis failed: {e}")
             state["query_analysis"] = {"error": str(e)}
             return state
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._record_stage_metric(state, "query_analysis", duration_ms)
 
     def _retrieve_documents_node(self, state) -> Any:
         """Retrieve relevant documents (dict-based state for LangGraph)."""
+        start_time = time.perf_counter()
         try:
             logger.info("Retrieving relevant documents")
             
@@ -112,15 +131,45 @@ class GraphRAG:
                 use_multi_hop=use_multi_hop,
                 context_documents=state.get("context_documents", []),
             )
-            
+            metrics = state.setdefault("metrics", {})
+            retrieval_metrics = {
+                "mode": state.get("retrieval_mode", "graph_enhanced"),
+                "chunks_requested": state.get("top_k", 5),
+                "chunks_retrieved": len(state["retrieved_chunks"]),
+                "graph_expansion": graph_expansion,
+                "use_multi_hop": use_multi_hop,
+                "context_documents_count": len(state.get("context_documents", []) or []),
+            }
+            unique_docs = {
+                chunk.get("document_id") or chunk.get("filename")
+                for chunk in state["retrieved_chunks"]
+                if chunk.get("document_id") or chunk.get("filename")
+            }
+            similarities = [
+                chunk.get("similarity", chunk.get("hybrid_score"))
+                for chunk in state["retrieved_chunks"]
+                if chunk.get("similarity") is not None
+                or chunk.get("hybrid_score") is not None
+            ]
+            if unique_docs:
+                retrieval_metrics["unique_documents"] = len(unique_docs)
+            if similarities:
+                retrieval_metrics["avg_similarity"] = round(
+                    sum(similarities) / len(similarities), 4
+                )
+            metrics["retrieval"] = retrieval_metrics
             return state
         except Exception as e:
             logger.error(f"Document retrieval failed: {e}")
             state["retrieved_chunks"] = []
             return state
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._record_stage_metric(state, "retrieval", duration_ms)
 
     def _reason_with_graph_node(self, state) -> Any:
         """Perform graph-based reasoning (dict-based state for LangGraph)."""
+        start_time = time.perf_counter()
         try:
             logger.info("Performing graph reasoning")
             
@@ -143,9 +192,13 @@ class GraphRAG:
             logger.error(f"Graph reasoning failed: {e}")
             state["graph_context"] = state.get("retrieved_chunks", [])
             return state
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._record_stage_metric(state, "graph_reasoning", duration_ms)
 
     def _generate_response_node(self, state) -> Any:
         """Generate the final response (dict-based state for LangGraph)."""
+        start_time = time.perf_counter()
         try:
             logger.info("Generating response")
             
@@ -170,6 +223,10 @@ class GraphRAG:
             state["metadata"] = response_data.get("metadata", {})
             # Capture quality score computed during generation (if available)
             state["quality_score"] = response_data.get("quality_score", None)
+            llm_stats = response_data.get("llm_stats")
+            if llm_stats:
+                metrics = state.setdefault("metrics", {})
+                metrics["llm"] = llm_stats
 
             return state
         except Exception as e:
@@ -178,6 +235,9 @@ class GraphRAG:
             state["sources"] = []
             state["metadata"] = {"error": str(e)}
             return state
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._record_stage_metric(state, "generation", duration_ms)
 
     def query(
         self,
@@ -212,6 +272,12 @@ class GraphRAG:
             state_obj = RAGState()
             state_obj.query = user_query
             state = state_obj.__dict__.copy()
+            state_metrics = {
+                "stage_timings": [],
+                "pipeline": {"started_at": time.time()},
+            }
+            state["metrics"] = state_metrics
+            pipeline_perf_start = time.perf_counter()
 
             # Add RAG parameters to state
             state["retrieval_mode"] = retrieval_mode
@@ -228,6 +294,15 @@ class GraphRAG:
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")
             final_state_dict = self.workflow.invoke(state)
+            final_metrics = final_state_dict.setdefault("metrics", {})
+            pipeline_metrics = final_metrics.setdefault("pipeline", {})
+            pipeline_metrics.setdefault(
+                "started_at", state_metrics["pipeline"].get("started_at")
+            )
+            pipeline_metrics["finished_at"] = time.time()
+            pipeline_metrics["duration_ms"] = round(
+                (time.perf_counter() - pipeline_perf_start) * 1000, 2
+            )
 
             # Rebuild RAGState object from returned dict for backward compatibility
             final_state = RAGState()
@@ -252,6 +327,7 @@ class GraphRAG:
                 "quality_score": getattr(final_state, "quality_score", None),
                 "context_documents": context_docs,
                 "stages": getattr(final_state, "stages", []),
+                "metrics": getattr(final_state, "metrics", {}),
             }
 
         except Exception as e:
@@ -267,6 +343,7 @@ class GraphRAG:
                 "quality_score": None,
                 "context_documents": context_documents or [],
                 "stages": [],
+                "metrics": state.get("metrics", {}),
             }
 
     async def aquery(self, user_query: str) -> Dict[str, Any]:

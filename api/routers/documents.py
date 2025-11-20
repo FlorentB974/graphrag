@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from api.models import DocumentMetadataResponse, UpdateHashtagsRequest
 from core.document_summarizer import document_summarizer
@@ -113,6 +113,9 @@ async def get_document_preview(document_id: str):
         raise HTTPException(status_code=500, detail="Failed to prepare preview") from exc
 
     file_path = info.get("file_path")
+    preview_url = info.get("preview_url")
+    if not file_path and preview_url:
+        return RedirectResponse(preview_url)
     if not file_path:
         raise HTTPException(status_code=404, detail="Preview not available")
 

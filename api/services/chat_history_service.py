@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from api.models import ChatMessage, ConversationHistory, ConversationSession
+from api.services.stats_service import compute_session_stats
 from core.graph_db import graph_db
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ class ChatHistoryService:
         context_documents: Optional[List[str]] = None,
         context_document_labels: Optional[List[str]] = None,
         context_hashtags: Optional[List[str]] = None,
+        stats: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Save a message to chat history.
@@ -93,6 +95,7 @@ class ChatHistoryService:
             context_documents: Optional list of context document IDs
             context_document_labels: Optional list of context document labels/names
             context_hashtags: Optional list of context hashtags
+            stats: Optional telemetry information for this message
         """
         try:
             # Use the machine's local timezone so frontend shows relative times in local context
@@ -116,7 +119,8 @@ class ChatHistoryService:
                 follow_up_questions: $follow_up_questions,
                 context_documents: $context_documents,
                 context_document_labels: $context_document_labels,
-                context_hashtags: $context_hashtags
+                context_hashtags: $context_hashtags,
+                stats: $stats
             })
             CREATE (s)-[:HAS_MESSAGE]->(m)
             """
@@ -133,6 +137,7 @@ class ChatHistoryService:
                 context_documents=context_documents or [],
                 context_document_labels=context_document_labels or [],
                 context_hashtags=context_hashtags or [],
+                stats=json.dumps(stats) if stats else None,
             )
 
             logger.info(f"Saved message to session {session_id}")
@@ -193,6 +198,13 @@ class ChatHistoryService:
                     except json.JSONDecodeError:
                         quality_data = None
 
+                stats_data = msg_node.get("stats")
+                if isinstance(stats_data, str):
+                    try:
+                        stats_data = json.loads(stats_data)
+                    except json.JSONDecodeError:
+                        stats_data = None
+
                 messages.append(
                     ChatMessage(
                         role=msg_node.get("role", ""),
@@ -204,6 +216,7 @@ class ChatHistoryService:
                         context_documents=msg_node.get("context_documents"),
                         context_document_labels=msg_node.get("context_document_labels"),
                         context_hashtags=msg_node.get("context_hashtags"),
+                        stats=stats_data,
                     )
                 )
 
@@ -220,11 +233,14 @@ class ChatHistoryService:
                     pass
                 return ""
 
+            session_stats = compute_session_stats(messages)
+
             return ConversationHistory(
                 session_id=session_id,
                 messages=messages,
                 created_at=_normalize_ts(session_data.get("created_at", "")),
                 updated_at=_normalize_ts(session_data.get("updated_at", "")),
+                session_stats=session_stats,
             )
 
         except Exception as e:

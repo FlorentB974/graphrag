@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { flushSync } from 'react-dom'
-import { Message } from '@/types'
+import { Message, SessionAggregateStats } from '@/types'
 import { api } from '@/lib/api'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
@@ -169,6 +169,7 @@ export default function ChatInterface() {
       }
     })
     let effectiveContextDocLabels = [...contextDocumentLabels]
+    let statsPayload: Message['stats'] | null = null
 
     // Smooth rendering using requestAnimationFrame
     const smoothRender = () => {
@@ -278,6 +279,9 @@ export default function ChatInterface() {
                     (docId: string) => contextDocLabelMap.get(docId) || docId
                   )
                 }
+                if (data.content.stats) {
+                  statsPayload = data.content.stats
+                }
               } else if (data.type === 'done') {
                 streamCompleted = true
               } else if (data.type === 'error') {
@@ -315,6 +319,7 @@ export default function ChatInterface() {
         follow_up_questions: followUpQuestions,
         context_documents: effectiveContextDocs,
         context_document_labels: effectiveContextDocLabels,
+        stats: statsPayload ?? prev.stats,
       }))
 
       if (newSessionId && !sessionId) {
@@ -346,6 +351,7 @@ export default function ChatInterface() {
             followUpQuestions.length > 0 ? followUpQuestions : prev.follow_up_questions,
           context_documents: effectiveContextDocs,
           context_document_labels: effectiveContextDocLabels,
+          stats: statsPayload ?? prev.stats,
         }))
       } else {
         console.error('Error sending message:', error)
@@ -375,6 +381,8 @@ export default function ChatInterface() {
   const userMessages = messages
     .filter((msg) => msg.role === 'user')
     .map((msg) => msg.content)
+
+  const sessionStats = useMemo(() => deriveSessionStats(messages), [messages])
 
   return (
     <div className="flex flex-col h-full">
@@ -412,7 +420,7 @@ export default function ChatInterface() {
           <div className="max-w-4xl mx-auto space-y-4">
             {messages.map((message, index) => (
               <div key={index}>
-                <MessageBubble message={message} />
+                <MessageBubble message={message} sessionStats={sessionStats} />
                 {message.role === 'assistant' &&
                   !message.isStreaming &&
                   message.follow_up_questions &&
@@ -459,4 +467,59 @@ export default function ChatInterface() {
       </div>
     </div>
   )
+}
+
+function deriveSessionStats(messages: Message[]): SessionAggregateStats | undefined {
+  const assistantMessages = messages.filter(
+    (msg) => msg.role === 'assistant' && msg.stats
+  )
+
+  if (assistantMessages.length === 0) {
+    return undefined
+  }
+
+  let prompt = 0
+  let completion = 0
+  let cost = 0
+  let latencySum = 0
+  let latencyCount = 0
+  let pipelineSum = 0
+  let pipelineCount = 0
+
+  assistantMessages.forEach((msg) => {
+    const llm = msg.stats?.llm
+    if (typeof llm?.prompt_tokens === 'number') {
+      prompt += llm.prompt_tokens
+    }
+    if (typeof llm?.completion_tokens === 'number') {
+      completion += llm.completion_tokens
+    }
+    if (typeof llm?.total_cost_usd === 'number') {
+      cost += llm.total_cost_usd
+    }
+    if (typeof llm?.latency_ms === 'number' && llm.latency_ms > 0) {
+      latencySum += llm.latency_ms
+      latencyCount += 1
+    }
+
+    const pipelineDuration = msg.stats?.pipeline?.total_duration_ms
+    if (typeof pipelineDuration === 'number' && pipelineDuration > 0) {
+      pipelineSum += pipelineDuration
+      pipelineCount += 1
+    }
+  })
+
+  return {
+    assistantResponses: assistantMessages.length,
+    totalPromptTokens: prompt,
+    totalCompletionTokens: completion,
+    totalTokens: prompt + completion,
+    totalCostUsd: Number(cost.toFixed(6)),
+    avgLatencyMs:
+      latencyCount > 0 ? Number((latencySum / latencyCount).toFixed(2)) : undefined,
+    avgPipelineMs:
+      pipelineCount > 0
+        ? Number((pipelineSum / pipelineCount).toFixed(2))
+        : undefined,
+  }
 }

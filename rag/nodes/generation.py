@@ -144,6 +144,7 @@ def generate_response(
             "sources": sources,
             "metadata": metadata,
             "quality_score": None,  # Will be calculated asynchronously
+            "llm_stats": response_data.get("llm_stats"),
         }
 
     except Exception as e:
@@ -156,4 +157,5 @@ def generate_response(
                 "chunks_used": len(context_chunks) if context_chunks else 0,
             },
             "quality_score": None,
+            "llm_stats": None,
         }

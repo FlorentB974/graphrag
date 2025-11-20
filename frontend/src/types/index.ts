@@ -11,6 +11,75 @@ export interface Message {
   context_documents?: string[]
   context_document_labels?: string[]
   context_hashtags?: string[]
+  stats?: MessageStats
+}
+
+export interface StageTiming {
+  stage: string
+  duration_ms?: number
+  timestamp?: number
+}
+
+export interface PipelineStats {
+  total_duration_ms?: number
+  stage_timings?: StageTiming[]
+}
+
+export interface LLMStats {
+  provider?: string
+  model?: string
+  temperature?: number
+  max_output_tokens?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  latency_ms?: number
+  avg_latency_ms?: number
+  calls?: number
+  input_cost_usd?: number
+  output_cost_usd?: number
+  total_cost_usd?: number
+}
+
+export interface RetrievalStats {
+  mode?: string
+  chunks_requested?: number
+  chunks_retrieved?: number
+  chunks_used?: number
+  chunks_filtered?: number
+  unique_documents?: number
+  avg_similarity?: number
+  sources_returned?: number
+  context_documents_count?: number
+}
+
+export interface ResponseStats {
+  characters?: number
+  words?: number
+  sources?: number
+}
+
+export interface SessionProgressStats {
+  assistant_turn?: number
+  messages_before_response?: number
+}
+
+export interface MessageStats {
+  pipeline?: PipelineStats
+  llm?: LLMStats
+  retrieval?: RetrievalStats
+  response?: ResponseStats
+  session?: SessionProgressStats
+}
+
+export interface SessionAggregateStats {
+  assistantResponses: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  totalTokens: number
+  totalCostUsd: number
+  avgLatencyMs?: number
+  avgPipelineMs?: number
 }
 
 export interface Source {

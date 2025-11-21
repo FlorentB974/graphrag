@@ -1,4 +1,9 @@
-import type { DocumentDetails, DocumentChunk, DocumentTextPayload } from '@/types'
+import type {
+  DocumentDetails,
+  DocumentChunk,
+  DocumentTextPayload,
+  GraphVisualizationData,
+} from '@/types'
 import type { ProcessingProgressResponse } from '@/types/upload'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -348,6 +353,22 @@ export const api = {
     } catch (error) {
       return false
     }
+  },
+
+  async getGraphVisualization(
+    minRelationshipStrength?: number
+  ): Promise<GraphVisualizationData> {
+    const url = new URL(`${API_URL}/api/graph/visualization`)
+    if (typeof minRelationshipStrength === 'number') {
+      url.searchParams.set('min_relationship_strength', String(minRelationshipStrength))
+    }
+
+    const response = await fetch(url.toString())
+    if (!response.ok) {
+      throw new Error(`API error: ${response.statusText}`)
+    }
+
+    return response.json()
   },
 
 }

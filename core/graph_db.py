@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+import networkx as nx
+
 from neo4j import Driver, GraphDatabase
 
 from config.settings import settings
@@ -1184,6 +1186,145 @@ class GraphDB:
                 ]
                 return {"entities": entities, "relationships": record["relationships"]}
             return {"entities": [], "relationships": []}
+
+    def get_graph_visualization_data(
+        self, min_relationship_strength: float = 0.0
+    ) -> Dict[str, Any]:
+        """Assemble entity graph data suitable for rich visualization."""
+
+        if not self.driver:
+            raise ValueError("Neo4j driver is not initialized")
+
+        with self.driver.session() as session:  # type: ignore
+            entity_records = session.run(
+                """
+                MATCH (e:Entity)
+                OPTIONAL MATCH (e)<-[:CONTAINS_ENTITY]-(c:Chunk)
+                WITH e, count(DISTINCT c) AS frequency, size((e)-[:RELATED_TO]-()) AS degree
+                RETURN e.id AS entity_id,
+                       COALESCE(e.name, '') AS name,
+                       COALESCE(e.type, 'unknown') AS type,
+                       COALESCE(e.description, '') AS description,
+                       COALESCE(e.importance_score, 0.5) AS importance_score,
+                       COALESCE(e.source_chunks, []) AS source_chunks,
+                       frequency,
+                       degree
+                """
+            ).data()
+
+            relationship_records = session.run(
+                """
+                MATCH (a:Entity)-[r:RELATED_TO]-(b:Entity)
+                WHERE COALESCE(r.strength, 0.0) >= $min_strength AND id(a) <= id(b)
+                RETURN id(r) AS relationship_id,
+                       a.id AS source_id,
+                       b.id AS target_id,
+                       COALESCE(r.description, '') AS description,
+                       COALESCE(r.strength, 0.5) AS weight,
+                       size((a)-[:RELATED_TO]-()) AS source_degree,
+                       size((b)-[:RELATED_TO]-()) AS target_degree
+                """,
+                min_strength=min_relationship_strength,
+            ).data()
+
+        entities = [
+            {
+                "id": record["entity_id"],
+                "human_readable_id": record["name"] or record["entity_id"],
+                "title": record["name"] or record["entity_id"],
+                "type": record["type"] or "unknown",
+                "description": record.get("description") or "",
+                "text_unit_ids": record.get("source_chunks") or [],
+                "frequency": int(record.get("frequency", 0)),
+                "degree": int(record.get("degree", 0)),
+            }
+            for record in entity_records
+        ]
+
+        relationships = []
+        for rel in relationship_records:
+            relationship_id = str(rel["relationship_id"])
+            relationships.append(
+                {
+                    "id": relationship_id,
+                    "human_readable_id": relationship_id,
+                    "source": rel["source_id"],
+                    "target": rel["target_id"],
+                    "description": rel.get("description") or "",
+                    "weight": float(rel.get("weight", 0.5)),
+                    "combined_degree": int(rel.get("source_degree", 0))
+                    + int(rel.get("target_degree", 0)),
+                    "text_unit_ids": [],
+                }
+            )
+
+        graph = nx.Graph()
+        for entity in entities:
+            graph.add_node(entity["id"])
+
+        for rel in relationships:
+            graph.add_edge(rel["source"], rel["target"], weight=rel["weight"])
+
+        communities: List[Dict[str, Any]] = []
+        if graph.number_of_nodes() > 0:
+            try:
+                detected = list(
+                    nx.community.louvain_communities(graph, weight="weight", seed=42)
+                )
+            except Exception:
+                detected = list(
+                    nx.community.greedy_modularity_communities(graph, weight="weight")
+                )
+
+            for index, community_nodes in enumerate(detected):
+                community_id = str(index + 1)
+                relationship_ids = [
+                    rel["id"]
+                    for rel in relationships
+                    if rel["source"] in community_nodes
+                    and rel["target"] in community_nodes
+                ]
+
+                communities.append(
+                    {
+                        "id": community_id,
+                        "human_readable_id": community_id,
+                        "community": community_id,
+                        "level": 1,
+                        "parent": "0",
+                        "children": [],
+                        "title": f"Community {index + 1}",
+                        "entity_ids": list(community_nodes),
+                        "relationship_ids": relationship_ids,
+                        "text_unit_ids": [],
+                        "period": "",
+                        "size": len(community_nodes),
+                    }
+                )
+
+        root_community = {
+            "id": "0",
+            "human_readable_id": "0",
+            "community": "0",
+            "level": 0,
+            "parent": None,
+            "children": [c["id"] for c in communities],
+            "title": "All Entities",
+            "entity_ids": [entity["id"] for entity in entities],
+            "relationship_ids": [rel["id"] for rel in relationships],
+            "text_unit_ids": [],
+            "period": "",
+            "size": len(entities),
+        }
+
+        communities.insert(0, root_community)
+
+        return {
+            "entities": entities,
+            "relationships": relationships,
+            "communities": communities,
+            "communityReports": [],
+        }
 
     def validate_chunk_embeddings(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
         """

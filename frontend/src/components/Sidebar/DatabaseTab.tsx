@@ -6,6 +6,7 @@ import { DatabaseStats, ProcessingSummary } from '@/types'
 import { TrashIcon, DocumentArrowUpIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useChatStore } from '@/store/chatStore'
 import { showToast } from '@/components/Toast/ToastContainer'
+import { GraphExplorerPanel } from '@/components/Graph3D/GraphExplorerPanel'
 
 export default function DatabaseTab() {
   const [stats, setStats] = useState<DatabaseStats | null>(null)
@@ -348,6 +349,8 @@ export default function DatabaseTab() {
       )}
 
       <div className="space-y-4">
+        <GraphExplorerPanel onRefreshRequest={loadStats} />
+
         {/* Upload Button */}
         <div className="flex gap-2">
           <label className="flex-1 cursor-pointer">

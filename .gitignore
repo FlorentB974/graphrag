@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+
+# Node/JS
+node_modules/
+.npmrc
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Builds
+.dist/
+dist/
+build/
+.next/
+*.tsbuildinfo
+
+# Editors
+.DS_Store
+.idea/
+.vscode/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Generated
+*.log

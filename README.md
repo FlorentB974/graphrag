@@ -35,6 +35,7 @@ A state-of-the-art document intelligence system powered by graph-based RAG (Retr
 - **NEW In-app Document View**: Inspect metadata, chunks, entities, and live previews
 - **NEW Tags extraction**: Automatic tags extraction during ingestion (editable)
 - **Multi-format Support**: PDF, DOCX, TXT, MD, PPT, XLS
+- **Marker-powered PDF parsing**: Every PDF is converted to high-fidelity Markdown via the [Marker](https://github.com/datalab-to/marker) OCR/LLM pipeline so chunking, summaries, and entity extraction work on cleaner text.
 - **Smart Chunking**: Intelligent document segmentation
 - **Entity Extraction**: Automatic identification of key entities
 - **Graph Relationships**: Connects related concepts across documents
@@ -117,6 +118,8 @@ cp .env.example .env
 # Edit .env and add your API keys and Neo4j credentials
 ```
 
+> **Note:** Installing the backend now fetches the `marker-pdf[full]` extra which pulls in PyTorch plus Marker model weights. This step may take longer than before; allow it to complete so PDF ingestion continues to function.
+
 #### 2. Start Neo4j
 
 **Option A: Docker**
@@ -163,6 +166,13 @@ Frontend will be available at `http://localhost:3000`
 2. Drag and drop files or click to select
 3. Wait for processing to complete
 4. Documents will appear in the Database tab
+
+#### Marker PDF loader specifics
+
+- PDF files now bypass the legacy OCR flow and are parsed through Marker’s Python API, which renders each page, converts the layout to Markdown, and captures inline images.
+- The resulting Markdown powers chunking, summarization, embeddings, and entity extraction, yielding cleaner tables, headings, and bullet structure than the previous plain-text extractor.
+- Ingested PDF metadata now includes `parser="marker"`, `processing_method="marker_pdf"`, and `images_count` so you can audit which parser handled each document.
+- All non-PDF extensions (`.txt`, `.md`, `.docx`, `.pptx`, `.xlsx`, images, etc.) keep their existing loader behavior—no configuration changes required.
 
 ### Asking Questions
 
@@ -212,7 +222,11 @@ NEO4J_PASSWORD=your_password
 # Features
 ENABLE_ENTITY_EXTRACTION=true
 ENABLE_QUALITY_SCORING=true
+# Marker PDF ingestion
+TORCH_DEVICE=cpu
 ```
+
+Set `TORCH_DEVICE` to `cuda`, `mps`, or another accelerator identifier if you want Marker to run on a GPU. If the variable is omitted Marker falls back to the environment’s default PyTorch device (usually CPU).
 
 ### Advanced Configuration
 

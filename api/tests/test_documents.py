@@ -1,9 +1,13 @@
 """Tests for document metadata and preview endpoints."""
 
+import os
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Disable Neo4j connectivity for tests before importing the app
+os.environ.setdefault("NEO4J_ENABLED", "false")
 
 from api.main import app
 from core.graph_db import graph_db

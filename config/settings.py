@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     )
 
     # Neo4j Configuration
+    neo4j_enabled: bool = Field(
+        default=True, description="Enable Neo4j connectivity"
+    )
     neo4j_uri: str = Field(
         default="bolt://localhost:7687", description="Neo4j connection URI"
     )

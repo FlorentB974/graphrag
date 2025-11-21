@@ -147,7 +147,7 @@ def _estimate_total_chunks_for_path(file_path: Path) -> int:
 
         from core.chunking import document_chunker  # Local import to avoid cycles
         from ingestion.loaders.image_loader import ImageLoader
-        from ingestion.loaders.pdf_loader import PDFLoader
+        from ingestion.loaders.marker_pdf_loader import MarkerPdfLoader
 
         loader = document_processor.loaders.get(file_path.suffix.lower())
         if not loader:
@@ -156,7 +156,7 @@ def _estimate_total_chunks_for_path(file_path: Path) -> int:
         if isinstance(loader, ImageLoader):
             result = loader.load_with_metadata(file_path)
             content = result.get("content") if result else ""
-        elif isinstance(loader, PDFLoader):
+        elif isinstance(loader, MarkerPdfLoader):
             result = loader.load_with_metadata(file_path)
             content = result.get("content") if result else ""
         else:
@@ -1059,12 +1059,12 @@ async def _process_documents_task(file_ids: List[str]):
             if loader:
                 # Load content to estimate chunks
                 from ingestion.loaders.image_loader import ImageLoader
-                from ingestion.loaders.pdf_loader import PDFLoader
+                from ingestion.loaders.marker_pdf_loader import MarkerPdfLoader
                 
                 if isinstance(loader, ImageLoader):
                     result = loader.load_with_metadata(file_path)
                     content = result["content"] if result else ""
-                elif isinstance(loader, PDFLoader):
+                elif isinstance(loader, MarkerPdfLoader):
                     result = loader.load_with_metadata(file_path)
                     content = result["content"] if result else ""
                 else:

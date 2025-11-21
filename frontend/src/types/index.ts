@@ -150,3 +150,47 @@ export interface ChatRequest {
   stream?: boolean
   context_documents?: string[]
 }
+
+export interface GraphEntity {
+  id: string
+  human_readable_id: string
+  title: string
+  type: string
+  description: string
+  text_unit_ids: string[]
+  frequency: number
+  degree: number
+}
+
+export interface GraphRelationship {
+  id: string
+  human_readable_id: string
+  source: string
+  target: string
+  description: string
+  weight: number
+  combined_degree: number
+  text_unit_ids?: string[]
+}
+
+export interface GraphCommunity {
+  id: string
+  human_readable_id: string
+  community: string
+  level: number
+  parent?: string | null
+  children: string[]
+  title: string
+  entity_ids: string[]
+  relationship_ids: string[]
+  text_unit_ids: string[]
+  period: string
+  size: number
+}
+
+export interface GraphVisualizationData {
+  entities: GraphEntity[]
+  relationships: GraphRelationship[]
+  communities: GraphCommunity[]
+  communityReports?: unknown[]
+}

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import chat, database, documents, history
+from api.routers import chat, database, documents, graph, history
 from config.settings import settings
 
 logging.basicConfig(level=getattr(logging, settings.log_level))
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(database.router, prefix="/api/database", tags=["database"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
 app.include_router(history.router, prefix="/api/history", tags=["history"])
 
 

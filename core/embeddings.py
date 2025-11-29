@@ -149,7 +149,13 @@ class EmbeddingManager:
 
     def __init__(self):
         """Initialize the embedding manager."""
-        self.provider = getattr(settings, "llm_provider").lower()
+        # Use embeddings_provider if set, otherwise fall back to llm_provider
+        embeddings_provider = getattr(settings, "embeddings_provider", None)
+        if embeddings_provider:
+            self.provider = embeddings_provider.lower()
+        else:
+            self.provider = getattr(settings, "llm_provider").lower()
+        
         self._last_request_time = 0
         self._request_lock = threading.Lock()
 

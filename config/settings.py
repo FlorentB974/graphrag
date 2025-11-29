@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     # LLM Provider Configuration
     llm_provider: str = Field(default="openai", description="LLM provider to use")
+    embeddings_provider: Optional[str] = Field(
+        default=None, description="Embeddings provider to use. If not set, defaults to llm_provider"
+    )
 
     # OpenAI Configuration
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")

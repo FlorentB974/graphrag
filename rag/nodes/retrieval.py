@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from config.settings import settings
+from core.reranker import rerank_chunks
 from rag.retriever import DocumentRetriever, RetrievalMode
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,18 @@ async def retrieve_documents_async(
             use_multi_hop,
             bool(allowed_docs),
         )
+
+        # Apply reranking if enabled
+        if settings.enable_reranking and chunks:
+            original_count = len(chunks)
+            rerank_top_k = settings.reranker_top_k or top_k
+            chunks = rerank_chunks(search_query, chunks, top_k=rerank_top_k)
+            logger.info(
+                "Reranked %d chunks, returning top %d",
+                original_count,
+                len(chunks),
+            )
+
         return chunks
 
     except Exception as e:

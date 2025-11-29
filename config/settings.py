@@ -140,6 +140,17 @@ class Settings(BaseSettings):
         default=100 * 1024 * 1024, description="Max upload size"
     )  # 100MB
 
+    # Reranking Configuration
+    enable_reranking: bool = Field(
+        default=True, description="Enable reranking of retrieved chunks"
+    )
+    reranker_model: str = Field(
+        default="xitao/bge-reranker-v2-m3", description="Ollama reranker model"
+    )
+    reranker_top_k: Optional[int] = Field(
+        default=None, description="Number of chunks to keep after reranking (None = keep all)"
+    )
+
     # Quality Scoring Configuration
     enable_quality_scoring: bool = Field(
         default=True, description="Enable quality scoring for LLM answers"

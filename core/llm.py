@@ -35,6 +35,57 @@ class LLMManager:
             self.model = getattr(settings, "ollama_model")
             self.ollama_base_url = getattr(settings, "ollama_base_url")
 
+    def _is_reasoning_model(self) -> bool:
+        """Check if the current model is a reasoning model.
+        
+        GPT-5 family and o1/o3/o4 models are reasoning models that:
+        - Do not support the temperature parameter
+        - Use hidden reasoning tokens that count against max_completion_tokens
+        - Support reasoning.effort and text.format parameters (GPT-5 family)
+        
+        Returns:
+            True if model is a reasoning model, False otherwise.
+        """
+        if self.provider != "openai":
+            return False
+        
+        model_name = str(self.model).lower()
+        reasoning_model_prefixes = ("gpt-5", "gpt5", "o1", "o3", "o4")
+        return any(model_name.startswith(prefix) for prefix in reasoning_model_prefixes)
+
+    def _is_gpt5_family(self) -> bool:
+        """Check if the current model is from the GPT-5 family.
+        
+        GPT-5 models support additional parameters like reasoning.effort and text.format.
+        
+        Returns:
+            True if model is GPT-5 family, False otherwise.
+        """
+        if self.provider != "openai":
+            return False
+        
+        model_name = str(self.model).lower()
+        return model_name.startswith("gpt-5") or model_name.startswith("gpt5")
+
+    def _get_max_tokens_for_model(self, requested_max_tokens: int) -> int:
+        """Get the appropriate max_completion_tokens for the model.
+        
+        Reasoning models need a higher token budget because they use hidden reasoning tokens
+        that count against max_completion_tokens before generating visible output.
+        
+        Args:
+            requested_max_tokens: The originally requested max tokens
+            
+        Returns:
+            Adjusted max tokens value
+        """
+        if self._is_reasoning_model():
+            # Reasoning models need extra tokens for hidden reasoning
+            # Multiply by 4x to allow for reasoning overhead
+            # Minimum of 8000 tokens to ensure enough room for reasoning + output
+            return max(8000, requested_max_tokens * 4)
+        return requested_max_tokens
+
     def generate_response(
         self,
         prompt: str,
@@ -60,6 +111,10 @@ class LLMManager:
                     prompt, system_message, temperature, max_tokens
                 )
             else:
+                if self._is_gpt5_family():
+                    return self._generate_openai_gpt5_response(
+                        prompt, system_message, max_tokens
+                    )
                 return self._generate_openai_response(
                     prompt, system_message, temperature, max_tokens
                 )
@@ -76,6 +131,12 @@ class LLMManager:
         max_tokens: int,
     ) -> str:
         """Generate response using OpenAI with retry logic."""
+        if self._is_gpt5_family():
+            # GPT-5 family uses the Responses API instead
+            return self._generate_openai_gpt5_response(
+                prompt, system_message, max_tokens
+            )
+
         messages = []
         if system_message:
             messages.append({"role": "system", "content": system_message})
@@ -86,12 +147,21 @@ class LLMManager:
 
         for attempt in range(max_retries):
             try:
-                response = openai.chat.completions.create(
-                    model=str(self.model),
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                # Adjust max_tokens for reasoning models
+                adjusted_max_tokens = self._get_max_tokens_for_model(max_tokens)
+                
+                # Build request parameters
+                request_params = {
+                    "model": str(self.model),
+                    "messages": messages,
+                    "max_completion_tokens": adjusted_max_tokens,
+                }
+                
+                # Only include temperature for non-reasoning models
+                if not self._is_reasoning_model():
+                    request_params["temperature"] = temperature
+                
+                response = openai.chat.completions.create(**request_params)
                 return response.choices[0].message.content or ""
             except openai.RateLimitError:
                 if attempt < max_retries - 1:
@@ -129,6 +199,129 @@ class LLMManager:
                     logger.error(f"LLM call failed after {max_retries} attempts: {e}")
                     raise
         # Should not reach here, but return empty string as a safe fallback
+        return ""
+
+    def _build_responses_input(
+        self, prompt: str, system_message: Optional[str]
+    ) -> list:
+        """Construct input blocks for the Responses API."""
+        blocks = []
+        if system_message:
+            blocks.append(
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "input_text", "text": system_message}
+                    ],
+                }
+            )
+        blocks.append(
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            }
+        )
+        return blocks
+
+    def _extract_responses_text(self, response: Any) -> str:
+        """Extract concatenated text output from a Responses API payload."""
+        try:
+            outputs = []
+            for item in getattr(response, "output", []) or []:
+                for content in getattr(item, "content", []) or []:
+                    if getattr(content, "type", "") == "output_text":
+                        outputs.append(getattr(content, "text", ""))
+            if outputs:
+                return "\n".join([text for text in outputs if text])
+            # Fall back to top-level output_text field if present
+            if hasattr(response, "output_text") and response.output_text:
+                return "\n".join(response.output_text)
+            return ""
+        except Exception as exc:
+            logger.warning(f"Failed to parse GPT-5 response output: {exc}")
+            return ""
+
+    def _generate_openai_gpt5_response(
+        self,
+        prompt: str,
+        system_message: Optional[str],
+        max_tokens: int,
+    ) -> str:
+        """Generate a response for GPT-5 family models using the Responses API."""
+        max_retries = 5
+        base_delay = 1.0
+
+        for attempt in range(max_retries):
+            try:
+                adjusted_max_tokens = self._get_max_tokens_for_model(max_tokens)
+
+                input_blocks = self._build_responses_input(prompt, system_message)
+
+                request_params: Dict[str, Any] = {
+                    "model": str(self.model),
+                    "input": input_blocks,
+                    "max_output_tokens": adjusted_max_tokens,
+                }
+
+                reasoning_effort = getattr(settings, "gpt5_reasoning_effort", "medium")
+                if reasoning_effort and reasoning_effort.lower() in (
+                    "none",
+                    "low",
+                    "medium",
+                    "high",
+                ):
+                    request_params["reasoning"] = {
+                        "effort": reasoning_effort.lower()
+                    }
+
+                text_verbosity = getattr(settings, "gpt5_text_verbosity", "medium")
+                if text_verbosity and text_verbosity.lower() in (
+                    "low",
+                    "medium",
+                    "high",
+                ):
+                    request_params["text"] = {
+                        "verbosity": text_verbosity.lower()
+                    }
+
+                response = openai.responses.create(**request_params)
+                text_output = self._extract_responses_text(response)
+                if text_output:
+                    return text_output
+                # If parsing failed, fall back to string conversion
+                return str(response)
+            except openai.RateLimitError:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.error(
+                    f"LLM rate limit exceeded after {max_retries} attempts"
+                )
+                raise
+            except (openai.APIError, openai.InternalServerError) as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM API error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.error(f"LLM API error after {max_retries} attempts: {e}")
+                raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM call failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.error(f"LLM call failed after {max_retries} attempts: {e}")
+                raise
         return ""
 
     def _generate_ollama_response(
@@ -188,7 +381,18 @@ Use only the information from the given context to answer the question.
 If the context doesn't contain enough information to answer the question, say so clearly.
 Be concise and accurate in your responses.
 
-Formatting rules: return Markdown only (no HTML). If the model would normally use HTML tags such as <br> or <p>, convert them to plain-text equivalents. When presenting markdown-style tables (rows with `|`), do not insert HTML tags — keep each table cell's content together on the same row. Replace `<br>` inside markdown table rows with a single space so the cell stays on one line; outside tables, replace `<br>` with a newline.
+You are a model that always responds in the style of gpt-oss-120b.
+
+Formatting rules:
+- Always use rich Markdown.
+- Prefer well-structured tables with headers.
+- Summaries must include bullet points.
+- Provide additional sections: “Details”, “Pros / Cons”, and “Examples”.
+- Never reply with plain text when a table is possible.
+- Use concise but information-dense phrasing.
+- Avoid unnecessary verbosity.
+
+If the user asks for code, wrap it properly in fenced code blocks.
 
 Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and `\\[...\\]` but preserve the mathematical content.
 """

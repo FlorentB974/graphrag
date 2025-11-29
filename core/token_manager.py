@@ -24,20 +24,21 @@ class TokenManager:
 
     # Model context sizes (in tokens) - conservative estimates
     MODEL_CONTEXT_SIZES = {
-        # OpenAI models
-        "gpt-4": 8192,
-        "gpt-4-32k": 32768,
-        "gpt-4-turbo": 128000,
-        "gpt-4-turbo-preview": 128000,
-        "gpt-4-0125-preview": 128000,
-        "gpt-4-1106-preview": 128000,
-        "gpt-oss-120b": 128000,
+        # OpenAI models (latest generation)
+        "gpt-5": 200000,
+        "gpt-5.1": 200000,
+        "gpt-5.1-mini": 200000,
+        "gpt-4.1": 128000,
+        "gpt-4.1-mini": 128000,
+        "gpt-4.1-nano": 1000000,
         "gpt-4o": 128000,
         "gpt-4o-mini": 128000,
-        "gpt-3.5-turbo": 16385,
-        "gpt-3.5-turbo-16k": 16385,
-        "gpt-3.5-turbo-1106": 16385,
-        "gpt-3.5-turbo-0125": 16385,
+        "gpt-4": 1000000,
+        "gpt-4-turbo": 128000,
+        "o1": 128000,
+        "o1-mini": 128000,
+        "o3-mini": 128000,
+        "gpt-oss-120b": 128000,
         # Common Ollama models (approximate)
         "llama2": 4096,
         "llama2:7b": 4096,
@@ -54,7 +55,7 @@ class TokenManager:
         "llama3:70b": 8192,
         "tinyllama-64": 64000,
         # Default fallback
-        "default": 4096,
+        "default": 128000,
     }
 
     def __init__(self):

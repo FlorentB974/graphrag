@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     )
     openai_proxy: Optional[str] = Field(default=None, description="OpenAI proxy URL")
 
+    # GPT-5 / Reasoning Model Configuration
+    gpt5_reasoning_effort: Optional[str] = Field(
+        default="medium",
+        description="Reasoning effort for GPT-5 models: 'none', 'low', 'medium', 'high'"
+    )
+    gpt5_text_verbosity: Optional[str] = Field(
+        default="medium",
+        description="Output verbosity for GPT-5 models: 'low', 'medium', 'high'"
+    )
+
     # Ollama Configuration
     ollama_base_url: Optional[str] = Field(
         default="http://localhost:11434", description="Ollama base URL"

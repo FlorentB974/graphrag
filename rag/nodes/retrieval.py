@@ -96,6 +96,7 @@ async def retrieve_documents_async(
         allowed_ids = allowed_docs if allowed_docs else None
 
         # Use enhanced retriever. Prefer graph expansion when configured
+        # OPTIMIZATION: Pass query_analysis to avoid redundant LLM calls
         if (complexity == "complex" or query_type == "comparative") and graph_expansion:
             chunks = await document_retriever.retrieve_with_graph_expansion(
                 query=search_query,
@@ -103,6 +104,7 @@ async def retrieve_documents_async(
                 top_k=adjusted_top_k,
                 use_multi_hop=use_multi_hop,
                 allowed_document_ids=allowed_ids,
+                query_analysis=query_analysis,
             )
         else:
             # Pass chunk_weight and multi_hop through to hybrid retriever if present
@@ -113,6 +115,7 @@ async def retrieve_documents_async(
                 chunk_weight=chunk_weight,
                 use_multi_hop=use_multi_hop,
                 allowed_document_ids=allowed_ids,
+                query_analysis=query_analysis,
             )
 
         logger.info(

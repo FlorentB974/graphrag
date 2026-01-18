@@ -42,20 +42,21 @@ def analyze_query(
                     f"Follow-up question detected. Original: '{query}' -> Contextualized: '{context_query}'"
                 )
 
-        # Use LLM to analyze the query (using contextualized version if needed)
-        analysis_result = llm_manager.analyze_query(context_query)
+        # OPTIMIZATION: Skip LLM analysis - use heuristics only (saves ~10-13s per query)
+        # The LLM analysis result was being overwritten by heuristics anyway
+        # analysis_result = llm_manager.analyze_query(context_query)  # REMOVED - redundant
 
-        # Extract key information (simplified version)
+        # Extract key information using heuristics only
         analysis = {
             "original_query": query,
             "contextualized_query": context_query,
             "is_follow_up": is_follow_up,
             "needs_context": needs_context,
-            "query_type": "factual",  # Default type
+            "query_type": "factual",  # Default type, will be updated by heuristics
             "key_concepts": [],
             "intent": "information_seeking",
             "complexity": "simple",
-            "analysis_text": analysis_result.get("analysis", ""),
+            "analysis_text": "",  # No longer using LLM for this
             "requires_reasoning": False,
             "requires_multiple_sources": False,
         }

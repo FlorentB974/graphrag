@@ -2,8 +2,10 @@
 OpenAI LLM integration for the RAG pipeline.
 """
 
+import hashlib
 import logging
 import time
+from functools import lru_cache
 from typing import Any, Dict, Optional
 
 import httpx
@@ -28,6 +30,8 @@ class LLMManager:
     def __init__(self):
         """Initialize the LLM manager."""
         self.provider = getattr(settings, "llm_provider").lower()
+        # OPTIMIZATION: In-memory cache for LLM responses (Solution 4)
+        self._response_cache: Dict[str, str] = {}
 
         if self.provider == "openai":
             self.model = settings.openai_model
@@ -80,10 +84,9 @@ class LLMManager:
             Adjusted max tokens value
         """
         if self._is_reasoning_model():
-            # Reasoning models need extra tokens for hidden reasoning
-            # Multiply by 4x to allow for reasoning overhead
-            # Minimum of 8000 tokens to ensure enough room for reasoning + output
-            return max(8000, requested_max_tokens * 4)
+            # OPTIMIZATION: More conservative multiplier (Solution 5)
+            # Use 2x multiplier instead of 4x, and lower minimum from 8000 to 2000
+            return max(2000, requested_max_tokens * 2)
         return requested_max_tokens
 
     def generate_response(
@@ -106,18 +109,37 @@ class LLMManager:
             Generated response text
         """
         try:
+            # OPTIMIZATION: Check cache first (Solution 4)
+            cache_key = hashlib.md5(
+                f"{prompt}|{system_message}|{temperature}|{max_tokens}".encode()
+            ).hexdigest()
+            
+            if cache_key in self._response_cache:
+                logger.debug("LLM response cache hit")
+                return self._response_cache[cache_key]
+            
+            # Generate response
             if self.provider == "ollama":
-                return self._generate_ollama_response(
+                response = self._generate_ollama_response(
                     prompt, system_message, temperature, max_tokens
                 )
             else:
                 if self._is_gpt5_family():
-                    return self._generate_openai_gpt5_response(
+                    response = self._generate_openai_gpt5_response(
                         prompt, system_message, max_tokens
                     )
-                return self._generate_openai_response(
-                    prompt, system_message, temperature, max_tokens
-                )
+                else:
+                    response = self._generate_openai_response(
+                        prompt, system_message, temperature, max_tokens
+                    )
+            
+            # Cache the response (with size limit)
+            if len(self._response_cache) >= 1000:
+                # Simple FIFO eviction - remove first item
+                self._response_cache.pop(next(iter(self._response_cache)))
+            self._response_cache[cache_key] = response
+            
+            return response
 
         except Exception as e:
             logger.error(f"Failed to generate LLM response: {e}")
@@ -384,10 +406,12 @@ Be concise and accurate in your responses.
 You are a model that always responds in the style of gpt-oss-120b.
 
 Formatting rules:
+- Always start with a brief summary of the answer.
+- Use sections with headers for different parts of the answer.
 - Always use rich Markdown.
 - Prefer well-structured tables with headers.
 - Summaries must include bullet points.
-- Provide additional sections: “Details”, “Pros / Cons”, and “Examples”.
+- Use **bold** for key information.
 - Never reply with plain text when a table is possible.
 - Use concise but information-dense phrasing.
 - Avoid unnecessary verbosity.

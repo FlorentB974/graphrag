@@ -191,6 +191,20 @@ class DocumentRetriever:
             # Calculate similarity scores for chunks based on query
             query_embedding = embedding_manager.get_embedding(query)
 
+            # OPTIMIZATION: Batch fetch all chunk embeddings in a single query (Solution 3)
+            chunk_ids = [chunk.get("chunk_id") for chunk in relevant_chunks if chunk.get("chunk_id")]
+            chunk_embeddings_map = {}
+            
+            if chunk_ids:
+                with graph_db.driver.session() as session:  # type: ignore
+                    result = session.run(
+                        "MATCH (c:Chunk) WHERE c.id IN $chunk_ids RETURN c.id as chunk_id, c.embedding as embedding",
+                        chunk_ids=chunk_ids,
+                    )
+                    for record in result:
+                        if record["embedding"]:
+                            chunk_embeddings_map[record["chunk_id"]] = record["embedding"]
+
             # Enhance chunks with entity information and similarity scores
             for chunk in relevant_chunks:
                 chunk["retrieval_mode"] = "entity_based"
@@ -198,19 +212,8 @@ class DocumentRetriever:
 
                 # Calculate similarity score if chunk has content
                 if chunk.get("content"):
-                    # Get or calculate chunk embedding
-                    chunk_embedding = None
                     chunk_id = chunk.get("chunk_id")
-                    if chunk_id:
-                        # Get embedding from database
-                        with graph_db.driver.session() as session:  # type: ignore
-                            result = session.run(
-                                "MATCH (c:Chunk {id: $chunk_id}) RETURN c.embedding as embedding",
-                                chunk_id=chunk_id,
-                            )
-                            record = result.single()
-                            if record and record["embedding"]:
-                                chunk_embedding = record["embedding"]
+                    chunk_embedding = chunk_embeddings_map.get(chunk_id) if chunk_id else None
 
                     if chunk_embedding:
                         # Calculate cosine similarity
@@ -602,6 +605,7 @@ class DocumentRetriever:
         chunk_weight: float = 0.5,
         use_multi_hop: bool = False,
         allowed_document_ids: Optional[List[str]] = None,
+        query_analysis: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Hybrid retrieval combining chunk-based, entity-based, and optionally multi-hop approaches.
@@ -611,13 +615,17 @@ class DocumentRetriever:
             top_k: Total number of chunks to retrieve
             chunk_weight: Weight for chunk-based results (0.0-1.0)
             use_multi_hop: Whether to include multi-hop reasoning
+            allowed_document_ids: Optional list of document IDs to restrict retrieval
+            query_analysis: Pre-computed query analysis (OPTIMIZATION: avoids redundant LLM call)
 
         Returns:
             List of chunks from all approaches, de-duplicated and ranked
         """
         try:
-            # Analyze query to determine if multi-hop would be beneficial
-            query_analysis = analyze_query(query)
+            # OPTIMIZATION: Use provided query_analysis instead of re-analyzing (saves ~10-13s)
+            if query_analysis is None:
+                # Fallback: analyze if not provided (for backwards compatibility)
+                query_analysis = analyze_query(query)
             multi_hop_recommended = query_analysis.get("multi_hop_recommended", True)
             query_type = query_analysis.get("query_type", "factual")
 
@@ -822,6 +830,7 @@ class DocumentRetriever:
         mode: RetrievalMode = RetrievalMode.HYBRID,
         top_k: int = 5,
         use_multi_hop: bool = False,
+        query_analysis: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> List[Dict[str, Any]]:
         """
@@ -832,6 +841,7 @@ class DocumentRetriever:
             mode: Retrieval mode to use
             top_k: Number of results to return
             use_multi_hop: Whether to use multi-hop reasoning (for hybrid mode)
+            query_analysis: Pre-computed query analysis (OPTIMIZATION: avoids redundant LLM call)
             **kwargs: Additional parameters for specific retrieval modes
 
         Returns:
@@ -859,6 +869,7 @@ class DocumentRetriever:
                 chunk_weight,
                 use_multi_hop,
                 allowed_document_ids=allowed_document_ids,
+                query_analysis=query_analysis,
             )
         else:
             logger.error(f"Unknown retrieval mode: {mode}")
@@ -872,6 +883,7 @@ class DocumentRetriever:
         expand_depth: int = 2,
         use_multi_hop: bool = False,
         allowed_document_ids: Optional[List[str]] = None,
+        query_analysis: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve chunks and expand using graph relationships.
@@ -882,6 +894,8 @@ class DocumentRetriever:
             top_k: Number of initial chunks to retrieve
             expand_depth: Depth of graph expansion
             use_multi_hop: Whether to use multi-hop reasoning
+            allowed_document_ids: Optional list of document IDs to restrict retrieval
+            query_analysis: Pre-computed query analysis (OPTIMIZATION: avoids redundant LLM call)
 
         Returns:
             List of chunks including expanded context
@@ -894,6 +908,7 @@ class DocumentRetriever:
                 top_k,
                 use_multi_hop=use_multi_hop,
                 allowed_document_ids=allowed_document_ids,
+                query_analysis=query_analysis,
             )
 
             if not initial_chunks:

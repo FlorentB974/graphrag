@@ -103,6 +103,7 @@ async def retrieve_documents_async(
                 top_k=adjusted_top_k,
                 use_multi_hop=use_multi_hop,
                 allowed_document_ids=allowed_ids,
+                query_analysis=query_analysis,
             )
         else:
             # Pass chunk_weight and multi_hop through to hybrid retriever if present
@@ -113,6 +114,7 @@ async def retrieve_documents_async(
                 chunk_weight=chunk_weight,
                 use_multi_hop=use_multi_hop,
                 allowed_document_ids=allowed_ids,
+                query_analysis=query_analysis,
             )
 
         logger.info(

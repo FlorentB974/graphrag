@@ -615,13 +615,12 @@ class DocumentRetriever:
             chunk_weight: Weight for chunk-based results (0.0-1.0)
             use_multi_hop: Whether to include multi-hop reasoning
             allowed_document_ids: Optional list of document IDs to restrict retrieval
-            query_analysis: Pre-computed query analysis (OPTIMIZATION: avoids redundant LLM call)
+            query_analysis: Pre-computed query analysis
 
         Returns:
             List of chunks from all approaches, de-duplicated and ranked
         """
         try:
-            # OPTIMIZATION: Use provided query_analysis instead of re-analyzing (saves ~10-13s)
             if query_analysis is None:
                 # Fallback: analyze if not provided (for backwards compatibility)
                 query_analysis = analyze_query(query)
@@ -840,7 +839,7 @@ class DocumentRetriever:
             mode: Retrieval mode to use
             top_k: Number of results to return
             use_multi_hop: Whether to use multi-hop reasoning (for hybrid mode)
-            query_analysis: Pre-computed query analysis (OPTIMIZATION: avoids redundant LLM call)
+            query_analysis: Pre-computed query analysis
             **kwargs: Additional parameters for specific retrieval modes
 
         Returns:
@@ -894,7 +893,7 @@ class DocumentRetriever:
             expand_depth: Depth of graph expansion
             use_multi_hop: Whether to use multi-hop reasoning
             allowed_document_ids: Optional list of document IDs to restrict retrieval
-            query_analysis: Pre-computed query analysis (OPTIMIZATION: avoids redundant LLM call)
+            query_analysis: Pre-computed query analysis
 
         Returns:
             List of chunks including expanded context

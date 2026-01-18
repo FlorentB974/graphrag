@@ -187,7 +187,9 @@ class EmbeddingManager:
     def get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text with retry logic."""
         # Use SHA-256 for better collision resistance
-        cache_key = hashlib.sha256(text.encode('utf-8', errors='replace')).hexdigest()
+        # Include provider and model to prevent cross-model cache pollution
+        key_material = f"{self.provider}:{self.model}:{text}"
+        cache_key = hashlib.sha256(key_material.encode('utf-8', errors='replace')).hexdigest()
         
         # Thread-safe cache check
         with self._cache_lock:

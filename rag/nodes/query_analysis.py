@@ -49,11 +49,11 @@ def analyze_query(
             "contextualized_query": context_query,
             "is_follow_up": is_follow_up,
             "needs_context": needs_context,
-            "query_type": "factual",  # Default type, will be updated by heuristics
+            "query_type": "factual",  # Default type
             "key_concepts": [],
             "intent": "information_seeking",
             "complexity": "simple",
-            "analysis_text": "",  # No longer using LLM for this
+            "analysis_text": "", 
             "requires_reasoning": False,
             "requires_multiple_sources": False,
         }

@@ -157,14 +157,9 @@ class RAGBenchmark:
                 # 1a. Follow-up detection (if chat history exists)
                 chat_history = []  # No history for this benchmark
                 follow_up_start = time.perf_counter()
-                is_follow_up = False
-                needs_context = False
-                context_query = query
                 
                 if chat_history and len(chat_history) >= 2:
-                    follow_up_result = _detect_follow_up_question(query, chat_history)
-                    is_follow_up = follow_up_result.get("is_follow_up", False)
-                    needs_context = follow_up_result.get("needs_context", False)
+                    _detect_follow_up_question(query, chat_history)
                 follow_up_duration = time.perf_counter() - follow_up_start
                 print(f"   1a. Follow-up detection: {follow_up_duration:.3f}s")
                 self._record_timing("follow_up_detection", follow_up_duration)
@@ -263,7 +258,6 @@ class RAGBenchmark:
                 print(f"   Response preview: {response_preview}...")
                 
                 # ===== FULL PIPELINE TEST =====
-                # OPTIMIZATION (Solution 6): Clear LLM call tracking before full pipeline test
                 # to avoid double-counting individual stage tests with the full pipeline
                 print("\n[FULL PIPELINE] Using graph_rag.query() - Starting Fresh")
                 print("-" * 40)
@@ -273,7 +267,7 @@ class RAGBenchmark:
                 self.llm_calls = []
                 
                 full_start = time.perf_counter()
-                full_result = graph_rag.query(
+                graph_rag.query(
                     user_query=query,
                     retrieval_mode="hybrid",
                     top_k=5,
@@ -358,9 +352,6 @@ class RAGBenchmark:
             print(f"\n{'='*70}")
             print("📈 RECOMMENDATIONS")
             print(f"{'='*70}")
-            
-            # Count LLM calls per stage
-            analysis_calls = sum(1 for c in self.llm_calls if "analyze" in c.get("type", "").lower() or "analyze" in c.get("query", "").lower())
             
             if llm_call_count > 3:
                 print(f"   • Too many LLM calls ({llm_call_count}). Consider caching or reducing.")

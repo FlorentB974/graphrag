@@ -8,8 +8,9 @@ import logging
 import random
 import threading
 import time
-from typing import Dict, List
+from typing import List
 
+from cachetools import TTLCache
 import httpx
 import openai
 import requests
@@ -159,8 +160,8 @@ class EmbeddingManager:
         
         self._last_request_time = 0
         self._request_lock = threading.Lock()
-        # OPTIMIZATION: In-memory cache for embeddings (Solution 4)
-        self._embedding_cache: Dict[str, List[float]] = {}
+        self._embedding_cache = TTLCache(maxsize=10000, ttl=3600)
+        self._cache_lock = threading.RLock()
 
         if self.provider == "openai":
             self.model = settings.embedding_model
@@ -185,12 +186,14 @@ class EmbeddingManager:
     @retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0)
     def get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text with retry logic."""
-        # OPTIMIZATION: Check cache first (Solution 4)
-        cache_key = hashlib.md5(text.encode()).hexdigest()
+        # Use SHA-256 for better collision resistance
+        cache_key = hashlib.sha256(text.encode('utf-8', errors='replace')).hexdigest()
         
-        if cache_key in self._embedding_cache:
-            logger.debug("Embedding cache hit")
-            return self._embedding_cache[cache_key]
+        # Thread-safe cache check
+        with self._cache_lock:
+            if cache_key in self._embedding_cache:
+                logger.debug("Embedding cache hit")
+                return self._embedding_cache[cache_key]
         
         # Enforce rate limiting before making request
         self._wait_for_rate_limit()
@@ -202,11 +205,9 @@ class EmbeddingManager:
                 response = openai.embeddings.create(input=text, model=self.model)
                 embedding = response.data[0].embedding
             
-            # Cache the embedding (with size limit)
-            if len(self._embedding_cache) >= 10000:
-                # Simple FIFO eviction - remove first item
-                self._embedding_cache.pop(next(iter(self._embedding_cache)))
-            self._embedding_cache[cache_key] = embedding
+            # Thread-safe cache update (TTLCache handles LRU eviction automatically)
+            with self._cache_lock:
+                self._embedding_cache[cache_key] = embedding
             
             return embedding
         except Exception as e:

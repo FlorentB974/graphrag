@@ -4,10 +4,11 @@ OpenAI LLM integration for the RAG pipeline.
 
 import hashlib
 import logging
+import threading
 import time
-from functools import lru_cache
 from typing import Any, Dict, Optional
 
+from cachetools import TTLCache
 import httpx
 import openai
 import requests
@@ -30,8 +31,11 @@ class LLMManager:
     def __init__(self):
         """Initialize the LLM manager."""
         self.provider = getattr(settings, "llm_provider").lower()
-        # OPTIMIZATION: In-memory cache for LLM responses (Solution 4)
-        self._response_cache: Dict[str, str] = {}
+        # OPTIMIZATION: Thread-safe LRU cache with TTL for LLM responses
+        # maxsize=1000: Cache up to 1k responses (smaller than embeddings due to larger size)
+        # ttl=3600: 1 hour expiration to prevent stale responses
+        self._response_cache = TTLCache(maxsize=1000, ttl=3600)
+        self._cache_lock = threading.RLock()
 
         if self.provider == "openai":
             self.model = settings.openai_model
@@ -84,7 +88,6 @@ class LLMManager:
             Adjusted max tokens value
         """
         if self._is_reasoning_model():
-            # OPTIMIZATION: More conservative multiplier (Solution 5)
             # Use 2x multiplier instead of 4x, and lower minimum from 8000 to 2000
             return max(2000, requested_max_tokens * 2)
         return requested_max_tokens
@@ -109,14 +112,17 @@ class LLMManager:
             Generated response text
         """
         try:
-            # OPTIMIZATION: Check cache first (Solution 4)
-            cache_key = hashlib.md5(
-                f"{prompt}|{system_message}|{temperature}|{max_tokens}".encode()
+            # Include model in cache key to prevent cross-model cache pollution
+            # Use SHA-256 for better collision resistance
+            cache_key = hashlib.sha256(
+                f"{self.model}|{prompt}|{system_message}|{temperature}|{max_tokens}".encode('utf-8', errors='replace')
             ).hexdigest()
             
-            if cache_key in self._response_cache:
-                logger.debug("LLM response cache hit")
-                return self._response_cache[cache_key]
+            # Thread-safe cache check
+            with self._cache_lock:
+                if cache_key in self._response_cache:
+                    logger.debug("LLM response cache hit")
+                    return self._response_cache[cache_key]
             
             # Generate response
             if self.provider == "ollama":
@@ -133,11 +139,9 @@ class LLMManager:
                         prompt, system_message, temperature, max_tokens
                     )
             
-            # Cache the response (with size limit)
-            if len(self._response_cache) >= 1000:
-                # Simple FIFO eviction - remove first item
-                self._response_cache.pop(next(iter(self._response_cache)))
-            self._response_cache[cache_key] = response
+            # Thread-safe cache update (TTLCache handles LRU eviction automatically)
+            with self._cache_lock:
+                self._response_cache[cache_key] = response
             
             return response
 

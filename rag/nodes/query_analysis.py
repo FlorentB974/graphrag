@@ -42,9 +42,6 @@ def analyze_query(
                     f"Follow-up question detected. Original: '{query}' -> Contextualized: '{context_query}'"
                 )
 
-        # OPTIMIZATION: Skip LLM analysis - use heuristics only (saves ~10-13s per query)
-        # The LLM analysis result was being overwritten by heuristics anyway
-        # analysis_result = llm_manager.analyze_query(context_query)  # REMOVED - redundant
 
         # Extract key information using heuristics only
         analysis = {

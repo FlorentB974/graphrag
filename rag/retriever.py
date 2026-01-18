@@ -191,7 +191,6 @@ class DocumentRetriever:
             # Calculate similarity scores for chunks based on query
             query_embedding = embedding_manager.get_embedding(query)
 
-            # OPTIMIZATION: Batch fetch all chunk embeddings in a single query (Solution 3)
             chunk_ids = [chunk.get("chunk_id") for chunk in relevant_chunks if chunk.get("chunk_id")]
             chunk_embeddings_map = {}
             

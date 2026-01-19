@@ -3,7 +3,7 @@ LangGraph-based RAG pipeline implementation.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from langgraph.graph import END, StateGraph
 
@@ -30,6 +30,7 @@ class RAGState:
         self.quality_score: Optional[Dict[str, Any]] = None
         self.context_documents: List[str] = []
         self.stages: List[str] = []  # Track stages for UI
+        self.stage_callback: Optional[Callable[[str], None]] = None  # Real-time stage callback
 
 
 class GraphRAG:
@@ -73,8 +74,10 @@ class GraphRAG:
             if "stages" not in state:
                 state["stages"] = []
             
-            # Track stage
+            # Track stage and notify callback for real-time streaming
             state["stages"].append("query_analysis")
+            if state.get("stage_callback"):
+                state["stage_callback"]("query_analysis")
             logger.info(f"Stage query_analysis completed, current stages: {state['stages']}")
             
             state["query_analysis"] = analyze_query(query, chat_history)
@@ -93,8 +96,10 @@ class GraphRAG:
             if "stages" not in state:
                 state["stages"] = []
             
-            # Track retrieval stage
+            # Track retrieval stage and notify callback for real-time streaming
             state["stages"].append("retrieval")
+            if state.get("stage_callback"):
+                state["stage_callback"]("retrieval")
             logger.info(f"Stage retrieval completed, current stages: {state['stages']}")
             
             # Pass additional retrieval tuning parameters from state
@@ -128,8 +133,10 @@ class GraphRAG:
             if "stages" not in state:
                 state["stages"] = []
             
-            # Track stage
+            # Track stage and notify callback for real-time streaming
             state["stages"].append("graph_reasoning")
+            if state.get("stage_callback"):
+                state["stage_callback"]("graph_reasoning")
             logger.info(f"Stage graph_reasoning completed, current stages: {state['stages']}")
             
             state["graph_context"] = reason_with_graph(
@@ -153,8 +160,10 @@ class GraphRAG:
             if "stages" not in state:
                 state["stages"] = []
             
-            # Track stage
+            # Track stage and notify callback for real-time streaming
             state["stages"].append("generation")
+            if state.get("stage_callback"):
+                state["stage_callback"]("generation")
             logger.info(f"Stage generation completed, current stages: {state['stages']}")
             
             response_data = generate_response(
@@ -190,6 +199,7 @@ class GraphRAG:
         use_multi_hop: bool = False,
         chat_history: Optional[List[Dict[str, Any]]] = None,
         context_documents: Optional[List[str]] = None,
+        stage_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """
         Process a user query through the RAG pipeline.
@@ -224,6 +234,8 @@ class GraphRAG:
             # Add chat history for follow-up questions
             state["chat_history"] = chat_history or []
             state["context_documents"] = context_documents or []
+            # Add stage callback for real-time streaming
+            state["stage_callback"] = stage_callback
 
             # Run the workflow with a dict-based state
             logger.info(f"Processing query through RAG pipeline: {user_query}")

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -21,31 +22,89 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Thread pool for running synchronous RAG pipeline
+_executor = ThreadPoolExecutor(max_workers=4)
+
 
 async def stream_response_generator(
-    result: dict, session_id: str, user_query: str, context_documents: List[str],
-    context_document_labels: List[str], context_hashtags: List[str], stage_updates: Optional[List[str]] = None
+    request: ChatRequest,
+    session_id: str,
+    chat_history: List[dict],
 ) -> AsyncGenerator[str, None]:
-    """Generate streaming response with SSE format."""
+    """Generate streaming response with real-time stage updates via SSE."""
     try:
-        # Emit pipeline stages progressively with timing
-        # Map actual backend stages to what was executed
-        if stage_updates:
-            logger.info(f"Emitting pipeline stages: {stage_updates}")
-            
-            # Core pipeline stages that always execute
-            core_stages = ['query_analysis', 'retrieval', 'graph_reasoning', 'generation']
-            
-            for stage in core_stages:
-                if stage in stage_updates:
-                    logger.info(f"Emitting stage: {stage}")
-                    stage_data = {
-                        "type": "stage",
-                        "content": stage,
-                    }
+        context_documents = request.context_documents or []
+        context_document_labels = request.context_document_labels or []
+        context_hashtags = request.context_hashtags or []
+        
+        # Create async queue for real-time stage updates
+        stage_queue: asyncio.Queue[str] = asyncio.Queue()
+        result_holder: dict = {}
+        pipeline_error: Optional[Exception] = None
+        pipeline_complete = asyncio.Event()
+        
+        # Capture the event loop BEFORE spawning threads
+        # This is critical - asyncio.get_event_loop() doesn't work from threads
+        main_loop = asyncio.get_running_loop()
+        
+        def stage_callback(stage: str) -> None:
+            """Callback invoked by RAG pipeline when a stage completes."""
+            try:
+                # Use call_soon_threadsafe with the captured main loop
+                main_loop.call_soon_threadsafe(stage_queue.put_nowait, stage)
+            except Exception as e:
+                logger.warning(f"Failed to queue stage update: {e}")
+        
+        def run_pipeline() -> None:
+            """Run the RAG pipeline in a separate thread."""
+            nonlocal pipeline_error
+            try:
+                result = graph_rag.query(
+                    user_query=request.message,
+                    retrieval_mode=request.retrieval_mode,
+                    top_k=request.top_k,
+                    temperature=request.temperature,
+                    use_multi_hop=request.use_multi_hop,
+                    chat_history=chat_history,
+                    context_documents=context_documents,
+                    stage_callback=stage_callback,
+                )
+                result_holder.update(result)
+            except Exception as e:
+                logger.error(f"RAG pipeline error: {e}")
+                pipeline_error = e
+            finally:
+                # Signal completion using the captured main loop
+                try:
+                    main_loop.call_soon_threadsafe(pipeline_complete.set)
+                except Exception:
+                    pass
+        
+        # Start pipeline in thread pool
+        main_loop.run_in_executor(_executor, run_pipeline)
+        
+        # Stream stage updates as they arrive
+        emitted_stages = set()
+        while not pipeline_complete.is_set() or not stage_queue.empty():
+            try:
+                # Wait for stage with timeout to check completion
+                stage = await asyncio.wait_for(stage_queue.get(), timeout=0.1)
+                if stage not in emitted_stages:
+                    emitted_stages.add(stage)
+                    logger.info(f"Emitting real-time stage: {stage}")
+                    stage_data = {"type": "stage", "content": stage}
                     yield f"data: {json.dumps(stage_data)}\n\n"
-                    await asyncio.sleep(1.0)  # Pause to show each stage
-
+            except asyncio.TimeoutError:
+                # No stage available, check if pipeline is complete
+                continue
+        
+        # Check for pipeline error
+        if pipeline_error:
+            error_data = {"type": "error", "content": str(pipeline_error)}
+            yield f"data: {json.dumps(error_data)}\n\n"
+            return
+        
+        result = result_holder
         response_text = result.get("response", "")
 
         # Stream response with word-based buffering for smoother rendering
@@ -75,7 +134,7 @@ async def stream_response_generator(
                 yield f"data: {json.dumps(chunk_data)}\n\n"
                 await asyncio.sleep(0.015)  # Slightly faster for smoother feel
 
-        # NOW emit quality calculation stage (AFTER response is done)
+        # Emit quality calculation stage (AFTER response is done)
         quality_score = None
         try:
             # Emit quality calculation stage
@@ -84,7 +143,6 @@ async def stream_response_generator(
                 "content": "quality_calculation",
             }
             yield f"data: {json.dumps(stage_data)}\n\n"
-            await asyncio.sleep(0.05)
 
             context_chunks = result.get("graph_context", [])
             if not context_chunks:
@@ -98,7 +156,7 @@ async def stream_response_generator(
 
             quality_score = quality_scorer.calculate_quality_score(
                 answer=response_text,
-                query=user_query,
+                query=request.message,
                 context_chunks=relevant_chunks,
                 sources=result.get("sources", []),
             )
@@ -114,10 +172,9 @@ async def stream_response_generator(
                 "content": "suggestions",
             }
             yield f"data: {json.dumps(stage_data)}\n\n"
-            await asyncio.sleep(0.05)
 
             follow_up_questions = await follow_up_service.generate_follow_ups(
-                query=user_query,
+                query=request.message,
                 response=response_text,
                 sources=result.get("sources", []),
                 chat_history=[],
@@ -130,7 +187,7 @@ async def stream_response_generator(
             await chat_history_service.save_message(
                 session_id=session_id,
                 role="user",
-                content=user_query,
+                content=request.message,
                 context_documents=context_documents,
                 context_document_labels=context_document_labels,
             )
@@ -226,7 +283,21 @@ async def chat_query(request: ChatRequest):
         context_document_labels = request.context_document_labels or []
         context_hashtags = request.context_hashtags or []
 
-        # Process query through RAG pipeline
+        # If streaming is requested, return SSE stream with real-time stages
+        if request.stream:
+            return StreamingResponse(
+                stream_response_generator(
+                    request, session_id, chat_history
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+        # Non-streaming: Process query through RAG pipeline synchronously
         result = graph_rag.query(
             user_query=request.message,
             retrieval_mode=request.retrieval_mode,
@@ -240,21 +311,6 @@ async def chat_query(request: ChatRequest):
         # Log the stages for debugging
         stages = result.get("stages", [])
         logger.info(f"RAG pipeline completed with stages: {stages}")
-
-        # If streaming is requested, return SSE stream
-        if request.stream:
-            return StreamingResponse(
-                stream_response_generator(
-                    result, session_id, request.message, context_documents,
-                    context_document_labels, context_hashtags, stages
-                ),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                },
-            )
 
         # Calculate quality score
         quality_score = None

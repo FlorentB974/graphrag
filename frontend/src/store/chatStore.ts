@@ -14,7 +14,10 @@ interface ChatStore {
   selectedDocumentId: string | null
   selectedChunkId: string | number | null
   isConnected: boolean
+  // Track if a streaming request is in progress (prevents false disconnection alerts)
+  isStreamingRequest: boolean
   setIsConnected: (connected: boolean) => void
+  setIsStreamingRequest: (streaming: boolean) => void
   notifyHistoryRefresh: () => void
   setSessionId: (sessionId: string) => void
   setActiveView: (view: ActiveView) => void
@@ -38,7 +41,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   selectedDocumentId: null,
   selectedChunkId: null,
   isConnected: true,
+  isStreamingRequest: false,
   setIsConnected: (connected) => set({ isConnected: connected }),
+  setIsStreamingRequest: (streaming) => set({ isStreamingRequest: streaming }),
   setSessionId: (sessionId) => set({ sessionId }),
   setActiveView: (view) => set({ activeView: view }),
   notifyHistoryRefresh: () => set((state) => ({ historyRefreshKey: state.historyRefreshKey + 1 })),

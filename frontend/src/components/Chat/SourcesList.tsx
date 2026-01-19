@@ -201,9 +201,9 @@ export default function SourcesList({ sources }: SourcesListProps) {
                         </p>
                         {chunk.contained_entities && chunk.contained_entities.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
-                            {chunk.contained_entities.slice(0, 5).map((entity, i) => (
+                            {chunk.contained_entities.slice(0, 5).map((entity) => (
                               <span
-                                key={i}
+                                key={entity}
                                 className="text-xs px-1.5 py-0.5 bg-secondary-200 dark:bg-secondary-600 text-secondary-700 dark:text-secondary-200 rounded"
                               >
                                 {entity}

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { flushSync } from 'react-dom'
-import { Message } from '@/types'
+import { Message, Source, QualityScore } from '@/types'
 import { api } from '@/lib/api'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
@@ -176,8 +176,8 @@ export default function ChatInterface() {
 
     let accumulatedContent = ''
     let displayedContent = ''
-    let sources: any[] = []
-    let qualityScore: any = null
+    let sources: Source[] = []
+    let qualityScore: QualityScore | undefined = undefined
     let followUpQuestions: string[] = []
     let newSessionId = sessionId
     let streamCompleted = false
@@ -435,7 +435,7 @@ export default function ChatInterface() {
         ) : (
           <div className="max-w-4xl mx-auto space-y-4">
             {messages.map((message, index) => (
-              <div key={index}>
+              <div key={`${message.role}-${message.timestamp || index}`}>
                 <MessageBubble message={message} />
                 {message.role === 'assistant' &&
                   !message.isStreaming &&

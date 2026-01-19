@@ -77,8 +77,8 @@ async def stream_response_generator(
                 # Signal completion using the captured main loop
                 try:
                     main_loop.call_soon_threadsafe(pipeline_complete.set)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to signal pipeline completion: {e}")
         
         # Start pipeline in thread pool
         main_loop.run_in_executor(_executor, run_pipeline)

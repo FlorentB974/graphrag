@@ -13,6 +13,19 @@ export interface Message {
   context_hashtags?: string[]
 }
 
+// API response type for conversation messages (may have slightly different shape)
+export interface ApiConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp?: string
+  sources?: Source[]
+  quality_score?: QualityScore
+  follow_up_questions?: string[]
+  context_documents?: string[]
+  context_document_labels?: string[]
+  context_hashtags?: string[]
+}
+
 export interface Source {
   chunk_id?: string
   entity_id?: string
@@ -69,6 +82,7 @@ export interface DocumentSummary {
   processing_progress?: number
   queue_position?: number | null
   hashtags?: string[]
+  document_type?: string
 }
 
 export interface ProcessingSummary {

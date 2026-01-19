@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Message } from '@/types'
+import { Message, ApiConversationMessage } from '@/types'
 import { api } from '@/lib/api'
 
 type ActiveView = 'chat' | 'document'
@@ -83,7 +83,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const conversation = await api.getConversation(sessionId)
       const mappedMessages: Message[] = (conversation.messages || []).map(
-        (message: any) => ({
+        (message: ApiConversationMessage) => ({
           role: message.role,
           content: message.content,
           timestamp: message.timestamp,

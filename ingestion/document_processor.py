@@ -695,8 +695,8 @@ class DocumentProcessor:
                                 current = threading.current_thread()
                                 if current in self._bg_entity_threads:
                                     self._bg_entity_threads.remove(current)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to remove thread from tracking list: {e}")
 
                 # Start thread and track it so the UI can detect background work
                 t = threading.Thread(
@@ -1511,8 +1511,8 @@ class DocumentProcessor:
                 for op_id in operation_ids:
                     try:
                         self._complete_entity_operation(op_id)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to complete entity operation {op_id}: {e}")
 
         # Start thread and track it so the UI can detect background work
         t = threading.Thread(
@@ -1827,8 +1827,8 @@ class DocumentProcessor:
                     for op_id in operation_ids:
                         try:
                             self._complete_entity_operation(op_id)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to complete entity operation {op_id}: {e}")
 
                     # Remove this thread from the tracking list when finished
                     try:
@@ -1836,8 +1836,8 @@ class DocumentProcessor:
                             current = threading.current_thread()
                             if current in self._bg_entity_threads:
                                 self._bg_entity_threads.remove(current)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to remove thread from tracking list: {e}")
 
             # Start thread and track it so the UI can detect background work
             t = threading.Thread(

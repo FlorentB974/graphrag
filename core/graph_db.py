@@ -1080,8 +1080,8 @@ class GraphDB:
                 session.run(
                     "CREATE FULLTEXT INDEX entity_text IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, e.description]"
                 )
-            except Exception:
-                pass  # Index might already exist
+            except Exception as e:
+                logger.debug(f"Fulltext index entity_text already exists or creation failed: {e}")
 
             result = session.run(
                 """

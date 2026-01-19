@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { flushSync } from 'react-dom'
-import { Message } from '@/types'
+import { Message, Source, QualityScore } from '@/types'
 import { api } from '@/lib/api'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
@@ -23,6 +23,8 @@ export default function ChatInterface() {
   const isHistoryLoading = useChatStore((state) => state.isHistoryLoading)
   const isConnected = useChatStore((state) => state.isConnected)
   const setIsConnected = useChatStore((state) => state.setIsConnected)
+  const isStreamingRequest = useChatStore((state) => state.isStreamingRequest)
+  const setIsStreamingRequest = useChatStore((state) => state.setIsStreamingRequest)
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -53,25 +55,61 @@ export default function ChatInterface() {
   }, [])
 
   // Health check monitoring with adaptive interval
+  // Skip health checks during active streaming requests to prevent false disconnection alerts
   useEffect(() => {
     let isUnmounted = false;
+    let abortController: AbortController | null = null;
+    let currentTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const HEALTHY_INTERVAL = 30000; // 30 seconds when connected
     const UNHEALTHY_INTERVAL = 5000; // 5 seconds when disconnected
 
     const scheduleNextCheck = (delay: number) => {
+      // Don't schedule if component is unmounted
+      if (isUnmounted) return;
+      
+      // Clear any existing timeout
+      if (currentTimeoutId !== null) {
+        clearTimeout(currentTimeoutId)
+      }
       if (healthCheckIntervalRef.current) {
         clearTimeout(healthCheckIntervalRef.current as unknown as number)
       }
-      healthCheckIntervalRef.current = setTimeout(runHealthCheck, delay)
+      
+      currentTimeoutId = setTimeout(runHealthCheck, delay)
+      healthCheckIntervalRef.current = currentTimeoutId
     }
 
     const runHealthCheck = async () => {
+      // Early exit if unmounted
       if (isUnmounted) return;
-      const isHealthy = await api.checkHealth()
-      setIsConnected(isHealthy)
-      // Schedule next check based on health
-      scheduleNextCheck(isHealthy ? HEALTHY_INTERVAL : UNHEALTHY_INTERVAL)
+      
+      // Skip health check if a streaming request is in progress
+      // The active SSE connection itself proves the server is responsive
+      if (isStreamingRequest) {
+        scheduleNextCheck(HEALTHY_INTERVAL)
+        return
+      }
+      
+      // Create abort controller for this check
+      abortController = new AbortController()
+      
+      try {
+        const isHealthy = await api.checkHealth(abortController.signal)
+        
+        // Check again after await to ensure component hasn't unmounted
+        if (isUnmounted) return;
+        
+        setIsConnected(isHealthy)
+        // Schedule next check based on health
+        scheduleNextCheck(isHealthy ? HEALTHY_INTERVAL : UNHEALTHY_INTERVAL)
+      } catch {
+        // Silently handle aborted requests (expected on unmount)
+        if (!isUnmounted) {
+          setIsConnected(false)
+          scheduleNextCheck(UNHEALTHY_INTERVAL)
+        }
+      }
     }
 
     // Start health check loop
@@ -79,11 +117,24 @@ export default function ChatInterface() {
 
     return () => {
       isUnmounted = true;
+      
+      // Abort any in-flight request
+      if (abortController) {
+        abortController.abort()
+        abortController = null
+      }
+      
+      // Clear all pending timeouts
+      if (currentTimeoutId !== null) {
+        clearTimeout(currentTimeoutId)
+        currentTimeoutId = null
+      }
       if (healthCheckIntervalRef.current) {
         clearTimeout(healthCheckIntervalRef.current as unknown as number)
+        healthCheckIntervalRef.current = null
       }
     }
-  }, [setIsConnected])
+  }, [setIsConnected, isStreamingRequest])
 
   // Trigger refresh when connection is restored
   useEffect(() => {
@@ -150,11 +201,12 @@ export default function ChatInterface() {
     }
     addMessage(userMessage)
     setIsLoading(true)
+    setIsStreamingRequest(true) // Mark that we're starting a streaming request
 
     let accumulatedContent = ''
     let displayedContent = ''
-    let sources: any[] = []
-    let qualityScore: any = null
+    let sources: Source[] = []
+    let qualityScore: QualityScore | undefined = undefined
     let followUpQuestions: string[] = []
     let newSessionId = sessionId
     let streamCompleted = false
@@ -364,6 +416,7 @@ export default function ChatInterface() {
       }
       abortControllerRef.current = null
       setIsLoading(false)
+      setIsStreamingRequest(false) // Mark that streaming request has completed
     }
   }
 
@@ -411,7 +464,7 @@ export default function ChatInterface() {
         ) : (
           <div className="max-w-4xl mx-auto space-y-4">
             {messages.map((message, index) => (
-              <div key={index}>
+              <div key={`${message.role}-${message.timestamp || index}`}>
                 <MessageBubble message={message} />
                 {message.role === 'assistant' &&
                   !message.isStreaming &&

@@ -5,8 +5,11 @@ import { ExclamationTriangleIcon } from '@heroicons/react/24/solid'
 
 export default function ConnectionStatus() {
   const isConnected = useChatStore((state) => state.isConnected)
+  const isStreamingRequest = useChatStore((state) => state.isStreamingRequest)
 
-  if (isConnected) {
+  // Don't show disconnection warning if we're actively streaming
+  // The active SSE connection proves the server is responsive
+  if (isConnected || isStreamingRequest) {
     return null
   }
 

@@ -3,12 +3,14 @@ Text embedding utilities using OpenAI API.
 """
 
 import asyncio
+import hashlib
 import logging
 import random
 import threading
 import time
 from typing import List
 
+from cachetools import TTLCache
 import httpx
 import openai
 import requests
@@ -158,6 +160,8 @@ class EmbeddingManager:
         
         self._last_request_time = 0
         self._request_lock = threading.Lock()
+        self._embedding_cache = TTLCache(maxsize=10000, ttl=3600)
+        self._cache_lock = threading.RLock()
 
         if self.provider == "openai":
             self.model = settings.embedding_model
@@ -182,15 +186,32 @@ class EmbeddingManager:
     @retry_with_exponential_backoff(max_retries=5, base_delay=3.0, max_delay=180.0)
     def get_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text with retry logic."""
+        # Use SHA-256 for better collision resistance
+        # Include provider and model to prevent cross-model cache pollution
+        key_material = f"{self.provider}:{self.model}:{text}"
+        cache_key = hashlib.sha256(key_material.encode('utf-8', errors='replace')).hexdigest()
+        
+        # Thread-safe cache check
+        with self._cache_lock:
+            if cache_key in self._embedding_cache:
+                logger.debug("Embedding cache hit")
+                return self._embedding_cache[cache_key]
+        
         # Enforce rate limiting before making request
         self._wait_for_rate_limit()
         
         try:
             if self.provider == "ollama":
-                return self._get_ollama_embedding(text)
+                embedding = self._get_ollama_embedding(text)
             else:
                 response = openai.embeddings.create(input=text, model=self.model)
-                return response.data[0].embedding
+                embedding = response.data[0].embedding
+            
+            # Thread-safe cache update (TTLCache handles LRU eviction automatically)
+            with self._cache_lock:
+                self._embedding_cache[cache_key] = embedding
+            
+            return embedding
         except Exception as e:
             logger.error(f"Failed to generate embedding: {e}")
             raise

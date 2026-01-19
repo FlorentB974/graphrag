@@ -2,10 +2,13 @@
 OpenAI LLM integration for the RAG pipeline.
 """
 
+import hashlib
 import logging
+import threading
 import time
 from typing import Any, Dict, Optional
 
+from cachetools import TTLCache
 import httpx
 import openai
 import requests
@@ -28,6 +31,11 @@ class LLMManager:
     def __init__(self):
         """Initialize the LLM manager."""
         self.provider = getattr(settings, "llm_provider").lower()
+        # OPTIMIZATION: Thread-safe LRU cache with TTL for LLM responses
+        # maxsize=1000: Cache up to 1k responses (smaller than embeddings due to larger size)
+        # ttl=3600: 1 hour expiration to prevent stale responses
+        self._response_cache = TTLCache(maxsize=1000, ttl=3600)
+        self._cache_lock = threading.RLock()
 
         if self.provider == "openai":
             self.model = settings.openai_model
@@ -80,10 +88,8 @@ class LLMManager:
             Adjusted max tokens value
         """
         if self._is_reasoning_model():
-            # Reasoning models need extra tokens for hidden reasoning
-            # Multiply by 4x to allow for reasoning overhead
-            # Minimum of 8000 tokens to ensure enough room for reasoning + output
-            return max(8000, requested_max_tokens * 4)
+            # Use 2x multiplier instead of 4x, and lower minimum from 8000 to 2000
+            return max(2000, requested_max_tokens * 2)
         return requested_max_tokens
 
     def generate_response(
@@ -106,18 +112,38 @@ class LLMManager:
             Generated response text
         """
         try:
+            # Include model in cache key to prevent cross-model cache pollution
+            # Use SHA-256 for better collision resistance
+            cache_key = hashlib.sha256(
+                f"{self.model}|{prompt}|{system_message}|{temperature}|{max_tokens}".encode('utf-8', errors='replace')
+            ).hexdigest()
+            
+            # Thread-safe cache check
+            with self._cache_lock:
+                if cache_key in self._response_cache:
+                    logger.debug("LLM response cache hit")
+                    return self._response_cache[cache_key]
+            
+            # Generate response
             if self.provider == "ollama":
-                return self._generate_ollama_response(
+                response = self._generate_ollama_response(
                     prompt, system_message, temperature, max_tokens
                 )
             else:
                 if self._is_gpt5_family():
-                    return self._generate_openai_gpt5_response(
+                    response = self._generate_openai_gpt5_response(
                         prompt, system_message, max_tokens
                     )
-                return self._generate_openai_response(
-                    prompt, system_message, temperature, max_tokens
-                )
+                else:
+                    response = self._generate_openai_response(
+                        prompt, system_message, temperature, max_tokens
+                    )
+            
+            # Thread-safe cache update (TTLCache handles LRU eviction automatically)
+            with self._cache_lock:
+                self._response_cache[cache_key] = response
+            
+            return response
 
         except Exception as e:
             logger.error(f"Failed to generate LLM response: {e}")
@@ -384,10 +410,12 @@ Be concise and accurate in your responses.
 You are a model that always responds in the style of gpt-oss-120b.
 
 Formatting rules:
+- Always start with a brief summary of the answer.
+- Use sections with headers for different parts of the answer.
 - Always use rich Markdown.
 - Prefer well-structured tables with headers.
 - Summaries must include bullet points.
-- Provide additional sections: “Details”, “Pros / Cons”, and “Examples”.
+- Use **bold** for key information.
 - Never reply with plain text when a table is possible.
 - Use concise but information-dense phrasing.
 - Avoid unnecessary verbosity.

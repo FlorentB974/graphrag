@@ -42,10 +42,8 @@ def analyze_query(
                     f"Follow-up question detected. Original: '{query}' -> Contextualized: '{context_query}'"
                 )
 
-        # Use LLM to analyze the query (using contextualized version if needed)
-        analysis_result = llm_manager.analyze_query(context_query)
 
-        # Extract key information (simplified version)
+        # Extract key information using heuristics only
         analysis = {
             "original_query": query,
             "contextualized_query": context_query,
@@ -55,7 +53,7 @@ def analyze_query(
             "key_concepts": [],
             "intent": "information_seeking",
             "complexity": "simple",
-            "analysis_text": analysis_result.get("analysis", ""),
+            "analysis_text": "", 
             "requires_reasoning": False,
             "requires_multiple_sources": False,
         }

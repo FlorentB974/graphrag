@@ -50,7 +50,7 @@ def clear_database():
     """Clear all data from the database (use with caution!)."""
     try:
         logger.warning("⚠️  CLEARING ALL DATABASE DATA...")
-        with graph_db.driver.session() as session:  # type: ignore
+        with graph_db._get_driver().session() as session:
             # Delete all nodes and relationships
             session.run("MATCH (n) DETACH DELETE n")
 
@@ -368,7 +368,7 @@ Examples:
         if args.fix_embeddings:
             from core.graph_db import graph_db
 
-            with graph_db.driver.session() as session:  # type: ignore
+            with graph_db._get_driver().session() as session:
                 find_and_fix_bad_embeddings(session, apply=args.apply)
 
         if args.clear:

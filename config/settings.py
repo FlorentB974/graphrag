@@ -140,6 +140,12 @@ class Settings(BaseSettings):
         default=100 * 1024 * 1024, description="Max upload size"
     )  # 100MB
 
+    # CORS Configuration
+    allowed_origins: str = Field(
+        default="http://localhost:3000,http://localhost:3001",
+        description="Comma-separated list of allowed CORS origins. Use '*' for development."
+    )
+
     # Reranking Configuration
     enable_reranking: bool = Field(
         default=True, description="Enable reranking of retrieved chunks"

@@ -29,8 +29,32 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory storage for staged documents and processing progress
-# In production, you'd use Redis or a database
+# =============================================================================
+# IN-MEMORY STATE STORAGE
+# =============================================================================
+# WARNING: The following in-memory data structures store ephemeral state that
+# is lost on server restart. This is acceptable for development but should be
+# replaced with persistent storage (Redis, database) for production use.
+#
+# Production recommendations:
+# 1. Use Redis for _staged_documents, _processing_progress, and _processing_queue
+#    - Benefits: Fast, supports TTL for auto-cleanup, works across multiple workers
+# 2. Use database (Neo4j or PostgreSQL) for permanent document status tracking
+#    - Already partially implemented via _mark_document_status()
+# 3. Consider using a message queue (RabbitMQ, Redis Streams) for _processing_queue
+#
+# Recovery on restart:
+# - Staged documents: Files persist in data/staged_uploads/ directory
+# - Processing state: Can be recovered by scanning staged_uploads/ on startup
+# - Processing queue: Would need to be reconstructed from pending files
+#
+# To implement Redis storage:
+# 1. Add redis-py to requirements.txt
+# 2. Create a StateStore abstraction in core/state_store.py
+# 3. Implement RedisStateStore and InMemoryStateStore
+# 4. Configure via REDIS_URL environment variable
+# =============================================================================
+
 _staged_documents: Dict[str, StagedDocument] = {}
 _processing_progress: Dict[str, ProcessProgress] = {}
 
@@ -38,7 +62,7 @@ _processing_queue: List[str] = []
 _queue_lock = asyncio.Lock()
 _processing_lock = asyncio.Lock()
 _queue_event = asyncio.Event()
-_processing_worker: Optional[asyncio.Task] = None  # type: ignore[var-annotated]
+_processing_worker: Optional["asyncio.Task[None]"] = None
 _global_processing_state: Dict[str, Any] = {
     "is_processing": False,
     "current_file_id": None,

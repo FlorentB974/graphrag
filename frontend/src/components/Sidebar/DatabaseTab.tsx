@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { api } from '@/lib/api'
-import { DatabaseStats, ProcessingSummary } from '@/types'
+import { DatabaseStats, ProcessingSummary, DocumentSummary } from '@/types'
 import { TrashIcon, DocumentArrowUpIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useChatStore } from '@/store/chatStore'
 import { showToast } from '@/components/Toast/ToastContainer'
@@ -300,7 +300,7 @@ export default function DatabaseTab() {
     return stats.documents.filter(
       (doc) =>
         (doc.original_filename || doc.filename || '').toLowerCase().includes(query) ||
-        ((doc as any).document_type || '').toLowerCase().includes(query)
+        (doc.document_type || '').toLowerCase().includes(query)
     )
   }
 
@@ -311,7 +311,7 @@ export default function DatabaseTab() {
   // Use processingState which gets updated via polling, or fallback to stats.processing
   const processingSummary = processingState || stats?.processing
 
-  const formatStatus = (doc: any) => {
+  const formatStatus = (doc: DocumentSummary) => {
     const status = doc.processing_status
     const stage = doc.processing_stage
     const progress = typeof doc.processing_progress === 'number' ? Math.round(doc.processing_progress) : null
@@ -482,7 +482,7 @@ export default function DatabaseTab() {
 
 
           <div className="space-y-2">
-            {getFilteredDocuments().map((doc, index) => {
+            {getFilteredDocuments().map((doc) => {
               const isActive = doc.document_id === selectedDocumentId
               const statusLabel = formatStatus(doc)
               const status = doc.processing_status
@@ -493,7 +493,7 @@ export default function DatabaseTab() {
 
               return (
                 <div
-                  key={index}
+                  key={doc.document_id}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'copy'
@@ -520,8 +520,8 @@ export default function DatabaseTab() {
                       <p className={`text-xs mt-1 ${isStuck && (status === 'queued' || status === 'staged') ? 'text-red-600 dark:text-red-400' : 'text-secondary-600 dark:text-secondary-400'}`}>
                         {status === 'queued' || status === 'staged' 
                           ? (isStuck ? 'Queue stuck - processing may have crashed' : 'Processing queued')
-                          : (doc as any).document_type 
-                          ? (doc as any).document_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                          : doc.document_type 
+                          ? doc.document_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
                           : 'Unknown type'}
                       </p>
                       {statusLabel && status !== 'queued' && status !== 'staged' && (

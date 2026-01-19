@@ -216,8 +216,8 @@ class ChatHistoryService:
                     # If it's already a string, return as-is (assume it includes timezone or local time)
                     if isinstance(value, str) and value:
                         return value
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Timestamp normalization failed for value {value}: {e}")
                 return ""
 
             return ConversationHistory(
@@ -274,8 +274,8 @@ class ChatHistoryService:
                                 return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc).astimezone().isoformat()
                             if isinstance(value, str) and value:
                                 return value
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Timestamp normalization failed for value {value}: {e}")
                         return ""
 
                     sessions.append(

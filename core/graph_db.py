@@ -60,6 +60,17 @@ class GraphDB:
         self.driver: Optional[Driver] = None
         self.connect()
 
+    def _get_driver(self) -> Driver:
+        """Get the driver instance, raising if not connected.
+        
+        This helper ensures type safety by raising an exception if the driver
+        is not initialized, allowing callers to use the returned Driver without
+        type: ignore comments.
+        """
+        if self.driver is None:
+            raise RuntimeError("Neo4j driver not initialized. Call connect() first.")
+        return self.driver
+
     def connect(self) -> None:
         """Establish connection to Neo4j database."""
         try:
@@ -82,7 +93,7 @@ class GraphDB:
 
     def create_document_node(self, doc_id: str, metadata: Dict[str, Any]) -> None:
         """Create a document node in the graph."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MERGE (d:Document {id: $doc_id})
@@ -100,7 +111,7 @@ class GraphDB:
         hashtags: List[str]
     ) -> None:
         """Update a document node with summary, document type, and hashtags."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (d:Document {id: $doc_id})
@@ -120,7 +131,7 @@ class GraphDB:
         hashtags: List[str]
     ) -> None:
         """Update only the hashtags for a document."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (d:Document {id: $doc_id})
@@ -132,7 +143,7 @@ class GraphDB:
 
     def get_documents_with_summaries(self) -> List[Dict[str, Any]]:
         """Get all documents that have summaries."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document)
@@ -148,7 +159,7 @@ class GraphDB:
 
     def get_all_hashtags(self) -> List[str]:
         """Get all unique hashtags from all documents."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document)
@@ -169,7 +180,7 @@ class GraphDB:
         metadata: Dict[str, Any],
     ) -> None:
         """Create a chunk node and link it to its document."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MERGE (c:Chunk {id: $chunk_id})
@@ -195,7 +206,7 @@ class GraphDB:
         self, chunk_id1: str, chunk_id2: str, similarity_score: float
     ) -> None:
         """Create similarity relationship between chunks."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (c1:Chunk {id: $chunk_id1})
@@ -225,12 +236,12 @@ class GraphDB:
 
         return dot_product / (magnitude1 * magnitude2)
 
-    def create_chunk_similarities(self, doc_id: str, threshold: float = None) -> int:  # type: ignore
+    def create_chunk_similarities(self, doc_id: str, threshold: Optional[float] = None) -> int:
         """Create similarity relationships between chunks of a document."""
         if threshold is None:
             threshold = settings.similarity_threshold
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Get all chunks for the document with their embeddings
             result = session.run(
                 """
@@ -285,12 +296,12 @@ class GraphDB:
             )
             return relationships_created
 
-    def create_all_chunk_similarities(self, threshold: float = None, batch_size: int = 10) -> Dict[str, int]:  # type: ignore
+    def create_all_chunk_similarities(self, threshold: Optional[float] = None, batch_size: int = 10) -> Dict[str, int]:
         """Create similarity relationships for all documents in the database."""
         if threshold is None:
             threshold = settings.similarity_threshold
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Get all document IDs
             result = session.run("MATCH (d:Document) RETURN d.id as doc_id")
             doc_ids = [record["doc_id"] for record in result]
@@ -329,12 +340,12 @@ class GraphDB:
         )
         return results
 
-    def create_entity_similarities(self, doc_id: str = None, threshold: float = None) -> int:  # type: ignore
+    def create_entity_similarities(self, doc_id: Optional[str] = None, threshold: Optional[float] = None) -> int:
         """Create similarity relationships between entities based on their embeddings."""
         if threshold is None:
             threshold = settings.similarity_threshold
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Build query based on whether we're processing specific doc or all entities
             if doc_id:
                 # Get entities for specific document
@@ -413,12 +424,12 @@ class GraphDB:
             )
             return relationships_created
 
-    def create_all_entity_similarities(self, threshold: float = None, batch_size: int = 10) -> Dict[str, int]:  # type: ignore
+    def create_all_entity_similarities(self, threshold: Optional[float] = None, batch_size: int = 10) -> Dict[str, int]:
         """Create entity similarity relationships for all documents in the database."""
         if threshold is None:
             threshold = settings.similarity_threshold
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Get all document IDs that have entities
             result = session.run(
                 """
@@ -470,7 +481,7 @@ class GraphDB:
         self, entity_id1: str, entity_id2: str, similarity: float
     ) -> None:
         """Create a similarity relationship between two entities."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (e1:Entity {id: $entity_id1})
@@ -487,7 +498,7 @@ class GraphDB:
         self, query_embedding: List[float], top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """Perform vector similarity search using cosine similarity."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
@@ -505,14 +516,14 @@ class GraphDB:
     def get_related_chunks(
         self,
         chunk_id: str,
-        relationship_types: List[str] = None,  # type: ignore
+        relationship_types: Optional[List[str]] = None,
         max_depth: int = 2,
     ) -> List[Dict[str, Any]]:
         """Get chunks related to a given chunk through various relationships."""
         if relationship_types is None:
             relationship_types = ["SIMILAR_TO", "HAS_CHUNK"]
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Build the query dynamically since Neo4j doesn't allow parameters in pattern ranges
             query = f"""
                 MATCH (start:Chunk {{id: $chunk_id}})
@@ -539,7 +550,7 @@ class GraphDB:
                 """
 
             result = session.run(
-                query,  # type: ignore
+                query,
                 chunk_id=chunk_id,
                 relationship_types=relationship_types,
             )
@@ -547,7 +558,7 @@ class GraphDB:
 
     def get_document_chunks(self, doc_id: str) -> List[Dict[str, Any]]:
         """Get all chunks for a specific document."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)
@@ -560,7 +571,7 @@ class GraphDB:
 
     def delete_document(self, doc_id: str) -> None:
         """Delete a document and all its chunks."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # 1. Collect chunk ids for the document
             result = session.run(
                 """
@@ -625,7 +636,7 @@ class GraphDB:
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
         """Get all documents with their metadata, chunk counts, and OCR information."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document)
@@ -656,7 +667,7 @@ class GraphDB:
 
     def get_graph_stats(self) -> Dict[str, int]:
         """Get basic statistics about the graph database."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 OPTIONAL MATCH (d:Document)
@@ -691,7 +702,7 @@ class GraphDB:
 
     def get_entity_extraction_status(self) -> Dict[str, Any]:
         """Get entity extraction status for all documents."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document)
@@ -730,7 +741,7 @@ class GraphDB:
 
     def get_document_entities(self, doc_id: str) -> List[Dict[str, Any]]:
         """Get all entities extracted from a specific document."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
@@ -745,7 +756,7 @@ class GraphDB:
 
     def setup_indexes(self) -> None:
         """Create necessary indexes for performance."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Create indexes for faster lookups
             session.run("CREATE INDEX IF NOT EXISTS FOR (d:Document) ON (d.id)")
             session.run("CREATE INDEX IF NOT EXISTS FOR (c:Chunk) ON (c.id)")
@@ -796,7 +807,7 @@ class GraphDB:
         embedding: List[float],
     ) -> None:
         """Synchronous helper for creating entity node in database."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MERGE (e:Entity {id: $entity_id})
@@ -846,7 +857,7 @@ class GraphDB:
 
     async def aupdate_entities_with_embeddings(self) -> int:
         """Update existing entities that don't have embeddings (async version)."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Get entities without embeddings
             result = session.run(
                 """
@@ -929,7 +940,7 @@ class GraphDB:
         self, entity_id: str, embedding: List[float]
     ) -> None:
         """Synchronous helper for updating entity embedding in database."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (e:Entity {id: $entity_id})
@@ -943,7 +954,7 @@ class GraphDB:
         """Update existing entities that don't have embeddings (sync version kept for compatibility)."""
         updated_count = 0
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Get entities without embeddings
             result = session.run(
                 """
@@ -1004,7 +1015,7 @@ class GraphDB:
         if source_chunks is None:
             source_chunks = []
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (e1:Entity {id: $entity_id1})
@@ -1026,7 +1037,7 @@ class GraphDB:
 
     def create_chunk_entity_relationship(self, chunk_id: str, entity_id: str) -> None:
         """Create a relationship between a chunk and an entity it contains."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 """
                 MATCH (c:Chunk {id: $chunk_id})
@@ -1041,7 +1052,7 @@ class GraphDB:
         self, entity_type: str, limit: int = 100
     ) -> List[Dict[str, Any]]:
         """Get entities of a specific type."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (e:Entity {type: $entity_type})
@@ -1057,7 +1068,7 @@ class GraphDB:
 
     def get_entity_relationships(self, entity_id: str) -> List[Dict[str, Any]]:
         """Get all relationships for a specific entity."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (e1:Entity {id: $entity_id})-[r:RELATED_TO]-(e2:Entity)
@@ -1074,14 +1085,14 @@ class GraphDB:
         self, query_text: str, top_k: int = 5
     ) -> List[Dict[str, Any]]:
         """Search entities by text similarity using full-text search."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Create full-text index if it doesn't exist
             try:
                 session.run(
                     "CREATE FULLTEXT INDEX entity_text IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, e.description]"
                 )
-            except Exception:
-                pass  # Index might already exist
+            except Exception as e:
+                logger.debug(f"Fulltext index entity_text already exists or creation failed: {e}")
 
             result = session.run(
                 """
@@ -1100,7 +1111,7 @@ class GraphDB:
 
     def get_entities_for_chunks(self, chunk_ids: List[str]) -> List[Dict[str, Any]]:
         """Get all entities contained in the specified chunks."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
@@ -1115,7 +1126,7 @@ class GraphDB:
 
     def get_chunks_for_entities(self, entity_ids: List[str]) -> List[Dict[str, Any]]:
         """Get all chunks that contain the specified entities."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
@@ -1133,7 +1144,7 @@ class GraphDB:
         self, entity_id: str, max_depth: int = 2, max_entities: int = 50
     ) -> Dict[str, Any]:
         """Get a subgraph around a specific entity."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             if max_depth == 1:
                 query = """
                     MATCH (start:Entity {id: $entity_id})-[r:RELATED_TO]-(related:Entity)
@@ -1189,7 +1200,7 @@ class GraphDB:
         Returns:
             Dictionary with validation results
         """
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             if doc_id:
                 query = """
                     MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)
@@ -1283,7 +1294,7 @@ class GraphDB:
         Returns:
             Dictionary with validation results
         """
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             if doc_id:
                 query = """
                     MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk)-[:CONTAINS_ENTITY]->(e:Entity)
@@ -1503,7 +1514,7 @@ class GraphDB:
 
     def _get_chunk_content_sync(self, chunk_id: str) -> Optional[str]:
         """Synchronous helper for getting chunk content."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 "MATCH (c:Chunk {id: $chunk_id}) RETURN c.content as content",
                 chunk_id=chunk_id,
@@ -1515,7 +1526,7 @@ class GraphDB:
         self, chunk_id: str, embedding: List[float]
     ) -> None:
         """Synchronous helper for updating chunk embedding."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             session.run(
                 "MATCH (c:Chunk {id: $chunk_id}) SET c.embedding = $embedding",
                 chunk_id=chunk_id,
@@ -1524,7 +1535,7 @@ class GraphDB:
 
     def _get_entity_data_sync(self, entity_id: str) -> Optional[Dict[str, str]]:
         """Synchronous helper for getting entity data."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 "MATCH (e:Entity {id: $entity_id}) RETURN e.name as name, e.description as description",
                 entity_id=entity_id,
@@ -1555,7 +1566,7 @@ class GraphDB:
 
         # Fix chunk embeddings
         if chunk_ids is not None:
-            with self.driver.session() as session:  # type: ignore
+            with self._get_driver().session() as session:
                 for chunk_id in chunk_ids:
                     try:
                         # Get chunk content
@@ -1583,7 +1594,7 @@ class GraphDB:
 
         # Fix entity embeddings (if they're supposed to have embeddings)
         if entity_ids is not None:
-            with self.driver.session() as session:  # type: ignore
+            with self._get_driver().session() as session:
                 for entity_id in entity_ids:
                     try:
                         # Get entity name/description for embedding
@@ -1640,7 +1651,7 @@ class GraphDB:
             return []
 
         try:
-            with self.driver.session() as session:  # type: ignore
+            with self._get_driver().session() as session:
                 # Get seed entities with their data
                 seed_entities_data = session.run(
                     """
@@ -1792,7 +1803,7 @@ class GraphDB:
 
     def get_database_stats(self) -> Dict[str, Any]:
         """Get comprehensive database statistics for the API."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Get basic stats
             result = session.run(
                 """
@@ -1839,7 +1850,7 @@ class GraphDB:
 
     def list_documents(self) -> List[Dict[str, Any]]:
         """List all documents in the database."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (d:Document)
@@ -1872,7 +1883,7 @@ class GraphDB:
                     return value
             return str(value)
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             doc_record = session.run(
                 """
                 MATCH (d:Document {id: $doc_id})
@@ -2015,7 +2026,7 @@ class GraphDB:
     def get_document_file_info(self, doc_id: str) -> Dict[str, Any]:
         """Return file metadata for previewing a document."""
 
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             record = session.run(
                 """
                 MATCH (d:Document {id: $doc_id})
@@ -2042,7 +2053,7 @@ class GraphDB:
 
     def clear_database(self) -> None:
         """Clear all data from the database."""
-        with self.driver.session() as session:  # type: ignore
+        with self._get_driver().session() as session:
             # Delete all nodes and relationships
             session.run("MATCH (n) DETACH DELETE n")
             logger.info("Database cleared")

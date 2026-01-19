@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def create_similarities(threshold: float = None, doc_id: str = None, mode: str = "chunk"):  # type: ignore
+def create_similarities(threshold: Optional[float] = None, doc_id: Optional[str] = None, mode: str = "chunk"):
     """Create similarity relationships between chunks and/or entities."""
     try:
         if doc_id:

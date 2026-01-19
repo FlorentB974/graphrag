@@ -30,10 +30,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
+
+# Configure CORS - origins loaded from ALLOWED_ORIGINS environment variable
+# Supports comma-separated list or '*' for development
+def _parse_cors_origins(origins_str: str) -> list[str]:
+    """Parse CORS origins from comma-separated string."""
+    if origins_str.strip() == "*":
+        return ["*"]
+    return [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Next.js dev servers
+    allow_origins=_parse_cors_origins(settings.allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

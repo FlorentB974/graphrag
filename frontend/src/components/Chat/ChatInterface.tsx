@@ -59,18 +59,29 @@ export default function ChatInterface() {
   useEffect(() => {
     let isUnmounted = false;
     let abortController: AbortController | null = null;
+    let currentTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const HEALTHY_INTERVAL = 30000; // 30 seconds when connected
     const UNHEALTHY_INTERVAL = 5000; // 5 seconds when disconnected
 
     const scheduleNextCheck = (delay: number) => {
+      // Don't schedule if component is unmounted
+      if (isUnmounted) return;
+      
+      // Clear any existing timeout
+      if (currentTimeoutId !== null) {
+        clearTimeout(currentTimeoutId)
+      }
       if (healthCheckIntervalRef.current) {
         clearTimeout(healthCheckIntervalRef.current as unknown as number)
       }
-      healthCheckIntervalRef.current = setTimeout(runHealthCheck, delay)
+      
+      currentTimeoutId = setTimeout(runHealthCheck, delay)
+      healthCheckIntervalRef.current = currentTimeoutId
     }
 
     const runHealthCheck = async () => {
+      // Early exit if unmounted
       if (isUnmounted) return;
       
       // Skip health check if a streaming request is in progress
@@ -83,14 +94,22 @@ export default function ChatInterface() {
       // Create abort controller for this check
       abortController = new AbortController()
       
-      const isHealthy = await api.checkHealth(abortController.signal)
-      
-      // Check again after await to ensure component hasn't unmounted
-      if (isUnmounted) return;
-      
-      setIsConnected(isHealthy)
-      // Schedule next check based on health
-      scheduleNextCheck(isHealthy ? HEALTHY_INTERVAL : UNHEALTHY_INTERVAL)
+      try {
+        const isHealthy = await api.checkHealth(abortController.signal)
+        
+        // Check again after await to ensure component hasn't unmounted
+        if (isUnmounted) return;
+        
+        setIsConnected(isHealthy)
+        // Schedule next check based on health
+        scheduleNextCheck(isHealthy ? HEALTHY_INTERVAL : UNHEALTHY_INTERVAL)
+      } catch {
+        // Silently handle aborted requests (expected on unmount)
+        if (!isUnmounted) {
+          setIsConnected(false)
+          scheduleNextCheck(UNHEALTHY_INTERVAL)
+        }
+      }
     }
 
     // Start health check loop
@@ -98,11 +117,21 @@ export default function ChatInterface() {
 
     return () => {
       isUnmounted = true;
+      
+      // Abort any in-flight request
       if (abortController) {
         abortController.abort()
+        abortController = null
+      }
+      
+      // Clear all pending timeouts
+      if (currentTimeoutId !== null) {
+        clearTimeout(currentTimeoutId)
+        currentTimeoutId = null
       }
       if (healthCheckIntervalRef.current) {
         clearTimeout(healthCheckIntervalRef.current as unknown as number)
+        healthCheckIntervalRef.current = null
       }
     }
   }, [setIsConnected, isStreamingRequest])

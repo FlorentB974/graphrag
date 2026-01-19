@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useReducer, useMemo } from 'react'
 
 interface Stage {
   id: string
@@ -48,6 +48,51 @@ const STAGES: Record<string, Stage> = {
   },
 }
 
+// Reducer state type
+interface StageState {
+  displayedStage: string
+  stageHistory: string[]
+}
+
+// Reducer action types
+type StageAction =
+  | { type: 'SET_CURRENT_STAGE'; payload: string }
+  | { type: 'SET_COMPLETED_STAGES'; payload: string[] }
+  | { type: 'RESET'; payload?: { currentStage?: string; completedStages?: string[] } }
+
+// Reducer function - consolidates all state updates to avoid race conditions
+function stageReducer(state: StageState, action: StageAction): StageState {
+  switch (action.type) {
+    case 'SET_CURRENT_STAGE': {
+      const newStage = action.payload
+      const newHistory = state.stageHistory.includes(newStage)
+        ? state.stageHistory
+        : [...state.stageHistory, newStage]
+      return {
+        displayedStage: newStage,
+        stageHistory: newHistory,
+      }
+    }
+    case 'SET_COMPLETED_STAGES': {
+      const completedStages = action.payload
+      return {
+        displayedStage: completedStages.length > 0
+          ? completedStages[completedStages.length - 1]
+          : state.displayedStage,
+        stageHistory: completedStages,
+      }
+    }
+    case 'RESET': {
+      return {
+        displayedStage: action.payload?.currentStage || 'query_analysis',
+        stageHistory: action.payload?.completedStages || [],
+      }
+    }
+    default:
+      return state
+  }
+}
+
 interface LoadingIndicatorProps {
   currentStage?: string
   completedStages?: string[]
@@ -61,37 +106,32 @@ export default function LoadingIndicator({
   isLoading = true,
   enableQualityScoring = true
 }: LoadingIndicatorProps) {
-  const [displayedStage, setDisplayedStage] = useState<string>(currentStage)
-  const [stageHistory, setStageHistory] = useState<string[]>(completedStages)
+  // Use reducer for consolidated state management
+  const [state, dispatch] = useReducer(stageReducer, {
+    displayedStage: currentStage,
+    stageHistory: completedStages,
+  })
 
+  const { displayedStage, stageHistory } = state
+
+  // Single effect to handle all prop changes - prevents race conditions
   useEffect(() => {
-    // Update when currentStage changes (during loading)
     if (isLoading && currentStage) {
-      setDisplayedStage(currentStage)
-      setStageHistory((prev) => {
-        if (!prev.includes(currentStage)) {
-          return [...prev, currentStage]
-        }
-        return prev
-      })
+      dispatch({ type: 'SET_CURRENT_STAGE', payload: currentStage })
+    } else if (!isLoading && completedStages.length > 0) {
+      dispatch({ type: 'SET_COMPLETED_STAGES', payload: completedStages })
     }
-  }, [currentStage, isLoading])
+  }, [currentStage, completedStages, isLoading])
 
-  // Update stage history when completed stages change (after loading)
-  useEffect(() => {
-    if (!isLoading && completedStages.length > 0) {
-      setStageHistory(completedStages)
-      // Set displayed stage to the last completed stage
-      setDisplayedStage(completedStages[completedStages.length - 1])
+  // Memoize computed values to avoid recalculation
+  const isStageCompleted = useMemo(() => {
+    return (stageId: string) => {
+      if (stageId === 'quality_calculation' && !enableQualityScoring) {
+        return false
+      }
+      return stageHistory.includes(stageId)
     }
-  }, [completedStages, isLoading])
-
-  const isStageCompleted = (stageId: string) => {
-    if (stageId === 'quality_calculation' && !enableQualityScoring) {
-      return false
-    }
-    return stageHistory.includes(stageId)
-  }
+  }, [stageHistory, enableQualityScoring])
 
   const stage = STAGES[displayedStage] || STAGES.query_analysis
   const completedStagesCount = isLoading ? stageHistory.slice(0, -1).length : stageHistory.length

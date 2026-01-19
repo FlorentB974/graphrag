@@ -65,7 +65,7 @@ class DocumentRetriever:
         if not entity_names:
             return []
 
-        with graph_db.driver.session() as session:  # type: ignore
+        with graph_db._get_driver().session() as session:
             result = session.run(
                 """
                 MATCH (e:Entity)
@@ -195,7 +195,7 @@ class DocumentRetriever:
             chunk_embeddings_map = {}
             
             if chunk_ids:
-                with graph_db.driver.session() as session:  # type: ignore
+                with graph_db._get_driver().session() as session:
                     result = session.run(
                         "MATCH (c:Chunk) WHERE c.id IN $chunk_ids RETURN c.id as chunk_id, c.embedding as embedding",
                         chunk_ids=chunk_ids,
@@ -498,7 +498,7 @@ class DocumentRetriever:
                     continue
 
                 # Get chunk data
-                with graph_db.driver.session() as session:  # type: ignore
+                with graph_db._get_driver().session() as session:
                     chunks_data = session.run(
                         """
                         MATCH (c:Chunk)

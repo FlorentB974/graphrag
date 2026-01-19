@@ -43,8 +43,9 @@ class GraphRAG:
 
     def _build_workflow(self) -> Any:
         """Build the LangGraph workflow for RAG."""
-        # Use plain dict as the runtime state type for LangGraph. Keep as Any to silence type checkers.
-        workflow: Any = StateGraph(dict)  # type: ignore
+        # Use plain dict as the runtime state type for LangGraph.
+        # StateGraph accepts a dict type annotation for dynamic state management.
+        workflow: Any = StateGraph(dict)
 
         # Add nodes
         workflow.add_node("analyze_query", self._analyze_query_node)

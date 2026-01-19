@@ -140,6 +140,12 @@ class Settings(BaseSettings):
         default=100 * 1024 * 1024, description="Max upload size"
     )  # 100MB
 
+    # CORS Configuration
+    allowed_origins: str = Field(
+        default="http://localhost:3000,http://localhost:3001",
+        description="Comma-separated list of allowed CORS origins. Use '*' for development."
+    )
+
     # Quality Scoring Configuration
     enable_quality_scoring: bool = Field(
         default=True, description="Enable quality scoring for LLM answers"

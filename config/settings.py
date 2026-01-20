@@ -166,6 +166,13 @@ class Settings(BaseSettings):
         default=True, description="Enable ability to delete documents and clear database"
     )
 
+    # Streaming Configuration
+    enable_true_streaming: bool = Field(
+        default=False,
+        description="Enable true LLM token streaming for improved time-to-first-token. "
+                    "When disabled (default), uses simulated word-splitting streaming."
+    )
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

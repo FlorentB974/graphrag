@@ -31,6 +31,10 @@ services:
       - OPENAI_PROXY=${OPENAI_PROXY}
       # LLM provider selection: 'openai' or 'ollama'
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-openai}
+      # OpenAI GPT-5 Configuration
+      - GPT5_REASONING_EFFORT=${GPT5_REASONING_EFFORT:-minimal}
+      - GPT5_TEXT_VERBOSITY=${GPT5_TEXT_VERBOSITY:-medium}
       # Ollama configuration (used when LLM_PROVIDER=ollama)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
@@ -56,6 +60,7 @@ services:
       - ENABLE_ENTITY_EXTRACTION=${ENABLE_ENTITY_EXTRACTION:-true}
       - ENABLE_QUALITY_SCORING=${ENABLE_QUALITY_SCORING:-true}
       - ENABLE_DELETE_OPERATIONS=${ENABLE_DELETE_OPERATIONS:-true}
+      - ENABLE_TRUE_STREAMING=${ENABLE_TRUE_STREAMING:-true}
     ports:
       - "8000:8000"  # FastAPI port
     volumes:
@@ -70,14 +75,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        # API URL for browser-side requests (must be accessible from user's browser)
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
     container_name: graphrag-frontend
     ports:
       - "3000:3000"  # Next.js port
     environment:
       # Next.js configuration
       - NODE_ENV=production
-      # API endpoint for frontend to communicate with backend
-      - NEXT_PUBLIC_API_URL=http://backend:8000
     networks:
       - graphrag_network
     depends_on:

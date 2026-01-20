@@ -3,7 +3,7 @@ LangGraph-based RAG pipeline implementation.
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 
 from langgraph.graph import END, StateGraph
 
@@ -281,6 +281,164 @@ class GraphRAG:
                 "context_documents": context_documents or [],
                 "stages": [],
             }
+
+    def query_stream(
+        self,
+        user_query: str,
+        retrieval_mode: str = "graph_enhanced",
+        top_k: int = 5,
+        temperature: float = 0.7,
+        chunk_weight: float = 0.5,
+        graph_expansion: bool = True,
+        use_multi_hop: bool = False,
+        chat_history: Optional[List[Dict[str, Any]]] = None,
+        context_documents: Optional[List[str]] = None,
+        stage_callback: Optional[Callable[[str], None]] = None,
+    ) -> Iterator[Union[Dict[str, Any], str]]:
+        """
+        Process a user query through the RAG pipeline with true token streaming.
+        
+        This method yields stage updates and then streams tokens from the LLM
+        in real-time, providing a much better time-to-first-token experience.
+
+        Args:
+            user_query: User's question or request
+            retrieval_mode: Retrieval strategy ("simple", "graph_enhanced", "hybrid")
+            top_k: Number of chunks to retrieve
+            temperature: LLM temperature for response generation
+            chunk_weight: Weight for chunk-based results in hybrid mode
+            graph_expansion: Whether to use graph expansion
+            use_multi_hop: Whether to use multi-hop reasoning
+            chat_history: Optional conversation history for follow-up questions
+            context_documents: Optional list of document IDs to restrict retrieval
+            stage_callback: Optional callback for stage notifications
+
+        Yields:
+            - Dict with "type": "stage" for stage updates
+            - Dict with "type": "token" containing streaming tokens
+            - Dict with "type": "sources" at the end with source information
+            - Dict with "type": "metadata" at the end with metadata
+        """
+        from core.llm import llm_manager
+        
+        try:
+            # Step 1: Query Analysis
+            if stage_callback:
+                stage_callback("query_analysis")
+            yield {"type": "stage", "content": "query_analysis"}
+            
+            query_analysis = analyze_query(user_query, chat_history or [])
+            
+            # Step 2: Retrieval
+            if stage_callback:
+                stage_callback("retrieval")
+            yield {"type": "stage", "content": "retrieval"}
+            
+            retrieved_chunks = retrieve_documents(
+                user_query,
+                query_analysis,
+                retrieval_mode,
+                top_k,
+                chunk_weight=chunk_weight,
+                graph_expansion=graph_expansion,
+                use_multi_hop=use_multi_hop,
+                context_documents=context_documents or [],
+            )
+            
+            # Step 3: Graph Reasoning
+            if stage_callback:
+                stage_callback("graph_reasoning")
+            yield {"type": "stage", "content": "graph_reasoning"}
+            
+            graph_context = reason_with_graph(
+                user_query,
+                retrieved_chunks,
+                query_analysis,
+                retrieval_mode,
+            )
+            
+            # Step 4: Generation (streaming)
+            if stage_callback:
+                stage_callback("generation")
+            yield {"type": "stage", "content": "generation"}
+            
+            # Filter out chunks with 0.000 similarity before processing
+            relevant_chunks = [
+                chunk
+                for chunk in graph_context
+                if chunk.get("similarity", chunk.get("hybrid_score", 0.0)) > 0.0
+            ]
+            
+            if not relevant_chunks:
+                yield {"type": "token", "content": "I couldn't find any relevant information to answer your question."}
+                yield {"type": "sources", "content": []}
+                yield {"type": "metadata", "content": {"chunks_used": 0}}
+                return
+
+            # Stream tokens from the LLM
+            full_response = []
+            for token in llm_manager.generate_rag_response_stream(
+                query=user_query,
+                context_chunks=relevant_chunks,
+                include_sources=True,
+                temperature=temperature,
+                chat_history=chat_history if query_analysis.get("is_follow_up") else [],
+            ):
+                full_response.append(token)
+                yield {"type": "token", "content": token}
+            
+            # Prepare sources information
+            sources = []
+            for i, chunk in enumerate(relevant_chunks):
+                source_info = {
+                    "chunk_id": chunk.get("chunk_id", f"chunk_{i}"),
+                    "content": chunk.get("content", ""),
+                    "similarity": chunk.get("similarity", chunk.get("hybrid_score", 0.0)),
+                    "document_name": chunk.get("document_name", "Unknown Document"),
+                    "document_id": chunk.get("document_id", ""),
+                    "filename": chunk.get(
+                        "filename", chunk.get("document_name", "Unknown Document")
+                    ),
+                    "metadata": chunk.get("metadata", {}),
+                    "chunk_index": chunk.get("chunk_index"),
+                }
+                
+                # Add entity information if available
+                contained_entities = chunk.get("contained_entities", [])
+                relevant_entities = chunk.get("relevant_entities", [])
+                entities = relevant_entities or contained_entities
+                
+                if entities:
+                    source_info["contained_entities"] = entities
+                    source_info["entity_enhanced"] = True
+                
+                sources.append(source_info)
+            
+            # Yield sources
+            yield {"type": "sources", "content": sources}
+            
+            # Yield metadata
+            query_type = query_analysis.get("query_type", "factual")
+            complexity = query_analysis.get("complexity", "simple")
+            
+            metadata = {
+                "chunks_used": len(relevant_chunks),
+                "chunks_filtered": len(graph_context) - len(relevant_chunks),
+                "query_type": query_type,
+                "complexity": complexity,
+                "requires_reasoning": query_analysis.get("requires_reasoning", False),
+                "key_concepts": query_analysis.get("key_concepts", []),
+                "full_response": "".join(full_response),
+            }
+            
+            yield {"type": "metadata", "content": metadata}
+            yield {"type": "graph_context", "content": graph_context}
+            yield {"type": "retrieved_chunks", "content": retrieved_chunks}
+            yield {"type": "query_analysis", "content": query_analysis}
+            
+        except Exception as e:
+            logger.error(f"RAG streaming pipeline failed: {e}")
+            yield {"type": "error", "content": str(e)}
 
     async def aquery(self, user_query: str) -> Dict[str, Any]:
         """

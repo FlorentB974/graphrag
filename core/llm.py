@@ -6,7 +6,7 @@ import hashlib
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Iterator, Optional
 
 from cachetools import TTLCache
 import httpx
@@ -376,6 +376,169 @@ class LLMManager:
         response.raise_for_status()
         return response.json().get("response", "")
 
+    def generate_response_stream(
+        self,
+        prompt: str,
+        system_message: Optional[str] = None,
+        temperature: float = 0.1,
+        max_tokens: int = 1000,
+    ) -> Iterator[str]:
+        """
+        Generate a streaming response using the configured LLM.
+
+        Args:
+            prompt: User prompt/question
+            system_message: Optional system message to set context
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum tokens in response
+
+        Yields:
+            Response tokens as they are generated
+        """
+        try:
+            if self.provider == "ollama":
+                yield from self._generate_ollama_response_stream(
+                    prompt, system_message, temperature, max_tokens
+                )
+            else:
+                if self._is_gpt5_family():
+                    # GPT-5 Responses API doesn't support streaming yet
+                    # Simulate streaming by yielding words from the response
+                    response = self._generate_openai_gpt5_response(
+                        prompt, system_message, max_tokens
+                    )
+                    # Split into words and yield them to simulate streaming
+                    words = []
+                    current_word = ""
+                    for char in response:
+                        current_word += char
+                        if char in {" ", "\n", "\t"}:
+                            if current_word:
+                                words.append(current_word)
+                                current_word = ""
+                    if current_word:
+                        words.append(current_word)
+                    
+                    # Yield words to simulate streaming
+                    for word in words:
+                        yield word
+                else:
+                    yield from self._generate_openai_response_stream(
+                        prompt, system_message, temperature, max_tokens
+                    )
+        except Exception as e:
+            logger.error(f"Failed to generate streaming LLM response: {e}")
+            raise
+
+    def _generate_openai_response_stream(
+        self,
+        prompt: str,
+        system_message: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ) -> Iterator[str]:
+        """Generate streaming response using OpenAI."""
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+
+        max_retries = 5
+        base_delay = 1.0
+
+        for attempt in range(max_retries):
+            try:
+                adjusted_max_tokens = self._get_max_tokens_for_model(max_tokens)
+                
+                request_params = {
+                    "model": str(self.model),
+                    "messages": messages,
+                    "max_completion_tokens": adjusted_max_tokens,
+                    "stream": True,
+                }
+                
+                if not self._is_reasoning_model():
+                    request_params["temperature"] = temperature
+                
+                stream = openai.chat.completions.create(**request_params)
+                
+                for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+                return
+                
+            except openai.RateLimitError:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM rate limited, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(
+                        f"LLM rate limit exceeded after {max_retries} attempts"
+                    )
+                    raise
+            except (openai.APIError, openai.InternalServerError) as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM API error, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"LLM API error after {max_retries} attempts: {e}")
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        f"LLM call failed, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"LLM call failed after {max_retries} attempts: {e}")
+                    raise
+
+    def _generate_ollama_response_stream(
+        self,
+        prompt: str,
+        system_message: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ) -> Iterator[str]:
+        """Generate streaming response using Ollama."""
+        full_prompt = ""
+        if system_message:
+            full_prompt += f"System: {system_message}\n\n"
+        full_prompt += f"Human: {prompt}\n\nAssistant:"
+
+        response = requests.post(
+            f"{self.ollama_base_url}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": full_prompt,
+                "options": {"temperature": temperature, "num_predict": max_tokens},
+                "stream": True,
+            },
+            timeout=120,
+            stream=True,
+        )
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                try:
+                    import json
+                    data = json.loads(line)
+                    if "response" in data:
+                        yield data["response"]
+                except json.JSONDecodeError:
+                    continue
+
     def generate_rag_response(
         self,
         query: str,
@@ -450,6 +613,122 @@ Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and
 
         except Exception as e:
             logger.error(f"Failed to generate RAG response: {e}")
+            raise
+
+    def generate_rag_response_stream(
+        self,
+        query: str,
+        context_chunks: list,
+        include_sources: bool = True,
+        temperature: float = 0.3,
+        chat_history: list = None,
+        token_callback: Optional[Callable[[str], None]] = None,
+    ) -> Iterator[str]:
+        """
+        Generate a streaming RAG response using retrieved context chunks.
+        Yields tokens as they are generated for true real-time streaming.
+
+        Args:
+            query: User query
+            context_chunks: List of relevant document chunks
+            include_sources: Whether to include source information
+            temperature: LLM temperature for response generation
+            chat_history: Optional conversation history for follow-up questions
+            token_callback: Optional callback for each token (for additional processing)
+
+        Yields:
+            Response tokens as they are generated
+        """
+        try:
+            from core.token_manager import token_manager as tm
+
+            system_message = """You are a helpful assistant that answers questions based on the provided context.
+Use only the information from the given context to answer the question.
+If the context doesn't contain enough information to answer the question, say so clearly.
+Be concise and accurate in your responses.
+
+You are a model that always responds in the style of gpt-oss-120b.
+
+Formatting rules:
+- Always start with a brief summary of the answer.
+- Use sections with headers for different parts of the answer.
+- Always use rich Markdown.
+- Prefer well-structured tables with headers.
+- Summaries must include bullet points.
+- Use **bold** for key information.
+- Never reply with plain text when a table is possible.
+- Use concise but information-dense phrasing.
+- Avoid unnecessary verbosity.
+
+If the user asks for code, wrap it properly in fenced code blocks.
+
+Math/LaTeX: remove common LaTeX delimiters like $...$, $$...$$, `\\(...\\)`, and `\\[...\\]` but preserve the mathematical content.
+"""
+
+            # For streaming, we don't support split requests - use single batch
+            # If context is too large, truncate it (streaming prioritizes UX over completeness)
+            if tm.needs_splitting(query, context_chunks, system_message):
+                logger.warning(
+                    "Context too large for streaming, truncating to fit token limits"
+                )
+                # Truncate context chunks to fit
+                max_chunks = len(context_chunks) // 2
+                context_chunks = context_chunks[:max(1, max_chunks)]
+
+            # Build context from chunks
+            context = "\n\n".join(
+                [
+                    f"[Chunk {i + 1}]: {chunk.get('content', '')}"
+                    for i, chunk in enumerate(context_chunks)
+                ]
+            )
+
+            # Build conversation history context if provided
+            history_context = ""
+            if chat_history and len(chat_history) > 0:
+                recent_history = (
+                    chat_history[-4:] if len(chat_history) > 4 else chat_history
+                )
+                history_entries = []
+                for msg in recent_history:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    if len(content) > 500:
+                        content = content[:500] + "..."
+                    history_entries.append(f"{role.title()}: {content}")
+
+                if history_entries:
+                    history_context = f"""
+Previous conversation:
+{chr(10).join(history_entries)}
+
+"""
+
+            prompt = f"""{history_context}Context:
+{context}
+
+Question: {query}
+
+Please provide a comprehensive answer based on the context provided above."""
+
+            # Compute safe max_tokens for output
+            available = tm.available_output_tokens_for_prompt(prompt, system_message)
+            cap = getattr(settings, "max_response_tokens", 2000)
+            max_out = min(available, cap)
+
+            # Stream the response
+            for token in self.generate_response_stream(
+                prompt=prompt,
+                system_message=system_message,
+                temperature=temperature,
+                max_tokens=max_out,
+            ):
+                if token_callback:
+                    token_callback(token)
+                yield token
+
+        except Exception as e:
+            logger.error(f"Failed to generate streaming RAG response: {e}")
             raise
 
     def _generate_rag_response_single(

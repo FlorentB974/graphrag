@@ -3,9 +3,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Build argument for API URL (must be set at build time for Next.js)
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# Build arguments for API configuration
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_USE_PROXY
+ARG BACKEND_URL
+
+# Set environment variables only if provided
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_USE_PROXY=$NEXT_PUBLIC_USE_PROXY
+ENV BACKEND_URL=$BACKEND_URL
 
 # Copy package files
 COPY frontend/package*.json ./
@@ -34,6 +40,10 @@ RUN npm ci --only=production
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/next.config.js ./
 COPY --from=builder /app/package.json ./
+
+# Runtime environment variables (can be overridden at container start)
+ENV NEXT_PUBLIC_USE_PROXY=true
+ENV BACKEND_URL=http://backend:8000
 
 # Create a non-root user for security
 RUN addgroup -g 1001 -S nodejs && \

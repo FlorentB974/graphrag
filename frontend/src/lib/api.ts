@@ -1,7 +1,30 @@
 import type { DocumentDetails, DocumentChunk, DocumentTextPayload } from '@/types'
 import type { ProcessingProgressResponse } from '@/types/upload'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Dynamically determine API URL for remote client support
+const getApiUrl = (): string => {
+  // Use Next.js proxy if enabled
+  if (process.env.NEXT_PUBLIC_USE_PROXY === 'true') {
+    return ''
+  }
+  
+  // Use explicit API URL if set
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL
+  }
+  
+  // Auto-detect from browser location
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol
+    const host = window.location.hostname
+    return `${protocol}//${host}:8000`
+  }
+  
+  // SSR fallback
+  return 'http://localhost:8000'
+}
+
+const API_URL = getApiUrl()
 
 // Default timeout values (in milliseconds)
 const DEFAULT_TIMEOUT = 30000 // 30 seconds for most operations
@@ -441,9 +464,8 @@ export const api = {
   async checkHealth(signal?: AbortSignal): Promise<boolean> {
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout (increased from 3s)
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
       
-      // If an external signal is provided, abort on either signal
       if (signal) {
         signal.addEventListener('abort', () => controller.abort())
       }
